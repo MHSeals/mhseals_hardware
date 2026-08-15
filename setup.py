@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'thruster_serial_node = '
             'mhseals_hardware.thruster_serial_node:main',
+            'boat_test = mhseals_hardware.boat_test:main',
         ],
     },
 )

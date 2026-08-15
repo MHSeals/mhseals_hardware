@@ -9,8 +9,8 @@ import time
 LED_PIN = Pin('LED', Pin.OUT)
 ESTOP_PIN = Pin(15, Pin.OUT)
 
-# Documented channel order: 1=front-left, 2=front-right,
-# 3=back-left, 4=back-right.
+# Standard physical output order: 1=front-left, 2=front-right,
+# 3=rear-right, 4=rear-left. ROS can remap nonstandard wiring before sending.
 THRUSTER_PINS = (11, 12, 13, 14)
 FREQUENCY = 50
 NEUTRAL_US = 1500
@@ -27,14 +27,14 @@ def pulse_width_to_duty(pulse_width):
 
 
 def set_thrusters(channels, pulse_widths):
-    """Apply one FL, FR, BL, BR command to the PWM channels."""
+    """Apply one physical-output command to the PWM channels."""
     for channel, pulse_width in zip(channels, pulse_widths):
         pulse_width = max(MIN_US, min(MAX_US, pulse_width))
         channel.duty_u16(pulse_width_to_duty(pulse_width))
 
 
 def parse_command(line):
-    """Parse a comma-separated FL,FR,BL,BR PWM command."""
+    """Parse four comma-separated physical-output PWM values."""
     values = [int(value.strip()) for value in line.split(',')]
     if len(values) != len(THRUSTER_PINS):
         raise ValueError('expected four PWM values')

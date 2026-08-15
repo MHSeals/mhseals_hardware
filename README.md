@@ -10,8 +10,8 @@ Commands and pins always use this order:
 | --- | --- | --- |
 | 1 | Front left (FL) | 11 |
 | 2 | Front right (FR) | 12 |
-| 3 | Back left (BL) | 13 |
-| 4 | Back right (BR) | 14 |
+| 3 | Rear right (RR) | 13 |
+| 4 | Rear left (RL) | 14 |
 
 GPIO 15 enables the ESC emergency-stop line. Each ESC uses 50 Hz PWM with
 1500 microseconds neutral and a permitted range of 1100--1900 microseconds.
@@ -38,8 +38,90 @@ ros2 run mhseals_hardware thruster_serial_node \
   --ros-args -p serial_port:=/dev/ttyACM0
 ```
 
-The node subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`) and uses
-`linear.x`, `linear.y`, and `angular.z` as surge, sway, and yaw. Mixer results
-are proportionally desaturated, converted to ESC pulse widths, and transmitted
-in FL, FR, BL, BR order. `baud_rate` (default 115200) and `command_timeout`
-(default 0.5 seconds) are ROS parameters.
+The node subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`) and uses the ROS
+body convention: `linear.x` is forward surge, `linear.y` is port/left sway,
+and `angular.z` is counterclockwise yaw viewed from above. Mixer results are
+proportionally desaturated and converted to ESC pulse widths.
+
+The normalized starting matrix has rows in FL, FR, RR, RL order and columns in
+surge, sway, yaw order:
+
+```text
+FL  -1  +1  +1
+FR  -1  -1  -1
+RR  +1  -1  +1
+RL  +1  +1  -1
+```
+
+This follows the 45-degree geometry and the installed polarity: positive local
+thrust on the front pair contributes aft force, while positive local thrust on
+the rear pair contributes forward force. Override the flattened row-major
+matrix with `thruster_matrix`. Use `channel_map` to map canonical FL,FR,RR,RL
+positions onto physical Pico outputs; for example `[2,4,1,3]` sends FL to
+output 2, FR to 4, RR to 1, and RL to 3.
+
+## Bagged boat test
+
+Only run the test with every thruster submerged, propellers and lines clear,
+an accessible emergency stop, and a second person watching the water. Build
+both packages and start the guided test:
+
+```bash
+colcon build --packages-select mhseals_hardware mhseals_nav
+source install/setup.bash
+ros2 run mhseals_hardware boat_test
+```
+
+The runner asks for the Pico device and MAVROS FCU URL, starts the existing
+real sensor and odometry launches, and records every topic to a timestamped
+directory under `bags/`. It checks for IMU and odometry, reports GPS, LiDAR,
+and camera availability, and refuses to compete with another `cmd_vel`
+publisher.
+
+If no `--channel-map` is supplied, the setup pulses each physical output at
+15 percent, asks which position moved, verifies polarity, and applies the
+result in software. Save the printed map for later runs:
+
+```bash
+ros2 run mhseals_hardware boat_test \
+  --serial-port /dev/ttyACM0 \
+  --fcu-url serial:///dev/ttyACM1:57600 \
+  --channel-map 2,4,1,3
+```
+
+The characterization menu runs three positive and three negative 25-percent,
+three-second trials per selected axis. It uses a balanced `+,-,-,+,+,-` order
+with five seconds of neutral data before and after each command. Before every
+trial it states the required clearance and expected movement:
+
+| Test | Positive direction | Negative direction | Required clearance |
+| --- | --- | --- | --- |
+| Surge | Forward | Reverse | Ahead or astern respectively |
+| Sway | Port/left | Starboard/right | On the commanded side |
+| Yaw | Counterclockwise | Clockwise | Full boat perimeter; loose lines |
+
+Test phases, matrix values, and channel mapping are recorded as JSON on
+`/thruster_test/events`. Ctrl+C commands neutral, stops hardware control,
+flushes the bag, and then stops the sensor stack. Confirm the result with:
+
+```bash
+ros2 bag info bags/thruster_characterization_YYYYMMDD_HHMMSS
+```
+
+## Hand tuning for reduced drift
+
+For each axis, use the five-second neutral windows to estimate environmental
+drift. Compare the three positive and three negative trials after subtracting
+that baseline, focusing on displacement and yaw outside the commanded axis.
+Adjust only that axis's column in `thruster_matrix`, normalize its largest
+absolute coefficient to 1.0, and repeat the same profile. Supply a candidate
+matrix as 12 comma-separated row-major values:
+
+```bash
+ros2 run mhseals_hardware boat_test \
+  --thruster-matrix=-1,1,1,-1,-1,-1,1,-1,1,1,1,-1
+```
+
+A single linear matrix may need to be a compromise because forward and reverse
+thrust differ. Direction-dependent compensation and automatic fitting are
+intentionally deferred until the collected boat data has been reviewed.
