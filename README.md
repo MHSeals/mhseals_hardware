@@ -115,8 +115,10 @@ The displayed numbering is fixed in canonical software order:
 ```
 
 If no `--channel-map` is supplied, the setup pulses each physical output at
-15 percent, asks which position moved, verifies polarity, and applies the
-result in software. Save the printed map for later runs:
+15 percent, uses an arrow/Enter selector to ask which position moved and
+whether its propeller appeared CW or CCW, verifies polarity, and applies the
+result in software. Rotation is recorded as viewed from the propeller toward
+the motor. Save the printed map for later runs:
 
 ```bash
 ros2 run mhseals_hardware boat_test \
@@ -129,7 +131,33 @@ The characterization menu runs three positive and three negative 25-percent,
 three-second trials per selected axis. It uses a balanced `+,-,-,+,+,-` order
 with five seconds of neutral data before and after each command. Before every
 trial it states the required clearance and expected movement. Select surge,
-sway, yaw, or all tests directly with keys `1`, `2`, `3`, or `4`:
+sway, yaw, or all tests with Up/Down and Enter, or directly with keys `1`,
+`2`, `3`, or `4`. Press `m` for deadman manual control. In manual mode W/S
+or Up/Down command surge, A/D commands sway, Left/Right command yaw, Space
+stops immediately, and X returns to test selection.
+
+### Manual control from the laptop container
+
+Run the hardware bridge on the Odroid with the correct Pico path and channel
+map. Do not run another `cmd_vel` publisher at the same time:
+
+```bash
+ros2 run mhseals_hardware thruster_serial_node --ros-args \
+  -p serial_port:=/dev/serial/by-id/usb-MicroPython_Board_in_FS_mode_DEVICE-if00 \
+  -p channel_map:='[1,2,3,4]'
+```
+
+Then, in the laptop container on the same ROS domain/network:
+
+```bash
+docker exec -it roboboat_dev bash
+source /workspaces/roboboat_ws/install/setup.bash  # adjust to the workspace
+ros2 run mhseals_hardware boat_manual
+```
+
+Confirm the laptop can see `/cmd_vel` and the Odroid ROS nodes with
+`ros2 node list`. Keyboard commands expire after 350 ms unless repeated, so
+losing focus or network input returns the published command to neutral.
 
 | Test | Positive direction | Negative direction | Required clearance |
 | --- | --- | --- | --- |

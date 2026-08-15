@@ -33,6 +33,8 @@ from mhseals_hardware.thruster_mixer import (
     validate_channel_map,
     validate_mixer,
 )
+from mhseals_hardware.keyboard import KeyReader
+from mhseals_hardware.manual_control import run_manual
 
 
 POSITIONS = ('fl', 'fr', 'rr', 'rl')
@@ -54,6 +56,8 @@ AXIS_GUIDANCE = {
     },
 }
 TEST_CHOICES = {'1': 'surge', '2': 'sway', '3': 'yaw'}
+MENU_CHOICES = ('surge', 'sway', 'yaw', 'all tests', 'manual control',
+                'refresh status', 'finish and save bag')
 SENSOR_SPECS = (
     ('odometry', '/odom/mavros', Odometry, True),
     ('GPS', '/gps/fix', NavSatFix, True),
@@ -88,6 +92,7 @@ class BoatTest:
             String, '/boat_test/events', 10)
         self.command_publisher = None
         self.channel_map = None
+        self.thruster_rotations = {}
         self.serial_connection = None
         self.matrix = validate_mixer(args.thruster_matrix)
         self.last_messages = {name: None for name, _, _, _ in SENSOR_SPECS}
@@ -228,38 +233,46 @@ class BoatTest:
         table.add_column('Number')
         table.add_column('Location')
         table.add_column('Physical output')
+        table.add_column('Prop rotation')
         table.add_column('Positive local thrust')
         mapping = self.channel_map or ('?', '?', '?', '?')
         for position, channel in zip(POSITIONS, mapping):
             local = 'aft (pushes boat astern)' if position[0] == 'f' \
                 else 'forward (pushes boat ahead)'
+            rotation = self.thruster_rotations.get(position, '?')
             table.add_row(str(THRUSTER_NUMBERS[position]),
-                          POSITION_NAMES[position], str(channel), local)
+                          POSITION_NAMES[position], str(channel), rotation,
+                          local)
         return Group(Panel('1 (FL) ───── 2 (FR)\n   │           │\n4 (RL) ───── 3 (RR)',
                            title='Numbering', expand=False), table)
 
-    def test_table(self):
+    def test_table(self, selected=0):
         table = Table(
             title='Select a characterization test by number', expand=True)
         table.add_column('Key', justify='center')
         table.add_column('Test')
         table.add_column('State')
-        for key, axis in TEST_CHOICES.items():
+        for index, (key, axis) in enumerate(TEST_CHOICES.items()):
             if self.active_test == axis:
                 state = '[yellow]● RUNNING[/]'
             elif self.completed[axis]:
                 state = f'[green]● RAN ({self.completed[axis]} set(s))[/]'
             else:
                 state = '[dim]○ NOT RUN[/]'
-            table.add_row(key, axis, state)
-        table.add_row('4', 'all tests', '')
-        table.add_row('s', 'refresh status', '')
-        table.add_row('q', 'finish and save bag', '')
+            marker = '[bold cyan]›[/]' if selected == index else ' '
+            table.add_row(f'{marker} {key}', axis, state)
+        extra = (('4', 'all tests'), ('m', 'manual control'),
+                 ('s', 'refresh status'), ('q', 'finish and save bag'))
+        for offset, (key, label) in enumerate(extra, start=3):
+            marker = '[bold cyan]›[/]' if selected == offset else ' '
+            table.add_row(f'{marker} {key}', label, '')
+        table.caption = ('↑/↓ select  •  Enter run  •  '
+                         '1-4 direct test  •  M manual  •  Q finish')
         return table
 
-    def dashboard(self):
+    def dashboard(self, selected=0):
         return Group(self.process_table(), self.sensor_table(),
-                     self.thruster_table(), self.test_table())
+                     self.thruster_table(), self.test_table(selected))
 
     def wait_for_measurements(self):
         deadline = time.monotonic() + self.args.sensor_timeout
@@ -310,6 +323,34 @@ class BoatTest:
                 break
             time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
 
+    def select_option(self, title, options, shortcuts=None):
+        """Select an option with arrows/Enter or an explicit shortcut."""
+        selected = 0
+        shortcuts = shortcuts or {}
+
+        def render():
+            rows = []
+            for index, option in enumerate(options):
+                marker = '[bold cyan]›[/]' if index == selected else ' '
+                rows.append(f'{marker} {option}')
+            rows.append('\n[dim]↑/↓ select  •  Enter confirm[/]')
+            return Panel('\n'.join(rows), title=title, expand=False)
+
+        with KeyReader() as keys, Live(
+                render(), console=self.console,
+                refresh_per_second=10) as live:
+            while True:
+                key = keys.read(timeout=0.1)
+                if key == 'up':
+                    selected = (selected - 1) % len(options)
+                elif key == 'down':
+                    selected = (selected + 1) % len(options)
+                elif key == 'enter':
+                    return options[selected]
+                elif key in shortcuts:
+                    return options[shortcuts[key]]
+                live.update(render())
+
     def identify_thrusters(self):
         self.console.print(Panel(
             'Boat secured; all propellers clear and submerged.\n'
@@ -330,20 +371,28 @@ class BoatTest:
                 self.send_serial(values, 0.75)
                 self.send_serial([NEUTRAL_PWM] * 4, 0.5)
                 self.emit('identification_stop', physical_channel=channel)
-                while True:
-                    position = self.console.input(
-                        'Which moved? [fl/fr/rr/rl] ').strip().lower()
-                    if position in POSITIONS and position not in used:
-                        break
-                    self.console.print('[red]Enter one unused position.[/]')
+                choices = tuple(position for position in POSITIONS
+                                if position not in used)
+                position = self.select_option(
+                    'Which thruster moved?', choices,
+                    {str(index + 1): index
+                     for index in range(len(choices))})
+                rotation = self.select_option(
+                    'Prop rotation (viewed from propeller toward motor)',
+                    ('CCW', 'CW'), {'c': 0, 'w': 1})
                 expected = 'aft' if position.startswith('f') else 'forward'
-                answer = self.console.input(
-                    f'Did its positive local thrust point {expected}? [y/N] ')
-                if answer.strip().lower() != 'y':
+                answer = self.select_option(
+                    f'Did positive local thrust point {expected}?',
+                    ('yes', 'no'), {'y': 0, 'n': 1})
+                if answer != 'yes':
                     raise RuntimeError(
                         f'{POSITION_NAMES[position]} polarity is reversed')
                 observations[channel] = position
                 used.add(position)
+                self.thruster_rotations[position] = rotation
+                self.emit('identification_result', physical_channel=channel,
+                          position=position, rotation=rotation,
+                          rotation_view='from propeller toward motor')
         finally:
             if self.serial_connection is not None:
                 try:
@@ -370,6 +419,7 @@ class BoatTest:
         self.command_publisher = self.node.create_publisher(Twist, '/cmd_vel', 10)
         self.emit('configuration', channel_map=self.channel_map,
                   thruster_numbers=THRUSTER_NUMBERS,
+                  thruster_rotations=self.thruster_rotations,
                   thruster_matrix=flat_matrix,
                   convention='+x forward, +y port, +yaw counterclockwise')
 
@@ -432,19 +482,43 @@ class BoatTest:
             self.publish_command(duration=0.5)
             self.active_test = None
 
+    def select_test(self):
+        """Select a test from the live dashboard with arrows or shortcuts."""
+        selected = 0
+        shortcuts = {
+            '1': 0, '2': 1, '3': 2, '4': 3,
+            'm': 4, 's': 5, 'q': 6,
+        }
+        with KeyReader() as keys, Live(
+                self.dashboard(selected), console=self.console,
+                refresh_per_second=8) as live:
+            while True:
+                key = keys.read(timeout=0.1)
+                if key == 'up':
+                    selected = (selected - 1) % len(MENU_CHOICES)
+                elif key == 'down':
+                    selected = (selected + 1) % len(MENU_CHOICES)
+                elif key == 'enter':
+                    return MENU_CHOICES[selected]
+                elif key in shortcuts:
+                    return MENU_CHOICES[shortcuts[key]]
+                live.update(self.dashboard(selected))
+
     def characterize(self):
         while True:
-            self.console.print(self.dashboard())
-            choice = self.console.input(
-                '[bold]Select test [1/2/3/4, s=status, q=quit]:[/] '
-            ).strip().lower()
-            if choice in ('q', 'quit'):
+            choice = self.select_test()
+            if choice == 'finish and save bag':
                 return
-            if choice in ('s', 'status'):
+            if choice == 'refresh status':
                 continue
-            choice = TEST_CHOICES.get(choice, choice)
-            axes = (tuple(AXIS_GUIDANCE)
-                    if choice in ('4', 'all') else (choice,))
+            if choice == 'manual control':
+                self.emit('manual_control_start')
+                run_manual(self.command_publisher, self.console,
+                           self.args.manual_amplitude)
+                self.emit('manual_control_stop')
+                continue
+            axes = (tuple(AXIS_GUIDANCE) if choice == 'all tests'
+                    else (choice,))
             if any(axis not in AXIS_GUIDANCE for axis in axes):
                 self.console.print('[red]Unknown selection.[/]')
                 continue
@@ -526,6 +600,7 @@ def build_parser():
     parser.add_argument('--sensor-timeout', type=float, default=30.0)
     parser.add_argument('--stale-after', type=float, default=2.0)
     parser.add_argument('--amplitude', type=float, default=0.25)
+    parser.add_argument('--manual-amplitude', type=float, default=0.25)
     parser.add_argument('--baseline-duration', type=float, default=5.0)
     parser.add_argument('--command-duration', type=float, default=3.0)
     parser.add_argument('--settle-duration', type=float, default=5.0)
