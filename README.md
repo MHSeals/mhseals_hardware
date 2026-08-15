@@ -72,11 +72,22 @@ source install/setup.bash
 ros2 run mhseals_hardware boat_test
 ```
 
-The runner asks for the Pico device and MAVROS FCU URL, starts the existing
-real sensor and odometry launches, and records every topic to a timestamped
-directory under `bags/`. It checks for IMU and odometry, reports GPS, LiDAR,
-and camera availability, and refuses to compete with another `cmd_vel`
+The runner asks for the Pico device and MAVROS FCU URL, starts a minimal
+MAVROS measurement launch, and records every topic to a timestamped directory
+under `bags/`. Its live terminal dashboard checks actual message arrival for
+odometry, GPS, and IMU, and keeps status indicators for optional LiDAR and
+camera data. Optional drivers are not started unless `--optional-sensors` is
+given, so a missing ZED or Velodyne installation cannot prevent the first
+boat test. The runner also refuses to compete with another `cmd_vel`
 publisher.
+
+The displayed numbering is fixed in canonical software order:
+
+```text
+1 (FL) ---- 2 (FR)
+   |          |
+4 (RL) ---- 3 (RR)
+```
 
 If no `--channel-map` is supplied, the setup pulses each physical output at
 15 percent, asks which position moved, verifies polarity, and applies the
@@ -100,12 +111,12 @@ trial it states the required clearance and expected movement:
 | Sway | Port/left | Starboard/right | On the commanded side |
 | Yaw | Counterclockwise | Clockwise | Full boat perimeter; loose lines |
 
-Test phases, matrix values, and channel mapping are recorded as JSON on
-`/thruster_test/events`. Ctrl+C commands neutral, stops hardware control,
+Test phases, completion markers, matrix values, and channel mapping are
+recorded as JSON on `/boat_test/events`. Ctrl+C commands neutral, stops hardware control,
 flushes the bag, and then stops the sensor stack. Confirm the result with:
 
 ```bash
-ros2 bag info bags/thruster_characterization_YYYYMMDD_HHMMSS
+ros2 bag info bags/boat_test_YYYYMMDD_HHMMSS
 ```
 
 ## Hand tuning for reduced drift

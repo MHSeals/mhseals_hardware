@@ -7,59 +7,10 @@ import rclpy
 from rclpy.node import Node
 import serial
 
-
-NEUTRAL_PWM = 1500
-PWM_SCALE = 400
-MIN_PWM = 1100
-MAX_PWM = 1900
-
-# Rows are FL, FR, RR, and RL. Columns are ROS-frame surge (+forward), sway
-# (+left), and yaw (+counterclockwise). Positive local thrust points aft on
-# the front pair and forward on the rear pair.
-THRUSTER_MIXER = (
-    (-1.0, 1.0, 1.0),
-    (-1.0, -1.0, -1.0),
-    (1.0, -1.0, 1.0),
-    (1.0, 1.0, -1.0),
+from mhseals_hardware.thruster_mixer import (
+    MAX_PWM, MIN_PWM, NEUTRAL_PWM, PWM_SCALE, THRUSTER_MIXER,
+    map_channels, mix_thrusters, validate_channel_map, validate_mixer,
 )
-
-
-def validate_mixer(values):
-    """Return a four-row mixer from a flat, finite 12-value sequence."""
-    if len(values) != 12:
-        raise ValueError('thruster_matrix must contain exactly 12 values')
-    values = tuple(float(value) for value in values)
-    if not all(value == value and abs(value) != float('inf')
-               for value in values):
-        raise ValueError('thruster_matrix values must be finite')
-    return tuple(tuple(values[index:index + 3])
-                 for index in range(0, 12, 3))
-
-
-def validate_channel_map(values):
-    """Validate canonical-to-physical output numbers."""
-    channels = tuple(int(value) for value in values)
-    if len(channels) != 4 or sorted(channels) != [1, 2, 3, 4]:
-        raise ValueError('channel_map must be a permutation of [1, 2, 3, 4]')
-    return channels
-
-
-def map_channels(values, channel_map):
-    """Map canonical FL,FR,RR,RL values onto four physical Pico outputs."""
-    mapped = [None] * 4
-    for value, physical_channel in zip(values, channel_map):
-        mapped[physical_channel - 1] = value
-    return mapped
-
-
-def mix_thrusters(surge, sway, yaw, mixer=THRUSTER_MIXER):
-    """Return normalized, desaturated outputs in FL, FR, RR, RL order."""
-    commands = [
-        row[0] * surge + row[1] * sway + row[2] * yaw
-        for row in mixer
-    ]
-    peak = max(1.0, *(abs(command) for command in commands))
-    return [command / peak for command in commands]
 
 
 class ThrusterSerialNode(Node):

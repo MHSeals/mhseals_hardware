@@ -12,7 +12,7 @@ setup(
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools', 'pyserial'],
+    install_requires=['setuptools', 'pyserial', 'rich'],
     zip_safe=True,
     author='MHS Seals',
     description='Pico serial thruster control for the MHS Seals boat',

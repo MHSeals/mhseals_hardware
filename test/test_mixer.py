@@ -2,8 +2,8 @@
 
 import pytest
 
-from mhseals_hardware.boat_test import channel_map_from_observations
-from mhseals_hardware.thruster_serial_node import (
+from mhseals_hardware.thruster_mixer import (
+    channel_map_from_observations,
     map_channels,
     mix_thrusters,
     validate_channel_map,
