@@ -130,7 +130,12 @@ class BoatTest:
 
     def start_process(self, name, command):
         """Start a child, logging its output so it cannot corrupt the TUI."""
-        popen_options = {'start_new_session': True}
+        # rosbag has interactive keyboard controls. Giving every child
+        # /dev/null prevents it from consuming the TUI's input stream.
+        popen_options = {
+            'start_new_session': True,
+            'stdin': subprocess.DEVNULL,
+        }
         if not self.args.show_process_output:
             self.log_directory.mkdir(parents=True, exist_ok=True)
             log_path = self.log_directory / f'{name}.log'
@@ -259,9 +264,20 @@ class BoatTest:
                 time.sleep(0.25)
         missing = [name for name, _, _, required in SENSOR_SPECS
                    if required and self.sensor_state(name)[0] != 'READY']
-        answer = self.console.input(
-            f'[red]Required live data missing: {", ".join(missing)}.[/] '
-            'Continue without complete characterization data? [y/N] ')
+        if self.args.allow_missing_sensors:
+            self.console.print(
+                '[yellow]Continuing without required data because '
+                '--allow-missing-sensors was supplied.[/]')
+            return
+        try:
+            answer = self.console.input(
+                f'[red]Required live data missing: {", ".join(missing)}.[/] '
+                'Continue without complete characterization data? [y/N] ')
+        except EOFError as error:
+            raise RuntimeError(
+                'terminal input closed during sensor preflight; rerun from '
+                'an interactive terminal or pass --allow-missing-sensors '
+                'for a thruster-only test') from error
         if answer.strip().lower() != 'y':
             raise RuntimeError('required sensor preflight was not accepted')
 
@@ -484,6 +500,9 @@ def build_parser():
     parser.add_argument('--baud-rate', type=int, default=115200)
     parser.add_argument('--optional-sensors', action='store_true',
                         help='also launch camera and LiDAR drivers')
+    parser.add_argument(
+        '--allow-missing-sensors', action='store_true',
+        help='continue to thruster tests when required sensor data is missing')
     parser.add_argument(
         '--show-process-output', action='store_true',
         help='show raw child-process output instead of logging it')

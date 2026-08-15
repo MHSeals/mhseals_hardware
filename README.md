@@ -101,6 +101,11 @@ kept out of the TUI and written under `bags/logs/<test-name>/`. Their running
 or exited state appears in the dashboard. Use `--show-process-output` only
 when raw ROS output is needed for troubleshooting.
 
+For a secured thruster-only bring-up when the FCU is intentionally absent,
+use `--allow-missing-sensors`. The bag and sensor indicators remain active,
+but missing measurement data will not block the identification and
+characterization menus.
+
 The displayed numbering is fixed in canonical software order:
 
 ```text
