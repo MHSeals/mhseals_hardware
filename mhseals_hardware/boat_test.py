@@ -79,6 +79,17 @@ def parse_float_list(text):
     return tuple(float(value.strip()) for value in text.split(','))
 
 
+def validate_pyserial():
+    """Reject the unrelated PyPI ``serial`` package with a useful message."""
+    if hasattr(serial, 'Serial'):
+        return
+    location = getattr(serial, '__file__', 'unknown location')
+    raise RuntimeError(
+        'PySerial is not installed correctly. Python imported the unrelated '
+        f'"serial" package from {location}. Remove package "serial" and '
+        'install "pyserial==3.5" before running the boat test.')
+
+
 class BoatTest:
     """Own the ROS status monitor, child processes, TUI, and safe shutdown."""
 
@@ -630,6 +641,7 @@ def build_parser():
 
 
 def main(args=None):
+    validate_pyserial()
     parsed = build_parser().parse_args(args)
     prompt_hardware(parsed)
     parsed.thruster_matrix = tuple(

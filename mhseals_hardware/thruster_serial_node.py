@@ -18,6 +18,11 @@ class ThrusterSerialNode(Node):
 
     def __init__(self):
         super().__init__('thruster_serial_node')
+        if not hasattr(serial, 'Serial'):
+            raise RuntimeError(
+                'PySerial is required, but Python imported the unrelated '
+                f'"serial" package from {getattr(serial, "__file__", "?")}. '
+                'Uninstall "serial" and install "pyserial==3.5".')
         self.declare_parameter('serial_port', '/dev/ttyACM0')
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('command_timeout', 0.5)
