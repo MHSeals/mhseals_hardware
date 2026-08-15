@@ -53,6 +53,7 @@ AXIS_GUIDANCE = {
         -1: ('around the boat', 'rotate clockwise in place'),
     },
 }
+TEST_CHOICES = {'1': 'surge', '2': 'sway', '3': 'yaw'}
 SENSOR_SPECS = (
     ('odometry', '/odom/mavros', Odometry, True),
     ('GPS', '/gps/fix', NavSatFix, True),
@@ -183,19 +184,24 @@ class BoatTest:
         self.wait_for_measurements()
 
     def sensor_table(self):
-        table = Table(title='Live sensor data', expand=True)
+        table = Table(
+            title='Live sensor data  [green]●[/] ready  '
+                  '[yellow]●[/] stale  [red]●[/] missing',
+            expand=True)
         table.add_column('Sensor')
         table.add_column('Topic')
         table.add_column('Required')
-        table.add_column('Status')
+        table.add_column('●', justify='center', width=3)
+        table.add_column('Age', justify='right')
         table.add_column('Messages', justify='right')
         now = time.monotonic()
         for name, topic, _, required in SENSOR_SPECS:
             state, age = self.sensor_state(name, now)
             color = {'READY': 'green', 'STALE': 'yellow', 'MISSING': 'red'}[state]
-            detail = state if age is None else f'{state} ({age:.1f}s ago)'
+            age_text = '-' if age is None else f'{age:.1f}s'
             table.add_row(name, topic, 'yes' if required else 'optional',
-                          f'[{color}]{detail}[/]', str(self.message_counts[name]))
+                          f'[{color}]●[/]', age_text,
+                          str(self.message_counts[name]))
         return table
 
     def process_table(self):
@@ -233,17 +239,22 @@ class BoatTest:
                            title='Numbering', expand=False), table)
 
     def test_table(self):
-        table = Table(title='Characterization runs', expand=True)
+        table = Table(
+            title='Select a characterization test by number', expand=True)
+        table.add_column('Key', justify='center')
         table.add_column('Test')
         table.add_column('State')
-        for axis in AXIS_GUIDANCE:
+        for key, axis in TEST_CHOICES.items():
             if self.active_test == axis:
-                state = '[yellow]RUNNING[/]'
+                state = '[yellow]● RUNNING[/]'
             elif self.completed[axis]:
-                state = f'[green]RAN ({self.completed[axis]} set(s))[/]'
+                state = f'[green]● RAN ({self.completed[axis]} set(s))[/]'
             else:
-                state = '[dim]NOT RUN[/]'
-            table.add_row(axis, state)
+                state = '[dim]○ NOT RUN[/]'
+            table.add_row(key, axis, state)
+        table.add_row('4', 'all tests', '')
+        table.add_row('s', 'refresh status', '')
+        table.add_row('q', 'finish and save bag', '')
         return table
 
     def dashboard(self):
@@ -425,13 +436,15 @@ class BoatTest:
         while True:
             self.console.print(self.dashboard())
             choice = self.console.input(
-                '[bold]Select [all/surge/sway/yaw/status/quit]:[/] '
+                '[bold]Select test [1/2/3/4, s=status, q=quit]:[/] '
             ).strip().lower()
-            if choice == 'quit':
+            if choice in ('q', 'quit'):
                 return
-            if choice == 'status':
+            if choice in ('s', 'status'):
                 continue
-            axes = tuple(AXIS_GUIDANCE) if choice == 'all' else (choice,)
+            choice = TEST_CHOICES.get(choice, choice)
+            axes = (tuple(AXIS_GUIDANCE)
+                    if choice in ('4', 'all') else (choice,))
             if any(axis not in AXIS_GUIDANCE for axis in axes):
                 self.console.print('[red]Unknown selection.[/]')
                 continue

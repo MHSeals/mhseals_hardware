@@ -128,7 +128,8 @@ ros2 run mhseals_hardware boat_test \
 The characterization menu runs three positive and three negative 25-percent,
 three-second trials per selected axis. It uses a balanced `+,-,-,+,+,-` order
 with five seconds of neutral data before and after each command. Before every
-trial it states the required clearance and expected movement:
+trial it states the required clearance and expected movement. Select surge,
+sway, yaw, or all tests directly with keys `1`, `2`, `3`, or `4`:
 
 | Test | Positive direction | Negative direction | Required clearance |
 | --- | --- | --- | --- |
