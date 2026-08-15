@@ -61,7 +61,12 @@ def main():
         while True:
             if poller.poll(10):
                 try:
-                    command = parse_command(sys.stdin.readline().strip())
+                    line = sys.stdin.readline()
+                    # mpremote uses Ctrl-C to interrupt main.py before file
+                    # operations. Do not swallow it as a malformed command.
+                    if '\x03' in line:
+                        raise KeyboardInterrupt
+                    command = parse_command(line.strip())
                     set_thrusters(channels, command)
                     last_command = time.ticks_ms()
                 except (ValueError, TypeError):
