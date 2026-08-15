@@ -27,6 +27,21 @@ newline-delimited ASCII command at a time over USB serial:
 
 Malformed input or 500 ms without a command returns every thruster to neutral.
 
+From the Odroid, the repository helper detects the MicroPython USB device,
+creates a local `mpremote` environment on first use, uploads the controller as
+`main.py`, and resets the Pico:
+
+```bash
+cd ~/astro_dock/src/mhseals_hardware
+./scripts/flash_pico.sh --check
+./scripts/flash_pico.sh
+```
+
+Detection prefers the stable `/dev/serial/by-id/*MicroPython*` link. When more
+than one serial device is connected, select it explicitly with `--port`.
+Keep the boat secured and thrusters clear and submerged before flashing:
+resetting the Pico starts `main.py` and enables the ESC control line.
+
 ## ROS 2
 
 Build and run the node from the workspace:
