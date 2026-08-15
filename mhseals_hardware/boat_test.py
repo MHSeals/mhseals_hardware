@@ -607,6 +607,12 @@ def prompt_hardware(args):
         fcu_device = args.fcu_url[len('serial://'):].rsplit(':', 1)[0]
         if Path(fcu_device).resolve() == Path(args.serial_port).resolve():
             raise ValueError('Pico and FCU must use different serial devices')
+    if not os.access(args.serial_port, os.R_OK | os.W_OK):
+        raise PermissionError(
+            f'No read/write access to Pico device {args.serial_port}. '
+            'Fix host device permissions before starting the sensor stack; '
+            'for the project devcontainer run '
+            '`.devcontainer/install-serial-udev.sh` on the host.')
 
 
 def build_parser():
