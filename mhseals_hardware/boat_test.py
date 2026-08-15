@@ -58,6 +58,8 @@ AXIS_GUIDANCE = {
 TEST_CHOICES = {'1': 'surge', '2': 'sway', '3': 'yaw'}
 MENU_CHOICES = ('surge', 'sway', 'yaw', 'all tests', 'manual control',
                 'refresh status', 'finish and save bag')
+PREFLIGHT_CHOICES = ('keep waiting', 'continue without sensor data',
+                     'cancel test')
 SENSOR_SPECS = (
     ('odometry', '/odom/mavros', Odometry, True),
     ('GPS', '/gps/fix', NavSatFix, True),
@@ -270,40 +272,57 @@ class BoatTest:
                          '1-4 direct test  •  M manual  •  Q finish')
         return table
 
-    def dashboard(self, selected=0):
+    def preflight_panel(self, selected=0, timed_out=False):
+        """Render controls that are active while measurements start."""
+        rows = []
+        for index, choice in enumerate(PREFLIGHT_CHOICES):
+            marker = '[bold cyan]›[/]' if selected == index else ' '
+            rows.append(f'{marker} {choice}')
+        state = ('[yellow]Sensor wait timed out.[/]'
+                 if timed_out else '[dim]Waiting for required live data…[/]')
+        rows.extend(('', state, '[dim]↑/↓ select  •  Enter confirm  •  '
+                    'W wait  •  C continue  •  Q cancel[/]'))
+        return Panel('\n'.join(rows), title='Sensor preflight')
+
+    def dashboard(self, selected=0, preflight=False, timed_out=False):
+        selector = (self.preflight_panel(selected, timed_out)
+                    if preflight else self.test_table(selected))
         return Group(self.process_table(), self.sensor_table(),
-                     self.thruster_table(), self.test_table(selected))
+                     self.thruster_table(), selector)
 
     def wait_for_measurements(self):
         deadline = time.monotonic() + self.args.sensor_timeout
-        with Live(self.dashboard(), console=self.console,
-                  refresh_per_second=4) as live:
-            while time.monotonic() < deadline:
-                live.update(self.dashboard())
+        selected = 0
+        shortcuts = {'w': 0, 'c': 1, 'q': 2}
+        with KeyReader() as keys, Live(
+                self.dashboard(preflight=True), console=self.console,
+                refresh_per_second=8) as live:
+            while True:
                 if all(self.sensor_state(name)[0] == 'READY'
                        for name, _, _, required in SENSOR_SPECS if required):
                     return
                 if any(process.poll() is not None for process in self.processes.values()):
-                    break
-                time.sleep(0.25)
-        missing = [name for name, _, _, required in SENSOR_SPECS
-                   if required and self.sensor_state(name)[0] != 'READY']
-        if self.args.allow_missing_sensors:
-            self.console.print(
-                '[yellow]Continuing without required data because '
-                '--allow-missing-sensors was supplied.[/]')
-            return
-        try:
-            answer = self.console.input(
-                f'[red]Required live data missing: {", ".join(missing)}.[/] '
-                'Continue without complete characterization data? [y/N] ')
-        except EOFError as error:
-            raise RuntimeError(
-                'terminal input closed during sensor preflight; rerun from '
-                'an interactive terminal or pass --allow-missing-sensors '
-                'for a thruster-only test') from error
-        if answer.strip().lower() != 'y':
-            raise RuntimeError('required sensor preflight was not accepted')
+                    deadline = min(deadline, time.monotonic())
+                if self.args.allow_missing_sensors:
+                    return
+                key = keys.read(timeout=0.1)
+                if key == 'up':
+                    selected = (selected - 1) % len(PREFLIGHT_CHOICES)
+                elif key == 'down':
+                    selected = (selected + 1) % len(PREFLIGHT_CHOICES)
+                elif key in shortcuts:
+                    selected = shortcuts[key]
+                    key = 'enter'
+                if key == 'enter':
+                    choice = PREFLIGHT_CHOICES[selected]
+                    if choice == 'continue without sensor data':
+                        return
+                    if choice == 'cancel test':
+                        raise RuntimeError('sensor preflight cancelled')
+                    deadline = time.monotonic() + self.args.sensor_timeout
+                timed_out = time.monotonic() >= deadline
+                live.update(self.dashboard(
+                    selected, preflight=True, timed_out=timed_out))
 
     def check_command_topic(self):
         publishers = [info for info in
