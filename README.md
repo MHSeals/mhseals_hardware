@@ -96,6 +96,11 @@ given, so a missing ZED or Velodyne installation cannot prevent the first
 boat test. The runner also refuses to compete with another `cmd_vel`
 publisher.
 
+Output from MAVROS, optional sensor drivers, rosbag, and the thruster node is
+kept out of the TUI and written under `bags/logs/<test-name>/`. Their running
+or exited state appears in the dashboard. Use `--show-process-output` only
+when raw ROS output is needed for troubleshooting.
+
 The displayed numbering is fixed in canonical software order:
 
 ```text

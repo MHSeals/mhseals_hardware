@@ -79,6 +79,9 @@ class BoatTest:
         self.args = args
         self.console = Console()
         self.processes = {}
+        self.process_logs = {}
+        self.log_directory = (
+            args.bag_output.parent / 'logs' / args.bag_output.name)
         self.node = Node('boat_test')
         self.event_publisher = self.node.create_publisher(
             String, '/boat_test/events', 10)
@@ -126,25 +129,36 @@ class BoatTest:
         self.event_publisher.publish(message)
 
     def start_process(self, name, command):
-        self.console.print(f'[dim]Starting {name}: {" ".join(command)}[/]')
-        process = subprocess.Popen(command, start_new_session=True)
+        """Start a child, logging its output so it cannot corrupt the TUI."""
+        popen_options = {'start_new_session': True}
+        if not self.args.show_process_output:
+            self.log_directory.mkdir(parents=True, exist_ok=True)
+            log_path = self.log_directory / f'{name}.log'
+            log_file = log_path.open('w', encoding='utf-8')
+            self.process_logs[name] = log_file
+            popen_options.update(stdout=log_file, stderr=subprocess.STDOUT)
+        process = subprocess.Popen(command, **popen_options)
         self.processes[name] = process
         return process
 
     def stop_process(self, name, timeout=10):
         process = self.processes.get(name)
-        if process is None or process.poll() is not None:
+        if process is None:
             return
-        os.killpg(process.pid, signal.SIGINT)
-        try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGTERM)
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGINT)
             try:
-                process.wait(timeout=3)
+                process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+                os.killpg(process.pid, signal.SIGTERM)
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+        log_file = self.process_logs.pop(name, None)
+        if log_file is not None:
+            log_file.close()
 
     def start_measurement_stack(self):
         """Start minimal MAVROS, optional sensors if requested, then rosbag."""
@@ -179,6 +193,25 @@ class BoatTest:
                           f'[{color}]{detail}[/]', str(self.message_counts[name]))
         return table
 
+    def process_table(self):
+        """Represent background ROS processes without displaying their output."""
+        table = Table(title='Background processes', expand=True)
+        table.add_column('Process')
+        table.add_column('Status')
+        table.add_column('Diagnostic log')
+        for name, process in self.processes.items():
+            return_code = process.poll()
+            if return_code is None:
+                status = '[green]RUNNING[/]'
+            elif return_code == 0:
+                status = '[dim]STOPPED[/]'
+            else:
+                status = f'[red]EXITED ({return_code})[/]'
+            log_path = self.log_directory / f'{name}.log'
+            log = '-' if self.args.show_process_output else str(log_path)
+            table.add_row(name, status, log)
+        return table
+
     def thruster_table(self):
         table = Table(title='Thruster configuration: bow is at the top', expand=True)
         table.add_column('Number')
@@ -209,7 +242,8 @@ class BoatTest:
         return table
 
     def dashboard(self):
-        return Group(self.sensor_table(), self.thruster_table(), self.test_table())
+        return Group(self.process_table(), self.sensor_table(),
+                     self.thruster_table(), self.test_table())
 
     def wait_for_measurements(self):
         deadline = time.monotonic() + self.args.sensor_timeout
@@ -450,6 +484,9 @@ def build_parser():
     parser.add_argument('--baud-rate', type=int, default=115200)
     parser.add_argument('--optional-sensors', action='store_true',
                         help='also launch camera and LiDAR drivers')
+    parser.add_argument(
+        '--show-process-output', action='store_true',
+        help='show raw child-process output instead of logging it')
     parser.add_argument('--channel-map', type=parse_int_list,
                         help='canonical-to-physical FL,FR,RR,RL map')
     parser.add_argument('--thruster-matrix', type=parse_float_list,
