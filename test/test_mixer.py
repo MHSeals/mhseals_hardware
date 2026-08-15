@@ -2,6 +2,7 @@
 
 import pytest
 
+from mhseals_hardware.keyboard import decode_key
 from mhseals_hardware.thruster_mixer import (
     channel_map_from_observations,
     map_channels,
@@ -55,3 +56,14 @@ def test_invalid_channel_map_is_rejected(values):
 def test_invalid_matrix_is_rejected(values):
     with pytest.raises(ValueError):
         validate_mixer(values)
+
+
+@pytest.mark.parametrize(('sequence', 'expected'), (
+    (b'\x1b[A', 'up'),
+    (b'\x1bOB', 'down'),
+    (b'\x1b[C', 'right'),
+    (b'\r', 'enter'),
+    (b'1', '1'),
+))
+def test_terminal_keys_are_decoded(sequence, expected):
+    assert decode_key(sequence) == expected
