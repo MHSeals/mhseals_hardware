@@ -187,8 +187,9 @@ class OdroidPWMOutputs:
         opened = []
         try:
             for channel in self.channels:
-                channel.open().configure(self.frequency_hz, self.neutral_us)
+                channel.open()
                 opened.append(channel)
+                channel.configure(self.frequency_hz, self.neutral_us)
             if self.mosfet is not None:
                 self.mosfet.open()
                 self.mosfet.set_enabled(True)
@@ -196,7 +197,10 @@ class OdroidPWMOutputs:
             if self.mosfet is not None:
                 self.mosfet.close()
             for channel in opened:
-                channel.close()
+                try:
+                    channel.close()
+                except Exception:
+                    pass
             raise
         return self
 
@@ -219,10 +223,20 @@ class OdroidPWMOutputs:
         self.set_pulse_widths([self.neutral_us] * 4)
 
     def close(self):
+        first_error = None
         if self.mosfet is not None:
-            self.mosfet.close()
+            try:
+                self.mosfet.close()
+            except Exception as error:
+                first_error = error
         for channel in self.channels:
             try:
                 channel.set_pulse_width(self.neutral_us)
-            finally:
+            except Exception as error:
+                first_error = first_error or error
+            try:
                 channel.close()
+            except Exception as error:
+                first_error = first_error or error
+        if first_error is not None:
+            raise first_error

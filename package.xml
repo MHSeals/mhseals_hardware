@@ -3,7 +3,7 @@
 <package format="3">
   <name>mhseals_hardware</name>
   <version>0.0.0</version>
-  <description>Native Odroid PWM and Pico thruster control for the MHS Seals boat</description>
+  <description>Native ODROID-M2 PWM thruster control for the MHS Seals boat</description>
   <maintainer email="lunarzDev@outlook.com">MHS Seals</maintainer>
   <license>GPL-3.0</license>
 
@@ -12,7 +12,6 @@
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
   <exec_depend>mhseals_nav</exec_depend>
-  <exec_depend>python3-serial</exec_depend>
   <exec_depend>python3-rich</exec_depend>
   <exec_depend>python3-gpiod</exec_depend>
   <exec_depend>rclpy</exec_depend>

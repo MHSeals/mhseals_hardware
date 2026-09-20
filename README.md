@@ -1,131 +1,105 @@
-# mhseals_hardware
+# MHS Seals hardware
 
-ROS 2 thruster control using the ODROID-M2's native hardware PWM. The Pico
-serial implementation remains available for older wiring, but the primary
-`thruster_pwm_node`, boat test, manual controller, and live thruster test do
-not use a Pico or serial link.
+ROS 2 control for four bidirectional thrusters connected directly to the
+ODROID-M2 hardware PWM controllers. There is no intermediary microcontroller
+or serial transport.
 
-## ODROID-M2 native PWM
+## Hardware
 
-Wire the four ESC signal leads, in FL, FR, RR, RL order, to the four
-lowest-numbered header GPIO pins that have been configured for hardware PWM.
-Do not confuse a physical header number with a Linux `pwmchip` number. The
-kernel device-tree pin mux determines which physical pin each `pwmchip`
-drives. All grounds must be common. Physical header pin 11 (`GPIO3_D4`, line
-28 on `/dev/gpiochip3`) is the active-high MOSFET enable.
-
-Every native-PWM entry point shares the same safe lifecycle: configure all
-four PWM channels at 1500 µs neutral, assert the pin-11 MOSFET, run commands,
-deassert the MOSFET, then disable PWM. Exceptions, command timeout shutdown,
-Ctrl+C, and normal exit all take the same deassert-before-disable path. The
-GPIO character device is controlled through `python3-gpiod`.
-
-The node uses the standard Linux PWM sysfs ABI. By default its four physical
-outputs use stable platform-address globs for physical header pins 7, 12, 15,
-and 33. The kernel assigns `pwmchip` numbers dynamically, especially when the
-cooling fan is enabled, so the package resolves the chip below each platform
-device instead of relying on a number under `/sys/class/pwm`. The running
-M2 image must expose four PWM controllers and the container must bind-mount
-`/sys/class/pwm` read/write. Check before connecting ESC signal wires:
-
-```bash
-for chip in /sys/class/pwm/pwmchip*; do
-  printf '%s: ' "$chip"; cat "$chip/npwm"
-done
-```
-
-Run the ROS bridge directly on the M2:
-
-```bash
-ros2 run mhseals_hardware thruster_pwm_node --ros-args \
-  -p pwm_chips:='[/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*]' \
-  -p channel_map:='[1,2,3,4]' -p frequency:=50.0
-```
-
-It accepts `cmd_vel`, uses the mixer documented below, and returns all outputs
-to 1500 µs neutral after 500 ms without a command. Shutdown and startup-error
-paths also neutralize or disable every output.
-
-### Live thruster test
-
-The test UI reuses the SSH/nested-container terminal handling from `boat_test`:
-split arrow escape sequences are collected, echo/canonical mode is restored,
-and no child process can consume keystrokes. It starts neutral and offers live
-per-thruster or all-thruster adjustment:
-
-```bash
-ros2 run mhseals_hardware thruster_test --pwm-chips \
-  '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*'
-```
-
-Use Up/Down to select all/FL/FR/RR/RL; Left/Right changes pulse width by
-10 µs and `[`/`]` by 1 µs. N/F/B select neutral/forward/reverse, Z/X select
-1100/1900 µs, -/+ changes frequency live, Space or 0 neutralizes, and Q exits
-safely. Frequency changes intentionally reset all outputs to neutral.
-
-## Thruster wiring
-
-Canonical commands always use this order (native PWM device paths replace the
-legacy Pico GPIO column):
-
-| Channel | Position | Pico GPIO |
-| --- | --- | --- |
-| 1 | Front left (FL) | 11 |
-| 2 | Front right (FR) | 12 |
-| 3 | Rear right (RR) | 13 |
-| 4 | Rear left (RL) | 14 |
-
-GPIO 15 enables the ESC emergency-stop line. Each ESC uses 50 Hz PWM with
-1500 microseconds neutral and a permitted range of 1100--1900 microseconds.
-
-## Pico
-
-Copy `pico/thruster_controller.py` to the Pico as `main.py`. It accepts one
-newline-delimited ASCII command at a time over USB serial:
+Thrusters use canonical order `FL, FR, RR, RL`:
 
 ```text
-1500,1500,1500,1500
+pin 7  (FL) ---- pin 12 (FR)
+      |             |
+pin 33 (RL) ---- pin 15 (RR)
 ```
 
-Malformed input or 500 ms without a command returns every thruster to neutral.
-The controller prints `READY` after initialization, acknowledges accepted
-commands as `ACK,1500,1500,1500,1500`, reports malformed input as
-`ERR,invalid_command`, and prints `TIMEOUT` when its watchdog neutralizes the
-outputs. The ROS bridge reads these responses from the same USB serial link.
+The stable PWM controller paths, in canonical order, are:
 
-From the Odroid, the repository helper detects the MicroPython USB device,
-creates a local `mpremote` environment on first use, uploads the controller as
-`main.py`, and resets the Pico:
+```text
+/sys/devices/platform/febd0030.pwm/pwm/pwmchip*
+/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*
+/sys/devices/platform/febf0030.pwm/pwm/pwmchip*
+/sys/devices/platform/febe0000.pwm/pwm/pwmchip*
+```
+
+Physical header pin 11 (`GPIO3_D4`, `/dev/gpiochip3` line 28) is the
+active-high MOSFET enable. Every hardware entry point configures neutral PWM
+before enabling it, and disables the MOSFET before PWM during shutdown.
+
+The device-tree source is
+[`config/odroid-m2-thruster-pwm-overlay.dts`](config/odroid-m2-thruster-pwm-overlay.dts).
+The running M2 image must expose all four controllers.
+
+## Container setup
+
+The ODROID installation of `astro_dock` mounts `/sys` read-write. Install the
+versioned host udev rule once to grant the existing `dialout` group access to
+the four PWM controllers and `gpiochip3`:
 
 ```bash
 cd ~/astro_dock/src/mhseals_hardware
-./scripts/flash_pico.sh --check
-./scripts/flash_pico.sh
+./scripts/install_odroid_access.sh
 ```
 
-Detection prefers the stable `/dev/serial/by-id/*MicroPython*` link. When more
-than one serial device is connected, select it explicitly with `--port`.
-Keep the boat secured and thrusters clear and submerged before flashing:
-resetting the Pico starts `main.py` and enables the ESC control line.
+The installer is safe to rerun. Recreate the container after changing its
+mount configuration. Hardware commands then run as the normal `roboboat`
+user; do not use `sudo`.
 
-## ROS 2
+```bash
+cd ~/astro_dock
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . bash
+source install/setup.bash
+```
 
-Build and run the node from the workspace:
+If the workspace has not been built:
 
 ```bash
 colcon build --packages-select mhseals_hardware
 source install/setup.bash
-ros2 run mhseals_hardware thruster_serial_node \
-  --ros-args -p serial_port:=/dev/ttyACM0
 ```
 
-The node subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`) and uses the ROS
-body convention: `linear.x` is forward surge, `linear.y` is port/left sway,
-and `angular.z` is counterclockwise yaw viewed from above. Mixer results are
-proportionally desaturated and converted to ESC pulse widths.
+## Direct thruster test
 
-The normalized starting matrix has rows in FL, FR, RR, RL order and columns in
-surge, sway, yaw order:
+Only arm with every thruster submerged, the propeller area and lines clear,
+and an emergency stop within reach.
+
+```bash
+ros2 run mhseals_hardware thruster_test
+```
+
+The program waits for Enter before arming and always neutralizes on exit.
+
+| Key | Action |
+| --- | --- |
+| Up / Down | Select all, FL, FR, RR, or RL |
+| Left / Right | Decrease/increase pulse width by 10 us |
+| `[` / `]` | Decrease/increase pulse width by 1 us |
+| `N`, `F`, `B` | Neutral, forward, or reverse preset |
+| `Z`, `X` | 1100 or 1900 us endpoint |
+| `-`, `+` | Change frequency; outputs reset to neutral |
+| Space or `0` | Neutral immediately |
+| `Q` | Neutralize, disable, and exit |
+
+The terminal reader handles SSH and nested-container escape sequences and
+restores terminal state after interruption.
+
+## ROS control
+
+Start the hardware node on the ODROID:
+
+```bash
+ros2 run mhseals_hardware thruster_pwm_node
+```
+
+It subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`): `linear.x` is forward,
+`linear.y` is port/left, and `angular.z` is counterclockwise. A 500 ms command
+timeout returns every channel to neutral. Relevant parameters are
+`frequency`, `command_timeout`, `channel_map`, `thruster_matrix`,
+`pwm_chips`, `pwm_channels`, `mosfet_chip`, and `mosfet_line`.
+
+The default mixer rows are FL, FR, RR, RL and columns are surge, sway, yaw:
 
 ```text
 FL  -1  +1  +1
@@ -134,125 +108,55 @@ RR  +1  -1  +1
 RL  +1  +1  -1
 ```
 
-This follows the 45-degree geometry and the installed polarity: positive local
-thrust on the front pair contributes aft force, while positive local thrust on
-the rear pair contributes forward force. Override the flattened row-major
-matrix with `thruster_matrix`. Use `channel_map` to map canonical FL,FR,RR,RL
-positions onto physical Pico outputs; for example `[2,4,1,3]` sends FL to
-output 2, FR to 4, RR to 1, and RL to 3.
+Results are proportionally desaturated before conversion to 1100--1900 us.
+Use `channel_map` to map canonical positions to physical outputs, for example
+`[2,4,1,3]`.
 
-## Bagged boat test
-
-Only run the test with every thruster submerged, propellers and lines clear,
-an accessible emergency stop, and a second person watching the water. Build
-both packages and start the guided test:
+For deadman keyboard control from any machine on the same ROS domain:
 
 ```bash
-colcon build --packages-select mhseals_hardware mhseals_nav
-source install/setup.bash
+ros2 run mhseals_hardware boat_manual
+```
+
+W/S or Up/Down commands surge, A/D commands sway, Left/Right commands yaw,
+Space stops, and X exits. Commands expire after 350 ms unless keys continue
+arriving.
+
+## Guided boat test
+
+The guided workflow checks sensor traffic, identifies physical thruster
+positions, runs repeatable surge/sway/yaw trials, and records ROS bags:
+
+```bash
 ros2 run mhseals_hardware boat_test
 ```
 
-The runner asks for the MAVROS FCU URL, starts a minimal
-MAVROS measurement launch, and records every topic to a timestamped directory
-under `bags/`. Its live terminal dashboard checks actual message arrival for
-odometry, GPS, and IMU, and keeps status indicators for optional LiDAR and
-camera data. Optional drivers are not started unless `--optional-sensors` is
-given, so a missing ZED or Velodyne installation cannot prevent the first
-boat test. The runner also refuses to compete with another `cmd_vel`
-publisher.
+Use `--allow-missing-sensors` for a secured thruster-only bring-up. If no
+`--channel-map` is given, the workflow pulses each output at 15 percent and
+asks which position moved. Its test menu supports surge, sway, yaw, all tests,
+and the same deadman manual controller. Process logs and bags are stored under
+`bags/`.
 
-Output from MAVROS, optional sensor drivers, rosbag, and the thruster node is
-kept out of the TUI and written under `bags/logs/<test-name>/`. Their running
-or exited state appears in the dashboard. Use `--show-process-output` only
-when raw ROS output is needed for troubleshooting.
-
-For a secured thruster-only bring-up when the FCU is intentionally absent,
-use `--allow-missing-sensors`. The bag and sensor indicators remain active,
-but missing measurement data will not block the identification and
-characterization menus.
-
-The displayed numbering is fixed in canonical software order:
-
-```text
-1 (FL) ---- 2 (FR)
-   |          |
-4 (RL) ---- 3 (RR)
-```
-
-If no `--channel-map` is supplied, the setup pulses each physical output at
-15 percent, uses an arrow/Enter selector to ask which position moved and
-whether its propeller appeared CW or CCW, verifies polarity, and applies the
-result in software. Rotation is recorded as viewed from the propeller toward
-the motor. Save the printed map for later runs:
+Common options:
 
 ```bash
 ros2 run mhseals_hardware boat_test \
   --fcu-url serial:///dev/ttyACM0:57600 \
-  --pwm-chips '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*' \
-  --channel-map 2,4,1,3
+  --channel-map 2,4,1,3 \
+  --allow-missing-sensors
 ```
 
-The characterization menu runs three positive and three negative 25-percent,
-three-second trials per selected axis. It uses a balanced `+,-,-,+,+,-` order
-with five seconds of neutral data before and after each command. Before every
-trial it states the required clearance and expected movement. Select surge,
-sway, yaw, or all tests with Up/Down and Enter, or directly with keys `1`,
-`2`, `3`, or `4`. Press `m` for deadman manual control. In manual mode W/S
-or Up/Down command surge, A/D commands sway, Left/Right command yaw, Space
-stops immediately, and X returns to test selection.
+The FCU URL above is MAVROS telemetry and is unrelated to thruster control.
+Ctrl+C neutralizes thrusters, stops the hardware node, and flushes the bag.
 
-### Manual control from the laptop container
+## Development
 
-Run the native hardware bridge on the Odroid with the correct PWM devices and
-channel map. Do not run another `cmd_vel` publisher at the same time:
+Run the ROS-independent tests with:
 
 ```bash
-ros2 run mhseals_hardware thruster_pwm_node --ros-args \
-  -p pwm_chips:='[/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*]' \
-  -p channel_map:='[1,2,3,4]'
+python3 -m pytest -q
 ```
 
-Then, in the laptop container on the same ROS domain/network:
-
-```bash
-docker exec -it roboboat_dev bash
-source /workspaces/roboboat_ws/install/setup.bash  # adjust to the workspace
-ros2 run mhseals_hardware boat_manual
-```
-
-Confirm the laptop can see `/cmd_vel` and the Odroid ROS nodes with
-`ros2 node list`. Keyboard commands expire after 350 ms unless repeated, so
-losing focus or network input returns the published command to neutral.
-
-| Test | Positive direction | Negative direction | Required clearance |
-| --- | --- | --- | --- |
-| Surge | Forward | Reverse | Ahead or astern respectively |
-| Sway | Port/left | Starboard/right | On the commanded side |
-| Yaw | Counterclockwise | Clockwise | Full boat perimeter; loose lines |
-
-Test phases, completion markers, matrix values, and channel mapping are
-recorded as JSON on `/boat_test/events`. Ctrl+C commands neutral, stops hardware control,
-flushes the bag, and then stops the sensor stack. Confirm the result with:
-
-```bash
-ros2 bag info bags/boat_test_YYYYMMDD_HHMMSS
-```
-
-## Hand tuning for reduced drift
-
-For each axis, use the five-second neutral windows to estimate environmental
-drift. Compare the three positive and three negative trials after subtracting
-that baseline, focusing on displacement and yaw outside the commanded axis.
-Adjust only that axis's column in `thruster_matrix`, normalize its largest
-absolute coefficient to 1.0, and repeat the same profile. Supply a candidate
-matrix as 12 comma-separated row-major values:
-
-```bash
-ros2 run mhseals_hardware boat_test \
-  --thruster-matrix=-1,1,1,-1,-1,-1,1,-1,1,1,1,-1
-```
-
-A single linear matrix may need to be a compromise because forward and reverse
-thrust differ. Direction-dependent compensation and automatic fitting are
-intentionally deferred until the collected boat data has been reviewed.
+The package intentionally contains only the native PWM driver, ROS bridge,
+mixer, direct test TUI, guided boat test, and their shared keyboard/manual
+control code.

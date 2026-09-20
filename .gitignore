@@ -1,2 +1,6 @@
-.pico-tools/
-
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+install/
+log/

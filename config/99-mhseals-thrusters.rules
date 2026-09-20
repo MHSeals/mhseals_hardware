@@ -1,0 +1,4 @@
+# Allow the boat operator's existing dialout group to control thruster hardware.
+SUBSYSTEM=="gpio", KERNEL=="gpiochip3", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="pwm", KERNEL=="pwmchip*", RUN+="/bin/sh -c 'chgrp dialout /sys%p/export /sys%p/unexport; chmod 0660 /sys%p/export /sys%p/unexport'"
+SUBSYSTEM=="pwm", KERNEL=="pwm[0-9]*", RUN+="/bin/sh -c 'chgrp dialout /sys%p/enable /sys%p/period /sys%p/duty_cycle /sys%p/polarity; chmod 0660 /sys%p/enable /sys%p/period /sys%p/duty_cycle /sys%p/polarity'"

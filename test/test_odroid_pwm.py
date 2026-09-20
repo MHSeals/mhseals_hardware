@@ -51,3 +51,18 @@ def test_four_outputs_neutralize_on_close(tmp_path):
     for channel in outputs.channels:
         assert (channel.path / 'duty_cycle').read_text() == '1500000'
         assert (channel.path / 'enable').read_text() == '0'
+
+
+def test_close_disables_every_channel_after_one_neutral_failure(tmp_path,
+                                                                monkeypatch):
+    chips = [fake_chip(tmp_path, number) for number in range(4)]
+    outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
+
+    def fail_neutral(_pulse_width):
+        raise OSError('simulated duty-cycle failure')
+
+    monkeypatch.setattr(outputs.channels[0], 'set_pulse_width', fail_neutral)
+    with pytest.raises(OSError, match='simulated duty-cycle failure'):
+        outputs.close()
+    for channel in outputs.channels:
+        assert (channel.path / 'enable').read_text() == '0'

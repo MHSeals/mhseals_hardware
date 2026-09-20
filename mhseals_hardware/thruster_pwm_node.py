@@ -17,7 +17,7 @@ from mhseals_hardware.thruster_mixer import (
 
 
 class ThrusterPWMNode(Node):
-    """Fail-neutral ROS bridge with no Pico or serial transport."""
+    """Fail-neutral ROS bridge for the ODROID's hardware PWM outputs."""
 
     def __init__(self):
         super().__init__('thruster_pwm_node')

@@ -44,7 +44,7 @@ def validate_channel_map(values):
 
 
 def map_channels(values, channel_map):
-    """Map canonical FL,FR,RR,RL values onto four physical Pico outputs."""
+    """Map canonical FL, FR, RR, RL values onto physical PWM outputs."""
     mapped = [None] * 4
     for value, physical_channel in zip(values, channel_map):
         mapped[physical_channel - 1] = value
