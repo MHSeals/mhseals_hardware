@@ -9,11 +9,6 @@ if [[ ! -f "${RULE_SOURCE}" ]]; then
     echo "Missing udev rule: ${RULE_SOURCE}" >&2
     exit 1
 fi
-if ! id -nG "${USER}" | tr ' ' '\n' | grep -qx dialout; then
-    echo "${USER} must belong to dialout; run: sudo usermod -aG dialout ${USER}" >&2
-    exit 1
-fi
-
 sudo install -m 0644 "${RULE_SOURCE}" "${RULE_TARGET}"
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=gpio --subsystem-match=pwm
