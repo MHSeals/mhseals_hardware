@@ -26,6 +26,10 @@ newline-delimited ASCII command at a time over USB serial:
 ```
 
 Malformed input or 500 ms without a command returns every thruster to neutral.
+The controller prints `READY` after initialization, acknowledges accepted
+commands as `ACK,1500,1500,1500,1500`, reports malformed input as
+`ERR,invalid_command`, and prints `TIMEOUT` when its watchdog neutralizes the
+outputs. The ROS bridge reads these responses from the same USB serial link.
 
 From the Odroid, the repository helper detects the MicroPython USB device,
 creates a local `mpremote` environment on first use, uploads the controller as

@@ -28,9 +28,10 @@ def pulse_width_to_duty(pulse_width):
 
 def set_thrusters(channels, pulse_widths):
     """Apply one physical-output command to the PWM channels."""
-    for channel, pulse_width in zip(channels, pulse_widths):
-        pulse_width = max(MIN_US, min(MAX_US, pulse_width))
+    applied = [max(MIN_US, min(MAX_US, value)) for value in pulse_widths]
+    for channel, pulse_width in zip(channels, applied):
         channel.duty_u16(pulse_width_to_duty(pulse_width))
+    return applied
 
 
 def parse_command(line):
@@ -57,6 +58,8 @@ def main():
         LED_PIN.on()
         time.sleep(2)
         last_command = time.ticks_ms()
+        timed_out = False
+        print('READY')
 
         while True:
             if poller.poll(10):
@@ -67,13 +70,20 @@ def main():
                     if '\x03' in line:
                         raise KeyboardInterrupt
                     command = parse_command(line.strip())
-                    set_thrusters(channels, command)
+                    applied = set_thrusters(channels, command)
                     last_command = time.ticks_ms()
+                    timed_out = False
+                    print('ACK,' + ','.join(str(value) for value in applied))
                 except (ValueError, TypeError):
                     set_thrusters(channels, [NEUTRAL_US] * 4)
+                    print('ERR,invalid_command')
 
-            if time.ticks_diff(time.ticks_ms(), last_command) > COMMAND_TIMEOUT_MS:
+            if (not timed_out and
+                    time.ticks_diff(time.ticks_ms(), last_command) >
+                    COMMAND_TIMEOUT_MS):
                 set_thrusters(channels, [NEUTRAL_US] * 4)
+                timed_out = True
+                print('TIMEOUT')
     finally:
         set_thrusters(channels, [NEUTRAL_US] * len(channels))
         for channel in channels:

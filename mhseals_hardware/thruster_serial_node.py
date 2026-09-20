@@ -42,16 +42,36 @@ class ThrusterSerialNode(Node):
         self.serial = serial.Serial(port, baud_rate, timeout=0.1)
         self.last_command_time = time.monotonic()
         self.timed_out = False
+        self.last_pico_response = None
 
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.create_timer(0.1, self.watchdog_callback)
+        self.create_timer(0.02, self.read_pico_response)
         self.send_pwm([NEUTRAL_PWM] * 4)
-        self.get_logger().info(f'Sending thruster commands on {port}')
+        self.get_logger().info(
+            f'Sending thruster commands and reading responses on {port}')
 
     def send_pwm(self, values):
         """Send one newline-delimited physical-output command."""
         message = ','.join(str(value) for value in values) + '\n'
         self.serial.write(message.encode('ascii'))
+
+    def read_pico_response(self):
+        """Read and report one newline-delimited Pico response, if available."""
+        if not self.serial.in_waiting:
+            return
+        response = self.serial.readline().decode('ascii', errors='replace').strip()
+        if not response:
+            return
+        self.last_pico_response = response
+        if response.startswith('ERR,'):
+            self.get_logger().error(f'Pico rejected command: {response[4:]}')
+        elif response == 'TIMEOUT':
+            self.get_logger().warning('Pico watchdog set thrusters to neutral')
+        elif response == 'READY':
+            self.get_logger().info('Pico controller ready')
+        elif not response.startswith('ACK,'):
+            self.get_logger().warning(f'Unexpected Pico response: {response}')
 
     def cmd_vel_callback(self, message):
         """Mix a planar velocity command and send it to the Pico."""
