@@ -1,0 +1,48 @@
+"""Unit tests for native Linux PWM conversion and output behavior."""
+
+from pathlib import Path
+
+import pytest
+
+from mhseals_hardware.odroid_pwm import (
+    OdroidPWMOutputs, SysfsPWMChannel, period_ns, pulse_ns,
+)
+
+
+def fake_chip(root, number):
+    chip = root / f'pwmchip{number}'
+    pwm = chip / 'pwm0'
+    pwm.mkdir(parents=True)
+    for name in ('enable', 'duty_cycle', 'period'):
+        (pwm / name).write_text('0', encoding='ascii')
+    return chip
+
+
+def test_esc_timing_conversion():
+    assert period_ns(50) == 20_000_000
+    assert pulse_ns(1500, 50) == 1_500_000
+
+
+@pytest.mark.parametrize(('frequency', 'pulse'), ((0, 1500), (50, 21000)))
+def test_invalid_timing_is_rejected(frequency, pulse):
+    with pytest.raises(ValueError):
+        pulse_ns(pulse, frequency)
+
+
+def test_channel_configures_period_duty_and_enable(tmp_path):
+    chip = fake_chip(tmp_path, 0)
+    channel = SysfsPWMChannel(chip).open()
+    channel.configure(50, 1500)
+    assert (channel.path / 'period').read_text() == '20000000'
+    assert (channel.path / 'duty_cycle').read_text() == '1500000'
+    assert (channel.path / 'enable').read_text() == '1'
+
+
+def test_four_outputs_neutralize_on_close(tmp_path):
+    chips = [fake_chip(tmp_path, number) for number in range(4)]
+    outputs = OdroidPWMOutputs(chips).open()
+    outputs.set_pulse_widths([1600, 1400, 1550, 1450])
+    outputs.close()
+    for channel in outputs.channels:
+        assert (channel.path / 'duty_cycle').read_text() == '1500000'
+        assert (channel.path / 'enable').read_text() == '0'

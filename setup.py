@@ -15,13 +15,15 @@ setup(
     install_requires=['setuptools', 'pyserial', 'rich'],
     zip_safe=True,
     author='MHS Seals',
-    description='Pico serial thruster control for the MHS Seals boat',
+    description='Native Odroid PWM and Pico thruster control for MHS Seals',
     license='GPL-3.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'thruster_serial_node = '
             'mhseals_hardware.thruster_serial_node:main',
+            'thruster_pwm_node = mhseals_hardware.thruster_pwm_node:main',
+            'thruster_test = mhseals_hardware.thruster_test_tui:main',
             'boat_test = mhseals_hardware.boat_test:main',
             'boat_manual = mhseals_hardware.manual_control:main',
         ],

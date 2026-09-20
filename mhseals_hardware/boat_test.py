@@ -3,7 +3,6 @@
 import argparse
 from collections import Counter
 from datetime import datetime
-import glob
 import json
 import os
 from pathlib import Path
@@ -21,7 +20,6 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
-import serial
 from sensor_msgs.msg import Image, Imu, NavSatFix, PointCloud2
 from std_msgs.msg import String
 
@@ -35,6 +33,7 @@ from mhseals_hardware.thruster_mixer import (
 )
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.manual_control import run_manual
+from mhseals_hardware.odroid_pwm import DEFAULT_PWM_CHIPS, OdroidPWMOutputs
 
 
 POSITIONS = ('fl', 'fr', 'rr', 'rl')
@@ -79,17 +78,6 @@ def parse_float_list(text):
     return tuple(float(value.strip()) for value in text.split(','))
 
 
-def validate_pyserial():
-    """Reject the unrelated PyPI ``serial`` package with a useful message."""
-    if hasattr(serial, 'Serial'):
-        return
-    location = getattr(serial, '__file__', 'unknown location')
-    raise RuntimeError(
-        'PySerial is not installed correctly. Python imported the unrelated '
-        f'"serial" package from {location}. Remove package "serial" and '
-        'install "pyserial==3.5" before running the boat test.')
-
-
 class BoatTest:
     """Own the ROS status monitor, child processes, TUI, and safe shutdown."""
 
@@ -106,7 +94,7 @@ class BoatTest:
         self.command_publisher = None
         self.channel_map = None
         self.thruster_rotations = {}
-        self.serial_connection = None
+        self.pwm_outputs = None
         self.matrix = validate_mixer(args.thruster_matrix)
         self.last_messages = {name: None for name, _, _, _ in SENSOR_SPECS}
         self.message_counts = Counter()
@@ -344,11 +332,11 @@ class BoatTest:
                               for info in publishers)
             raise RuntimeError(f'/cmd_vel already has publishers: {names}')
 
-    def send_serial(self, values, duration=0.0):
-        message = (','.join(str(value) for value in values) + '\n').encode('ascii')
+    def send_pwm(self, values, duration=0.0):
+        """Hold direct Odroid PWM values for an identification phase."""
         deadline = time.monotonic() + duration
         while True:
-            self.serial_connection.write(message)
+            self.pwm_outputs.set_pulse_widths(values)
             if time.monotonic() >= deadline:
                 break
             time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
@@ -386,10 +374,10 @@ class BoatTest:
             'Boat secured; all propellers clear and submerged.\n'
             'Identify outputs against 1=FL, 2=FR, 3=RR, 4=RL.',
             title='Thruster identification', style='yellow'))
-        self.serial_connection = serial.Serial(
-            self.args.serial_port, self.args.baud_rate, timeout=0.1)
-        time.sleep(2.5)
-        self.send_serial([NEUTRAL_PWM] * 4, 0.5)
+        self.pwm_outputs = OdroidPWMOutputs(
+            self.args.pwm_chips, self.args.pwm_channels,
+            self.args.frequency).open()
+        self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
         observations = {}
         used = set()
         try:
@@ -398,8 +386,8 @@ class BoatTest:
                 values = [NEUTRAL_PWM] * 4
                 values[channel - 1] += round(PWM_SCALE * 0.15)
                 self.emit('identification_start', physical_channel=channel)
-                self.send_serial(values, 0.75)
-                self.send_serial([NEUTRAL_PWM] * 4, 0.5)
+                self.send_pwm(values, 0.75)
+                self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
                 self.emit('identification_stop', physical_channel=channel)
                 choices = tuple(position for position in POSITIONS
                                 if position not in used)
@@ -424,28 +412,33 @@ class BoatTest:
                           position=position, rotation=rotation,
                           rotation_view='from propeller toward motor')
         finally:
-            if self.serial_connection is not None:
+            if self.pwm_outputs is not None:
                 try:
-                    self.send_serial([NEUTRAL_PWM] * 4, 0.5)
+                    self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
                 finally:
-                    self.serial_connection.close()
-                    self.serial_connection = None
+                    self.pwm_outputs.close()
+                    self.pwm_outputs = None
         return channel_map_from_observations(observations)
 
     def start_hardware(self):
         flat_matrix = [value for row in self.matrix for value in row]
         map_yaml = '[' + ','.join(str(value) for value in self.channel_map) + ']'
         matrix_yaml = '[' + ','.join(str(value) for value in flat_matrix) + ']'
+        chips_yaml = '[' + ','.join(f'"{value}"' for value in
+                                    self.args.pwm_chips) + ']'
+        channels_yaml = '[' + ','.join(str(value) for value in
+                                       self.args.pwm_channels) + ']'
         self.start_process('hardware', [
-            'ros2', 'run', 'mhseals_hardware', 'thruster_serial_node',
-            '--ros-args', '-p', f'serial_port:={self.args.serial_port}',
-            '-p', f'baud_rate:={self.args.baud_rate}',
+            'ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node',
+            '--ros-args', '-p', f'pwm_chips:={chips_yaml}',
+            '-p', f'pwm_channels:={channels_yaml}',
+            '-p', f'frequency:={self.args.frequency}',
             '-p', f'channel_map:={map_yaml}',
             '-p', f'thruster_matrix:={matrix_yaml}',
         ])
         time.sleep(3)
         if self.processes['hardware'].poll() is not None:
-            raise RuntimeError('thruster serial node exited during startup')
+            raise RuntimeError('thruster PWM node exited during startup')
         self.command_publisher = self.node.create_publisher(Twist, '/cmd_vel', 10)
         self.emit('configuration', channel_map=self.channel_map,
                   thruster_numbers=THRUSTER_NUMBERS,
@@ -571,10 +564,10 @@ class BoatTest:
                 self.publish_command(duration=1.0)
             except Exception:
                 pass
-        if self.serial_connection is not None:
+        if self.pwm_outputs is not None:
             try:
-                self.send_serial([NEUTRAL_PWM] * 4, 0.5)
-                self.serial_connection.close()
+                self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
+                self.pwm_outputs.close()
             except Exception:
                 pass
         self.stop_process('hardware')
@@ -586,41 +579,26 @@ class BoatTest:
         self.node.destroy_node()
 
 
-def discovered_serial_devices():
-    devices = glob.glob('/dev/serial/by-id/*') + glob.glob('/dev/ttyACM*')
-    return list(dict.fromkeys(devices))
-
-
 def prompt_hardware(args):
     console = Console()
-    devices = discovered_serial_devices()
-    if devices:
-        console.print('Discovered serial devices: ' + ', '.join(devices))
-    if args.serial_port is None:
-        args.serial_port = console.input('Pico serial device: ').strip()
     if args.fcu_url is None:
         args.fcu_url = console.input(
             'MAVROS FCU URL (e.g. serial:///dev/ttyACM1:57600): ').strip()
-    if not args.serial_port or not args.fcu_url:
-        raise ValueError('Pico serial device and MAVROS FCU URL are required')
-    if args.fcu_url.startswith('serial://'):
-        fcu_device = args.fcu_url[len('serial://'):].rsplit(':', 1)[0]
-        if Path(fcu_device).resolve() == Path(args.serial_port).resolve():
-            raise ValueError('Pico and FCU must use different serial devices')
-    if not os.access(args.serial_port, os.R_OK | os.W_OK):
-        raise PermissionError(
-            f'No read/write access to Pico device {args.serial_port}. '
-            'Fix host device permissions before starting the sensor stack; '
-            'for the project devcontainer run '
-            '`.devcontainer/install-serial-udev.sh` on the host.')
+    if not args.fcu_url:
+        raise ValueError('MAVROS FCU URL is required')
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
         description='TUI for bagged omni-boat characterization')
-    parser.add_argument('--serial-port', help='Pico serial device')
     parser.add_argument('--fcu-url', help='MAVROS FCU URL')
-    parser.add_argument('--baud-rate', type=int, default=115200)
+    parser.add_argument('--pwm-chips',
+                        type=lambda value: tuple(v.strip() for v in value.split(',')),
+                        default=DEFAULT_PWM_CHIPS,
+                        help='four comma-separated Linux pwmchip paths')
+    parser.add_argument('--pwm-channels', type=parse_int_list,
+                        default=(0, 0, 0, 0))
+    parser.add_argument('--frequency', type=float, default=50.0)
     parser.add_argument('--optional-sensors', action='store_true',
                         help='also launch camera and LiDAR drivers')
     parser.add_argument(
@@ -647,7 +625,6 @@ def build_parser():
 
 
 def main(args=None):
-    validate_pyserial()
     parsed = build_parser().parse_args(args)
     prompt_hardware(parsed)
     parsed.thruster_matrix = tuple(

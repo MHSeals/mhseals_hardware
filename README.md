@@ -1,10 +1,65 @@
 # mhseals_hardware
 
-Minimal ROS 2 to Raspberry Pi Pico thruster control.
+ROS 2 thruster control using the ODROID-M2's native hardware PWM. The Pico
+serial implementation remains available for older wiring, but the primary
+`thruster_pwm_node`, boat test, manual controller, and live thruster test do
+not use a Pico or serial link.
+
+## ODROID-M2 native PWM
+
+Wire the four ESC signal leads, in FL, FR, RR, RL order, to the four
+lowest-numbered header GPIO pins that have been configured for hardware PWM.
+Do not confuse a physical header number with a Linux `pwmchip` number. The
+kernel device-tree pin mux determines which physical pin each `pwmchip`
+drives. All grounds must be common.
+
+The node uses the standard Linux PWM sysfs ABI. By default its four physical
+outputs are `/sys/class/pwm/pwmchip0` through `pwmchip3`, channel 0. The exact
+chip numbers can change when other PWM consumers (notably the cooling fan) are
+enabled, so production startup should use the stable paths under each
+platform device's `pwm/` directory and pass those as `pwm_chips`. The running
+M2 image must expose four PWM controllers and the container must bind-mount
+`/sys/class/pwm` read/write. Check before connecting ESC signal wires:
+
+```bash
+for chip in /sys/class/pwm/pwmchip*; do
+  printf '%s: ' "$chip"; cat "$chip/npwm"
+done
+```
+
+Run the ROS bridge directly on the M2:
+
+```bash
+ros2 run mhseals_hardware thruster_pwm_node --ros-args \
+  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3]' \
+  -p channel_map:='[1,2,3,4]' -p frequency:=50.0
+```
+
+It accepts `cmd_vel`, uses the mixer documented below, and returns all outputs
+to 1500 µs neutral after 500 ms without a command. Shutdown and startup-error
+paths also neutralize or disable every output.
+
+### Live thruster test
+
+The test UI reuses the SSH/nested-container terminal handling from `boat_test`:
+split arrow escape sequences are collected, echo/canonical mode is restored,
+and no child process can consume keystrokes. It starts neutral and offers live
+per-thruster or all-thruster adjustment:
+
+```bash
+ros2 run mhseals_hardware thruster_test --pwm-chips \
+  /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3
+```
+
+Use Up/Down to select all/FL/FR/RR/RL; Left/Right changes pulse width by
+10 µs and `[`/`]` by 1 µs. N/F/B select neutral/forward/reverse, Z/X select
+1100/1900 µs, -/+ changes frequency live, Space or 0 neutralizes, and Q exits
+safely. Frequency changes intentionally reset all outputs to neutral.
 
 ## Thruster wiring
 
-Commands and pins always use this order:
+Canonical commands always use this order (native PWM device paths replace the
+legacy Pico GPIO column):
 
 | Channel | Position | Pico GPIO |
 | --- | --- | --- |
@@ -91,7 +146,7 @@ source install/setup.bash
 ros2 run mhseals_hardware boat_test
 ```
 
-The runner asks for the Pico device and MAVROS FCU URL, starts a minimal
+The runner asks for the MAVROS FCU URL, starts a minimal
 MAVROS measurement launch, and records every topic to a timestamped directory
 under `bags/`. Its live terminal dashboard checks actual message arrival for
 odometry, GPS, and IMU, and keeps status indicators for optional LiDAR and
@@ -126,8 +181,8 @@ the motor. Save the printed map for later runs:
 
 ```bash
 ros2 run mhseals_hardware boat_test \
-  --serial-port /dev/ttyACM0 \
-  --fcu-url serial:///dev/ttyACM1:57600 \
+  --fcu-url serial:///dev/ttyACM0:57600 \
+  --pwm-chips /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3 \
   --channel-map 2,4,1,3
 ```
 
@@ -142,12 +197,12 @@ stops immediately, and X returns to test selection.
 
 ### Manual control from the laptop container
 
-Run the hardware bridge on the Odroid with the correct Pico path and channel
-map. Do not run another `cmd_vel` publisher at the same time:
+Run the native hardware bridge on the Odroid with the correct PWM devices and
+channel map. Do not run another `cmd_vel` publisher at the same time:
 
 ```bash
-ros2 run mhseals_hardware thruster_serial_node --ros-args \
-  -p serial_port:=/dev/serial/by-id/usb-MicroPython_Board_in_FS_mode_DEVICE-if00 \
+ros2 run mhseals_hardware thruster_pwm_node --ros-args \
+  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3]' \
   -p channel_map:='[1,2,3,4]'
 ```
 

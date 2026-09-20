@@ -3,7 +3,7 @@
 <package format="3">
   <name>mhseals_hardware</name>
   <version>0.0.0</version>
-  <description>Pico serial thruster control for the MHS Seals boat</description>
+  <description>Native Odroid PWM and Pico thruster control for the MHS Seals boat</description>
   <maintainer email="lunarzDev@outlook.com">MHS Seals</maintainer>
   <license>GPL-3.0</license>
 
