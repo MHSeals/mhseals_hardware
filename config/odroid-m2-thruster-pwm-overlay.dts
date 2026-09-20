@@ -1,0 +1,34 @@
+/dts-v1/;
+/plugin/;
+
+/*
+ * ODROID-M2 four lowest-numbered PWM-capable J2 header pins:
+ *   pin 7  PWM7  GPIO0_D0
+ *   pin 12 PWM3  GPIO3_B2
+ *   pin 15 PWM15 GPIO4_B3
+ *   pin 33 PWM8  GPIO3_D0
+ */
+
+&pwm7 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm7m0_pins>;
+};
+
+&pwm3 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm3m1_pins>;
+};
+
+&pwm15 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm15m1_pins>;
+};
+
+&pwm8 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm8m2_pins>;
+};

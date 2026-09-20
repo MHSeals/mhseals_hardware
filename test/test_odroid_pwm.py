@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from mhseals_hardware.odroid_pwm import (
-    OdroidPWMOutputs, SysfsPWMChannel, period_ns, pulse_ns,
+    OdroidPWMOutputs, SysfsPWMChannel, period_ns, pulse_ns, resolve_pwm_chip,
 )
 
 
@@ -36,6 +36,11 @@ def test_channel_configures_period_duty_and_enable(tmp_path):
     assert (channel.path / 'period').read_text() == '20000000'
     assert (channel.path / 'duty_cycle').read_text() == '1500000'
     assert (channel.path / 'enable').read_text() == '1'
+
+
+def test_stable_platform_glob_resolves_dynamic_chip_number(tmp_path):
+    chip = fake_chip(tmp_path / 'febd0030.pwm' / 'pwm', 17)
+    assert resolve_pwm_chip(tmp_path / 'febd0030.pwm' / 'pwm' / 'pwmchip*') == chip
 
 
 def test_four_outputs_neutralize_on_close(tmp_path):

@@ -1,14 +1,30 @@
 """Linux sysfs PWM output for four directly-connected ESCs."""
 
 from pathlib import Path
+import glob
 import time
 
 
-# Rockchip exposes each four-channel PWM block at a four-number stride.  Each
-# M2 header overlay selects channel zero from one block; these are the lowest
-# four controller numbers in Hardkernel's documented sysfs table.
-DEFAULT_PWM_CHIPS = tuple(
-    f'/sys/class/pwm/pwmchip{i}' for i in (0, 4, 8, 12))
+# pwmchip numbers are allocated dynamically. Platform-address globs remain
+# stable and correspond to physical J2 pins 7, 12, 15, and 33 respectively.
+DEFAULT_PWM_CHIPS = (
+    '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*',
+    '/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*',
+    '/sys/devices/platform/febf0030.pwm/pwm/pwmchip*',
+    '/sys/devices/platform/febe0000.pwm/pwm/pwmchip*',
+)
+
+
+def resolve_pwm_chip(value):
+    """Resolve one stable platform glob to exactly one pwmchip directory."""
+    matches = tuple(glob.glob(str(value)))
+    if not matches and not any(char in str(value) for char in '*?['):
+        return Path(value)
+    if len(matches) != 1:
+        raise FileNotFoundError(
+            f'expected exactly one PWM controller matching {value}, '
+            f'found {len(matches)}')
+    return Path(matches[0])
 
 
 def period_ns(frequency_hz):
@@ -31,6 +47,7 @@ class SysfsPWMChannel:
     """One channel of the Linux PWM sysfs ABI."""
 
     def __init__(self, chip, channel=0, wait_seconds=1.0):
+        self.chip_spec = str(chip)
         self.chip = Path(chip)
         self.channel_number = int(channel)
         self.path = self.chip / f'pwm{self.channel_number}'
@@ -42,6 +59,8 @@ class SysfsPWMChannel:
         Path(path).write_text(str(value), encoding='ascii')
 
     def open(self):
+        self.chip = resolve_pwm_chip(self.chip_spec)
+        self.path = self.chip / f'pwm{self.channel_number}'
         if not self.chip.is_dir():
             raise FileNotFoundError(
                 f'{self.chip} is unavailable; enable the Odroid PWM overlay '

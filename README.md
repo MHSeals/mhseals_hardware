@@ -14,11 +14,10 @@ kernel device-tree pin mux determines which physical pin each `pwmchip`
 drives. All grounds must be common.
 
 The node uses the standard Linux PWM sysfs ABI. By default its four physical
-outputs are `/sys/class/pwm/pwmchip0`, `pwmchip4`, `pwmchip8`, and
-`pwmchip12`, channel 0: the four lowest controller numbers in Hardkernel's M2
-PWM table. The sysfs numbers can change when other PWM consumers (notably the
-cooling fan) are enabled, so production startup should use stable paths under each
-platform device's `pwm/` directory and pass those as `pwm_chips`. The running
+outputs use stable platform-address globs for physical header pins 7, 12, 15,
+and 33. The kernel assigns `pwmchip` numbers dynamically, especially when the
+cooling fan is enabled, so the package resolves the chip below each platform
+device instead of relying on a number under `/sys/class/pwm`. The running
 M2 image must expose four PWM controllers and the container must bind-mount
 `/sys/class/pwm` read/write. Check before connecting ESC signal wires:
 
@@ -32,7 +31,7 @@ Run the ROS bridge directly on the M2:
 
 ```bash
 ros2 run mhseals_hardware thruster_pwm_node --ros-args \
-  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12]' \
+  -p pwm_chips:='[/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*]' \
   -p channel_map:='[1,2,3,4]' -p frequency:=50.0
 ```
 
@@ -49,7 +48,7 @@ per-thruster or all-thruster adjustment:
 
 ```bash
 ros2 run mhseals_hardware thruster_test --pwm-chips \
-  /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12
+  '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*'
 ```
 
 Use Up/Down to select all/FL/FR/RR/RL; Left/Right changes pulse width by
@@ -183,7 +182,7 @@ the motor. Save the printed map for later runs:
 ```bash
 ros2 run mhseals_hardware boat_test \
   --fcu-url serial:///dev/ttyACM0:57600 \
-  --pwm-chips /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12 \
+  --pwm-chips '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*' \
   --channel-map 2,4,1,3
 ```
 
@@ -203,7 +202,7 @@ channel map. Do not run another `cmd_vel` publisher at the same time:
 
 ```bash
 ros2 run mhseals_hardware thruster_pwm_node --ros-args \
-  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12]' \
+  -p pwm_chips:='[/sys/devices/platform/febd0030.pwm/pwm/pwmchip*,/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*,/sys/devices/platform/febf0030.pwm/pwm/pwmchip*,/sys/devices/platform/febe0000.pwm/pwm/pwmchip*]' \
   -p channel_map:='[1,2,3,4]'
 ```
 
