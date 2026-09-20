@@ -12,7 +12,7 @@ setup(
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools', 'pyserial', 'rich'],
+    install_requires=['setuptools', 'pyserial', 'rich', 'gpiod'],
     zip_safe=True,
     author='MHS Seals',
     description='Native Odroid PWM and Pico thruster control for MHS Seals',

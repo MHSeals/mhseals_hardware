@@ -6,7 +6,10 @@ from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
 
-from mhseals_hardware.odroid_pwm import DEFAULT_PWM_CHIPS, OdroidPWMOutputs
+from mhseals_hardware.odroid_pwm import (
+    DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE, DEFAULT_PWM_CHIPS,
+    OdroidPWMOutputs,
+)
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, NEUTRAL_PWM, PWM_SCALE, THRUSTER_MIXER,
     map_channels, mix_thrusters, validate_channel_map, validate_mixer,
@@ -21,6 +24,9 @@ class ThrusterPWMNode(Node):
         self.declare_parameter('pwm_chips', list(DEFAULT_PWM_CHIPS))
         self.declare_parameter('pwm_channels', [0, 0, 0, 0])
         self.declare_parameter('frequency', 50.0)
+        self.declare_parameter('mosfet_chip', DEFAULT_MOSFET_CHIP)
+        self.declare_parameter('mosfet_line', DEFAULT_MOSFET_LINE)
+        self.declare_parameter('mosfet_active_high', True)
         self.declare_parameter('command_timeout', 0.5)
         self.declare_parameter('channel_map', [1, 2, 3, 4])
         self.declare_parameter('thruster_matrix',
@@ -34,7 +40,11 @@ class ThrusterPWMNode(Node):
         self.outputs = OdroidPWMOutputs(
             self.get_parameter('pwm_chips').value,
             self.get_parameter('pwm_channels').value,
-            self.get_parameter('frequency').value).open()
+            self.get_parameter('frequency').value,
+            mosfet_chip=self.get_parameter('mosfet_chip').value,
+            mosfet_line=self.get_parameter('mosfet_line').value,
+            mosfet_active_high=self.get_parameter(
+                'mosfet_active_high').value).open()
         self.last_command_time = time.monotonic()
         self.timed_out = False
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)

@@ -8,7 +8,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from mhseals_hardware.keyboard import KeyReader
-from mhseals_hardware.odroid_pwm import DEFAULT_PWM_CHIPS, OdroidPWMOutputs
+from mhseals_hardware.odroid_pwm import (
+    DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE, DEFAULT_PWM_CHIPS,
+    OdroidPWMOutputs,
+)
 
 
 PRESETS = {'n': ('NEUTRAL', 1500), 'f': ('FORWARD', 1600),
@@ -127,6 +130,8 @@ def build_parser():
     parser.add_argument('--pwm-channels', default='0,0,0,0',
                         help='channel within each pwmchip')
     parser.add_argument('--frequency', type=float, default=50.0)
+    parser.add_argument('--mosfet-chip', default=DEFAULT_MOSFET_CHIP)
+    parser.add_argument('--mosfet-line', type=int, default=DEFAULT_MOSFET_LINE)
     parser.add_argument('--pulse-step', type=int, default=10)
     parser.add_argument('--frequency-step', type=float, default=1.0)
     return parser
@@ -143,7 +148,10 @@ def main(args=None):
         'Press Enter to arm PWM, or Ctrl+C to cancel.',
         title='Physical thruster warning'))
     console.input()
-    outputs = OdroidPWMOutputs(chips, channels, parsed.frequency).open()
+    outputs = OdroidPWMOutputs(
+        chips, channels, parsed.frequency,
+        mosfet_chip=parsed.mosfet_chip,
+        mosfet_line=parsed.mosfet_line).open()
     try:
         ThrusterTestTUI(outputs, console, parsed.pulse_step,
                         parsed.frequency_step).run()

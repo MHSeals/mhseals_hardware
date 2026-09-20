@@ -13,6 +13,8 @@ DEFAULT_PWM_CHIPS = (
     '/sys/devices/platform/febf0030.pwm/pwm/pwmchip*',
     '/sys/devices/platform/febe0000.pwm/pwm/pwmchip*',
 )
+DEFAULT_MOSFET_CHIP = '/dev/gpiochip3'
+DEFAULT_MOSFET_LINE = 28  # GPIO3_D4, physical header pin 11
 
 
 def resolve_pwm_chip(value):
@@ -96,11 +98,78 @@ class SysfsPWMChannel:
             self._write(self.chip / 'unexport', self.channel_number)
 
 
+class MosfetEnable:
+    """Hold the M2 pin-11 MOSFET enable line active while outputs are armed."""
+
+    def __init__(self, chip=DEFAULT_MOSFET_CHIP,
+                 line=DEFAULT_MOSFET_LINE, active_high=True):
+        self.chip_path = str(chip)
+        self.offset = int(line)
+        self.active_high = bool(active_high)
+        self.chip = None
+        self.request = None
+
+    def open(self):
+        try:
+            import gpiod
+        except ImportError as error:
+            raise RuntimeError(
+                'python3-gpiod is required to control MOSFET enable pin 11') \
+                from error
+        self.gpiod = gpiod
+        self.chip = gpiod.Chip(self.chip_path)
+        if hasattr(self.chip, 'request_lines'):
+            inactive = (gpiod.line.Value.INACTIVE if self.active_high else
+                        gpiod.line.Value.ACTIVE)
+            settings = gpiod.LineSettings(
+                direction=gpiod.line.Direction.OUTPUT,
+                output_value=inactive)
+            self.request = self.chip.request_lines(
+                consumer='mhseals-thruster-mosfet',
+                config={self.offset: settings})
+        else:
+            self.request = self.chip.get_line(self.offset)
+            self.request.request(
+                consumer='mhseals-thruster-mosfet',
+                type=gpiod.LINE_REQ_DIR_OUT,
+                default_vals=[0 if self.active_high else 1])
+        return self
+
+    def set_enabled(self, enabled):
+        physical_value = bool(enabled) == self.active_high
+        if hasattr(self.request, 'set_value'):
+            try:
+                value = (self.gpiod.line.Value.ACTIVE if physical_value else
+                         self.gpiod.line.Value.INACTIVE)
+            except AttributeError:
+                value = int(physical_value)
+            try:
+                self.request.set_value(self.offset, value)
+            except TypeError:
+                self.request.set_value(value)
+        else:
+            self.request.set_values({self.offset: int(physical_value)})
+
+    def close(self):
+        if self.request is not None:
+            self.set_enabled(False)
+            self.request.release()
+            self.request = None
+        if self.chip is not None:
+            close = getattr(self.chip, 'close', None)
+            if close is not None:
+                close()
+            self.chip = None
+
+
 class OdroidPWMOutputs:
     """Four ESC outputs with neutral-on-open and neutral-on-close safety."""
 
     def __init__(self, chips=DEFAULT_PWM_CHIPS, channels=None,
-                 frequency_hz=50.0, neutral_us=1500):
+                 frequency_hz=50.0, neutral_us=1500,
+                 mosfet_chip=DEFAULT_MOSFET_CHIP,
+                 mosfet_line=DEFAULT_MOSFET_LINE,
+                 mosfet_active_high=True):
         if len(chips) != 4:
             raise ValueError('exactly four PWM chip paths are required')
         channels = channels or (0, 0, 0, 0)
@@ -110,6 +179,9 @@ class OdroidPWMOutputs:
                          for chip, channel in zip(chips, channels)]
         self.frequency_hz = float(frequency_hz)
         self.neutral_us = int(neutral_us)
+        self.mosfet = (MosfetEnable(mosfet_chip, mosfet_line,
+                                    mosfet_active_high)
+                        if mosfet_chip else None)
 
     def open(self):
         opened = []
@@ -117,7 +189,12 @@ class OdroidPWMOutputs:
             for channel in self.channels:
                 channel.open().configure(self.frequency_hz, self.neutral_us)
                 opened.append(channel)
+            if self.mosfet is not None:
+                self.mosfet.open()
+                self.mosfet.set_enabled(True)
         except Exception:
+            if self.mosfet is not None:
+                self.mosfet.close()
             for channel in opened:
                 channel.close()
             raise
@@ -142,6 +219,8 @@ class OdroidPWMOutputs:
         self.set_pulse_widths([self.neutral_us] * 4)
 
     def close(self):
+        if self.mosfet is not None:
+            self.mosfet.close()
         for channel in self.channels:
             try:
                 channel.set_pulse_width(self.neutral_us)

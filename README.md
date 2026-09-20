@@ -11,7 +11,14 @@ Wire the four ESC signal leads, in FL, FR, RR, RL order, to the four
 lowest-numbered header GPIO pins that have been configured for hardware PWM.
 Do not confuse a physical header number with a Linux `pwmchip` number. The
 kernel device-tree pin mux determines which physical pin each `pwmchip`
-drives. All grounds must be common.
+drives. All grounds must be common. Physical header pin 11 (`GPIO3_D4`, line
+28 on `/dev/gpiochip3`) is the active-high MOSFET enable.
+
+Every native-PWM entry point shares the same safe lifecycle: configure all
+four PWM channels at 1500 µs neutral, assert the pin-11 MOSFET, run commands,
+deassert the MOSFET, then disable PWM. Exceptions, command timeout shutdown,
+Ctrl+C, and normal exit all take the same deassert-before-disable path. The
+GPIO character device is controlled through `python3-gpiod`.
 
 The node uses the standard Linux PWM sysfs ABI. By default its four physical
 outputs use stable platform-address globs for physical header pins 7, 12, 15,

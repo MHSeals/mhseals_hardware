@@ -376,7 +376,9 @@ class BoatTest:
             title='Thruster identification', style='yellow'))
         self.pwm_outputs = OdroidPWMOutputs(
             self.args.pwm_chips, self.args.pwm_channels,
-            self.args.frequency).open()
+            self.args.frequency,
+            mosfet_chip=self.args.mosfet_chip,
+            mosfet_line=self.args.mosfet_line).open()
         self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
         observations = {}
         used = set()
@@ -433,6 +435,8 @@ class BoatTest:
             '--ros-args', '-p', f'pwm_chips:={chips_yaml}',
             '-p', f'pwm_channels:={channels_yaml}',
             '-p', f'frequency:={self.args.frequency}',
+            '-p', f'mosfet_chip:={self.args.mosfet_chip}',
+            '-p', f'mosfet_line:={self.args.mosfet_line}',
             '-p', f'channel_map:={map_yaml}',
             '-p', f'thruster_matrix:={matrix_yaml}',
         ])
@@ -599,6 +603,8 @@ def build_parser():
     parser.add_argument('--pwm-channels', type=parse_int_list,
                         default=(0, 0, 0, 0))
     parser.add_argument('--frequency', type=float, default=50.0)
+    parser.add_argument('--mosfet-chip', default='/dev/gpiochip3')
+    parser.add_argument('--mosfet-line', type=int, default=28)
     parser.add_argument('--optional-sensors', action='store_true',
                         help='also launch camera and LiDAR drivers')
     parser.add_argument(

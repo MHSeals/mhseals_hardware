@@ -45,7 +45,7 @@ def test_stable_platform_glob_resolves_dynamic_chip_number(tmp_path):
 
 def test_four_outputs_neutralize_on_close(tmp_path):
     chips = [fake_chip(tmp_path, number) for number in range(4)]
-    outputs = OdroidPWMOutputs(chips).open()
+    outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
     outputs.set_pulse_widths([1600, 1400, 1550, 1450])
     outputs.close()
     for channel in outputs.channels:
