@@ -1,4 +1,0 @@
-# Permit unprivileged control only for the thruster GPIO chip and PWM sysfs ABI.
-SUBSYSTEM=="gpio", KERNEL=="gpiochip3", MODE="0666"
-SUBSYSTEM=="pwm", KERNEL=="pwmchip*", RUN+="/bin/sh -c 'chmod 0666 /sys%p/export /sys%p/unexport'"
-SUBSYSTEM=="pwm", KERNEL=="pwm[0-9]*", RUN+="/bin/sh -c 'chmod 0666 /sys%p/enable /sys%p/period /sys%p/duty_cycle /sys%p/polarity'"

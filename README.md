@@ -34,8 +34,8 @@ The running M2 image must expose all four controllers.
 ## Container setup
 
 The ODROID installation of `astro_dock` mounts `/sys` read-write. Install the
-versioned host udev rule once to grant unprivileged access specifically to the
-PWM control files and `gpiochip3`:
+versioned host service once to export the disabled PWM channels at boot and
+grant unprivileged access specifically to their control files and `gpiochip3`:
 
 ```bash
 cd ~/astro_dock/src/mhseals_hardware

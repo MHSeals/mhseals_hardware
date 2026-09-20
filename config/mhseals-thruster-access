@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly PWM_CONTROLLERS=(febd0030 fd8b0030 febf0030 febe0000)
+
+for address in "${PWM_CONTROLLERS[@]}"; do
+    chips=(/sys/devices/platform/"${address}.pwm"/pwm/pwmchip*)
+    if [[ ${#chips[@]} -ne 1 || ! -d "${chips[0]}" ]]; then
+        echo "Expected one PWM controller for ${address}, found ${#chips[@]}" >&2
+        exit 1
+    fi
+    chip="${chips[0]}"
+    if [[ ! -d "${chip}/pwm0" ]]; then
+        printf '0' > "${chip}/export"
+        for _ in {1..100}; do
+            [[ -d "${chip}/pwm0" ]] && break
+            sleep 0.01
+        done
+    fi
+    [[ -d "${chip}/pwm0" ]] || { echo "Failed to export ${chip}/pwm0" >&2; exit 1; }
+    chmod 0666 "${chip}/export" "${chip}/unexport" \
+        "${chip}/pwm0/enable" "${chip}/pwm0/period" \
+        "${chip}/pwm0/duty_cycle" "${chip}/pwm0/polarity"
+done
+
+chmod 0666 /dev/gpiochip3

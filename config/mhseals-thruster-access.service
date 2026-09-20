@@ -1,0 +1,12 @@
+[Unit]
+Description=Prepare ODROID-M2 thruster PWM access
+Wants=systemd-udev-settle.service
+After=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/mhseals-thruster-access
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

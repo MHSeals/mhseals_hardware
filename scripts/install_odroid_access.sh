@@ -2,17 +2,20 @@
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly RULE_SOURCE="${SCRIPT_DIR}/../config/99-mhseals-thrusters.rules"
-readonly RULE_TARGET="/etc/udev/rules.d/99-mhseals-thrusters.rules"
+readonly CONFIG_DIR="${SCRIPT_DIR}/../config"
+readonly HELPER_SOURCE="${CONFIG_DIR}/mhseals-thruster-access"
+readonly HELPER_TARGET="/usr/local/libexec/mhseals-thruster-access"
+readonly UNIT_SOURCE="${CONFIG_DIR}/mhseals-thruster-access.service"
+readonly UNIT_TARGET="/etc/systemd/system/mhseals-thruster-access.service"
 
-if [[ ! -f "${RULE_SOURCE}" ]]; then
-    echo "Missing udev rule: ${RULE_SOURCE}" >&2
-    exit 1
-fi
-sudo install -m 0644 "${RULE_SOURCE}" "${RULE_TARGET}"
-sudo udevadm control --reload-rules
-sudo udevadm trigger --subsystem-match=gpio --subsystem-match=pwm
-sudo udevadm settle
+for source in "${HELPER_SOURCE}" "${UNIT_SOURCE}"; do
+    [[ -f "${source}" ]] || { echo "Missing access file: ${source}" >&2; exit 1; }
+done
 
-echo "Installed ${RULE_TARGET}"
+sudo install -D -m 0755 "${HELPER_SOURCE}" "${HELPER_TARGET}"
+sudo install -m 0644 "${UNIT_SOURCE}" "${UNIT_TARGET}"
+sudo systemctl daemon-reload
+sudo systemctl enable --now mhseals-thruster-access.service
+
+echo "Installed and started mhseals-thruster-access.service"
 echo "Recreate the dev container after confirming /sys:/sys:rw is configured."
