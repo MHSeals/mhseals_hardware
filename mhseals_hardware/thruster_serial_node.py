@@ -70,7 +70,9 @@ class ThrusterSerialNode(Node):
             self.get_logger().warning('Pico watchdog set thrusters to neutral')
         elif response == 'READY':
             self.get_logger().info('Pico controller ready')
-        elif not response.startswith('ACK,'):
+        elif response.startswith('ACK,'):
+            self.get_logger().debug(f'Pico acknowledged PWM: {response[4:]}')
+        else:
             self.get_logger().warning(f'Unexpected Pico response: {response}')
 
     def cmd_vel_callback(self, message):
