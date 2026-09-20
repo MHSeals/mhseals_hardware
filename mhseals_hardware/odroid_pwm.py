@@ -213,12 +213,6 @@ class OdroidPWMOutputs:
         for channel, value in zip(self.channels, values):
             channel.set_pulse_width(value)
 
-    def set_frequency(self, frequency_hz):
-        frequency_hz = float(frequency_hz)
-        for channel in self.channels:
-            channel.configure(frequency_hz, self.neutral_us)
-        self.frequency_hz = frequency_hz
-
     def neutral(self):
         self.set_pulse_widths([self.neutral_us] * 4)
 

@@ -26,13 +26,12 @@ def parse_csv(text, cast=str):
 class ThrusterTestTUI:
     """Edit frequency and individual/all pulse widths without restarting."""
 
-    def __init__(self, outputs, console=None, pulse_step=10, frequency_step=1):
+    def __init__(self, outputs, console=None, pulse_step=10):
         self.outputs = outputs
         self.console = console or Console()
         self.selected = 0
         self.pulses = [outputs.neutral_us] * 4
         self.pulse_step = pulse_step
-        self.frequency_step = frequency_step
         self.state = 'NEUTRAL'
 
     def render(self):
@@ -52,10 +51,10 @@ class ThrusterTestTUI:
             table.add_row(marker, name, path, f'{pulse} µs')
         status = Panel(
             f'[bold]State:[/] [yellow]{self.state}[/]    '
-            f'[bold]Frequency:[/] {self.outputs.frequency_hz:g} Hz\n\n'
+            '[bold]Frequency:[/] 50 Hz (fixed)\n\n'
             '↑/↓ select  •  ←/→ pulse ±step  •  [/[] pulse ±1 µs\n'
             'N neutral  •  F forward  •  B reverse  •  Z/X min/max\n'
-            '-/+ frequency  •  0 stop/neutral  •  Q quit safely',
+            '0/Space neutral  •  Q quit safely',
             title='Thruster PWM test (live)', border_style='yellow')
         return Group(status, table)
 
@@ -78,13 +77,6 @@ class ThrusterTestTUI:
                                              self.pulses[index] + amount))
         self.state = 'CUSTOM'
         self.apply_pulses()
-
-    def adjust_frequency(self, amount):
-        frequency = max(1.0, min(400.0,
-                        self.outputs.frequency_hz + amount))
-        self.outputs.set_frequency(frequency)
-        self.pulses = [self.outputs.neutral_us] * 4
-        self.state = 'NEUTRAL (frequency changed)'
 
     def run(self):
         try:
@@ -113,10 +105,6 @@ class ThrusterTestTUI:
                         self.pulses = [self.outputs.neutral_us] * 4
                         self.state = 'NEUTRAL'
                         self.apply_pulses()
-                    elif key in ('-', '_'):
-                        self.adjust_frequency(-self.frequency_step)
-                    elif key in ('+', '='):
-                        self.adjust_frequency(self.frequency_step)
                     live.update(self.render())
         finally:
             self.outputs.neutral()
@@ -129,11 +117,9 @@ def build_parser():
                         help='four comma-separated pwmchip paths')
     parser.add_argument('--pwm-channels', default='0,0,0,0',
                         help='channel within each pwmchip')
-    parser.add_argument('--frequency', type=float, default=50.0)
     parser.add_argument('--mosfet-chip', default=DEFAULT_MOSFET_CHIP)
     parser.add_argument('--mosfet-line', type=int, default=DEFAULT_MOSFET_LINE)
     parser.add_argument('--pulse-step', type=int, default=10)
-    parser.add_argument('--frequency-step', type=float, default=1.0)
     return parser
 
 
@@ -149,12 +135,11 @@ def main(args=None):
         title='Physical thruster warning'))
     console.input()
     outputs = OdroidPWMOutputs(
-        chips, channels, parsed.frequency,
+        chips, channels, 50.0,
         mosfet_chip=parsed.mosfet_chip,
         mosfet_line=parsed.mosfet_line).open()
     try:
-        ThrusterTestTUI(outputs, console, parsed.pulse_step,
-                        parsed.frequency_step).run()
+        ThrusterTestTUI(outputs, console, parsed.pulse_step).run()
     except KeyboardInterrupt:
         console.print('\n[yellow]Interrupted; neutralizing outputs.[/]')
     finally:

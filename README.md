@@ -78,12 +78,13 @@ The program waits for Enter before arming and always neutralizes on exit.
 | `[` / `]` | Decrease/increase pulse width by 1 us |
 | `N`, `F`, `B` | Neutral, forward, or reverse preset |
 | `Z`, `X` | 1100 or 1900 us endpoint |
-| `-`, `+` | Change frequency; outputs reset to neutral |
 | Space or `0` | Neutral immediately |
 | `Q` | Neutralize, disable, and exit |
 
-The terminal reader handles SSH and nested-container escape sequences and
-restores terminal state after interruption.
+The test frequency is fixed at the ESC-required 50 Hz. Runtime frequency
+changes are intentionally prohibited because restarting PWM can be interpreted
+as throttle by the ESCs. The terminal reader handles SSH and nested-container
+escape sequences and restores terminal state after interruption.
 
 ## ROS control
 
