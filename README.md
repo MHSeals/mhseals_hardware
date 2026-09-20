@@ -14,9 +14,10 @@ kernel device-tree pin mux determines which physical pin each `pwmchip`
 drives. All grounds must be common.
 
 The node uses the standard Linux PWM sysfs ABI. By default its four physical
-outputs are `/sys/class/pwm/pwmchip0` through `pwmchip3`, channel 0. The exact
-chip numbers can change when other PWM consumers (notably the cooling fan) are
-enabled, so production startup should use the stable paths under each
+outputs are `/sys/class/pwm/pwmchip0`, `pwmchip4`, `pwmchip8`, and
+`pwmchip12`, channel 0: the four lowest controller numbers in Hardkernel's M2
+PWM table. The sysfs numbers can change when other PWM consumers (notably the
+cooling fan) are enabled, so production startup should use stable paths under each
 platform device's `pwm/` directory and pass those as `pwm_chips`. The running
 M2 image must expose four PWM controllers and the container must bind-mount
 `/sys/class/pwm` read/write. Check before connecting ESC signal wires:
@@ -31,7 +32,7 @@ Run the ROS bridge directly on the M2:
 
 ```bash
 ros2 run mhseals_hardware thruster_pwm_node --ros-args \
-  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3]' \
+  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12]' \
   -p channel_map:='[1,2,3,4]' -p frequency:=50.0
 ```
 
@@ -48,7 +49,7 @@ per-thruster or all-thruster adjustment:
 
 ```bash
 ros2 run mhseals_hardware thruster_test --pwm-chips \
-  /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3
+  /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12
 ```
 
 Use Up/Down to select all/FL/FR/RR/RL; Left/Right changes pulse width by
@@ -182,7 +183,7 @@ the motor. Save the printed map for later runs:
 ```bash
 ros2 run mhseals_hardware boat_test \
   --fcu-url serial:///dev/ttyACM0:57600 \
-  --pwm-chips /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3 \
+  --pwm-chips /sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12 \
   --channel-map 2,4,1,3
 ```
 
@@ -202,7 +203,7 @@ channel map. Do not run another `cmd_vel` publisher at the same time:
 
 ```bash
 ros2 run mhseals_hardware thruster_pwm_node --ros-args \
-  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip1,/sys/class/pwm/pwmchip2,/sys/class/pwm/pwmchip3]' \
+  -p pwm_chips:='[/sys/class/pwm/pwmchip0,/sys/class/pwm/pwmchip4,/sys/class/pwm/pwmchip8,/sys/class/pwm/pwmchip12]' \
   -p channel_map:='[1,2,3,4]'
 ```
 

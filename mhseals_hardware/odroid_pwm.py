@@ -4,7 +4,11 @@ from pathlib import Path
 import time
 
 
-DEFAULT_PWM_CHIPS = tuple(f'/sys/class/pwm/pwmchip{i}' for i in range(4))
+# Rockchip exposes each four-channel PWM block at a four-number stride.  Each
+# M2 header overlay selects channel zero from one block; these are the lowest
+# four controller numbers in Hardkernel's documented sysfs table.
+DEFAULT_PWM_CHIPS = tuple(
+    f'/sys/class/pwm/pwmchip{i}' for i in (0, 4, 8, 12))
 
 
 def period_ns(frequency_hz):
