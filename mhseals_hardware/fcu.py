@@ -12,6 +12,7 @@ def detect_fcu_device(dev_root=Path('/dev')):
     """Return the most likely stable FCU device path, if one exists."""
     dev_root = Path(dev_root)
     by_id = dev_root / 'serial' / 'by-id'
+    unknown_stable_devices = set()
     if by_id.is_dir():
         links = sorted(path for path in by_id.iterdir()
                        if path.is_symlink() or path.is_file())
@@ -19,10 +20,11 @@ def detect_fcu_device(dev_root=Path('/dev')):
                   if any(hint in path.name.lower() for hint in FCU_ID_HINTS)]
         if hinted:
             return hinted[0]
-        if len(links) == 1:
-            return links[0]
+        unknown_stable_devices = {path.resolve() for path in links}
 
     candidates = sorted((*dev_root.glob('ttyACM*'), *dev_root.glob('ttyUSB*')))
+    candidates = [path for path in candidates
+                  if path.resolve() not in unknown_stable_devices]
     return candidates[0] if candidates else None
 
 

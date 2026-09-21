@@ -12,12 +12,14 @@ def test_prefers_hinted_stable_device(tmp_path):
     assert detect_fcu_device(tmp_path) == pixhawk
 
 
-def test_uses_only_stable_device_when_name_is_unknown(tmp_path):
+def test_ignores_unknown_stable_device(tmp_path):
     by_id = tmp_path / 'serial' / 'by-id'
     by_id.mkdir(parents=True)
+    device = tmp_path / 'ttyACM0'
+    device.touch()
     controller = by_id / 'usb-flight-controller'
-    controller.touch()
-    assert detect_fcu_device(tmp_path) == controller
+    controller.symlink_to(device)
+    assert detect_fcu_device(tmp_path) is None
 
 
 def test_falls_back_to_first_tty_device(tmp_path):
