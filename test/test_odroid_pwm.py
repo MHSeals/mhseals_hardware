@@ -13,7 +13,7 @@ def fake_chip(root, number):
     chip = root / f'pwmchip{number}'
     pwm = chip / 'pwm0'
     pwm.mkdir(parents=True)
-    for name in ('enable', 'duty_cycle', 'period'):
+    for name in ('enable', 'duty_cycle', 'period', 'polarity'):
         (pwm / name).write_text('0', encoding='ascii')
     return chip
 
@@ -35,6 +35,7 @@ def test_channel_configures_period_duty_and_enable(tmp_path):
     channel.configure(50, 1500)
     assert (channel.path / 'period').read_text() == '20000000'
     assert (channel.path / 'duty_cycle').read_text() == '1500000'
+    assert (channel.path / 'polarity').read_text() == 'normal'
     assert (channel.path / 'enable').read_text() == '1'
 
 

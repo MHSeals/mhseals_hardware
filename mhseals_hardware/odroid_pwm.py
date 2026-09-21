@@ -81,6 +81,7 @@ class SysfsPWMChannel:
         period = period_ns(frequency_hz)
         duty = pulse_ns(pulse_width_us, frequency_hz)
         self._write(self.path / 'enable', 0)
+        self._write(self.path / 'polarity', 'normal')
         # A new, shorter period cannot be installed while duty exceeds it.
         self._write(self.path / 'duty_cycle', 0)
         self._write(self.path / 'period', period)
