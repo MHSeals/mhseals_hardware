@@ -1,6 +1,7 @@
 """Live native-PWM thruster bring-up tool, designed for nested SSH PTYs."""
 
 import argparse
+import time
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -17,6 +18,7 @@ from mhseals_hardware.odroid_pwm import (
 PRESETS = {'n': ('NEUTRAL', 1500), 'f': ('FORWARD', 1600),
            'b': ('REVERSE', 1400), 'z': ('MINIMUM', 1100),
            'x': ('MAXIMUM', 1900)}
+ARMING_SECONDS = 3.0
 
 
 def parse_csv(text, cast=str):
@@ -139,6 +141,10 @@ def main(args=None):
         mosfet_chip=parsed.mosfet_chip,
         mosfet_line=parsed.mosfet_line).open()
     try:
+        console.print(
+            f'[yellow]Holding neutral for {ARMING_SECONDS:g} seconds '
+            'while ESCs arm; controls are locked.[/]')
+        time.sleep(ARMING_SECONDS)
         ThrusterTestTUI(outputs, console, parsed.pulse_step).run()
     except KeyboardInterrupt:
         console.print('\n[yellow]Interrupted; neutralizing outputs.[/]')

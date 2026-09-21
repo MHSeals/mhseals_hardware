@@ -69,7 +69,8 @@ and an emergency stop within reach.
 ros2 run mhseals_hardware thruster_test
 ```
 
-The program waits for Enter before arming and always neutralizes on exit.
+The program waits for Enter, then holds uninterrupted neutral for three seconds
+before enabling live controls. It always neutralizes on exit.
 
 | Key | Action |
 | --- | --- |
