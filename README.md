@@ -133,6 +133,10 @@ positions, runs repeatable surge/sway/yaw trials, and records ROS bags:
 ros2 run mhseals_hardware boat_test
 ```
 
+Press Enter at the FCU prompt to use the detected stable serial device. The
+runner prefers flight-controller names under `/dev/serial/by-id`, then
+`ttyACM*`/`ttyUSB*`, and falls back to `serial:///dev/ttyACM0:57600`.
+
 Use `--allow-missing-sensors` for a secured thruster-only bring-up. If no
 `--channel-map` is given, the workflow pulses each output at 15 percent and
 asks which position moved. Its test menu supports surge, sway, yaw, all tests,

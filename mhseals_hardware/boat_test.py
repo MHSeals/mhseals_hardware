@@ -32,6 +32,7 @@ from mhseals_hardware.thruster_mixer import (
     validate_mixer,
 )
 from mhseals_hardware.keyboard import KeyReader
+from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.manual_control import run_manual
 from mhseals_hardware.odroid_pwm import DEFAULT_PWM_CHIPS, OdroidPWMOutputs
 
@@ -586,10 +587,9 @@ class BoatTest:
 def prompt_hardware(args):
     console = Console()
     if args.fcu_url is None:
+        default_url = default_fcu_url()
         args.fcu_url = console.input(
-            'MAVROS FCU URL (e.g. serial:///dev/ttyACM1:57600): ').strip()
-    if not args.fcu_url:
-        raise ValueError('MAVROS FCU URL is required')
+            f'MAVROS FCU URL [cyan][{default_url}][/]: ').strip() or default_url
 
 
 def build_parser():
