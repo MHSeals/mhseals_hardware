@@ -2,6 +2,8 @@
 
 """Convert MAVROS RC input into body-frame velocity commands."""
 
+import time
+
 import rclpy
 from geometry_msgs.msg import Twist
 from mavros_msgs.msg import RCIn
@@ -20,7 +22,7 @@ class RemoteController(Node):
         self.declare_parameter('deadband_pwm', 40)
         self.declare_parameter('max_linear_speed', 1.0)
         self.declare_parameter('max_angular_speed', 1.0)
-        self.declare_parameter('timeout', 0.5)
+        self.declare_parameter('timeout', 0.75)
 
         self.center_pwm = self.get_parameter('center_pwm').value
         self.pwm_range = self.get_parameter('pwm_range').value
@@ -67,17 +69,19 @@ class RemoteController(Node):
         command.linear.y = -channel_1 * self.max_linear_speed
         command.angular.z = -channel_4 * self.max_angular_speed
         self.publisher.publish(command)
-        self.last_rc_time = self.get_clock().now()
+        # A monotonic clock is immune to NTP and flight-controller clock steps.
+        self.last_rc_time = time.monotonic()
 
     def stop_if_stale(self):
         if self.last_rc_time is None:
             return
 
-        age = (self.get_clock().now() - self.last_rc_time).nanoseconds / 1e9
+        age = time.monotonic() - self.last_rc_time
         if age > self.timeout:
             self.publisher.publish(Twist())
             self.last_rc_time = None
-            self.get_logger().warning('RC input timed out; stopping the boat')
+            self.get_logger().warning(
+                f'RC input timed out after {age:.3f}s; stopping the boat')
 
 
 def main(args=None):
