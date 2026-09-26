@@ -45,8 +45,8 @@ def publish_manual(message_publisher, axis=None, value=0.0):
     message_publisher.publish(message)
 
 
-def run_manual(message_publisher, console=None, amplitude=0.25,
-               deadman_timeout=0.35):
+def run_manual(message_publisher, console=None, amplitude=0.9,
+               deadman_timeout=0.75):
     """Run manual control until X, always finishing with a neutral command."""
     console = console or Console()
     axis = None

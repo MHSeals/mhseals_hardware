@@ -121,7 +121,7 @@ ros2 run mhseals_hardware boat_manual
 ```
 
 W/S or Up/Down commands surge, A/D commands sway, Left/Right commands yaw,
-Space stops, and X exits. Commands expire after 350 ms unless keys continue
+Space stops, and X exits. Commands expire after 750 ms unless keys continue
 arriving.
 
 ## Guided boat test

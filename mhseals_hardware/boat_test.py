@@ -620,7 +620,7 @@ def build_parser():
     parser.add_argument('--sensor-timeout', type=float, default=30.0)
     parser.add_argument('--stale-after', type=float, default=2.0)
     parser.add_argument('--amplitude', type=float, default=0.25)
-    parser.add_argument('--manual-amplitude', type=float, default=0.25)
+    parser.add_argument('--manual-amplitude', type=float, default=0.9)
     parser.add_argument('--baseline-duration', type=float, default=5.0)
     parser.add_argument('--command-duration', type=float, default=3.0)
     parser.add_argument('--settle-duration', type=float, default=5.0)
