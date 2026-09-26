@@ -24,6 +24,7 @@ setup(
             'thruster_test = mhseals_hardware.thruster_test_tui:main',
             'boat_test = mhseals_hardware.boat_test:main',
             'boat_manual = mhseals_hardware.manual_control:main',
+            'remote_controller = mhseals_hardware.remote_controller:main',
         ],
     },
 )
