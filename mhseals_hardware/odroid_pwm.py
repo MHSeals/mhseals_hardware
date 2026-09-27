@@ -115,7 +115,7 @@ class MosfetEnable:
             import gpiod
         except ImportError as error:
             raise RuntimeError(
-                'python3-gpiod is required to control MOSFET enable pin 11') \
+                'python3-libgpiod is required to control MOSFET enable pin 11') \
                 from error
         self.gpiod = gpiod
         self.chip = gpiod.Chip(self.chip_path)
