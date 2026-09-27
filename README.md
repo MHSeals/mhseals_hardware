@@ -98,6 +98,14 @@ Start the hardware node on the ODROID:
 ros2 run mhseals_hardware thruster_pwm_node
 ```
 
+This arms real outputs. Secure the boat and clear/submerge propellers first.
+In another terminal, `ros2 run mhseals_hardware keyboard_control` publishes
+manual commands. To select a different **effort** topic, use
+`ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/control/cmd_vel`.
+Run one driver and one selected command publisher only. Inputs are normalized
+effort, not measured m/s or rad/s: do not directly connect Nav2's `/nav/cmd_vel`
+without a calibrated velocity controller.
+
 It subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`): `linear.x` is forward,
 `linear.y` is port/left, and `angular.z` is counterclockwise. A 500 ms command
 timeout returns every channel to neutral. Relevant parameters are
