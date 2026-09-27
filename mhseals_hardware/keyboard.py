@@ -5,6 +5,7 @@ import re
 import select
 import sys
 import termios
+import time
 
 
 ARROW_SEQUENCES = {
@@ -15,9 +16,11 @@ ARROW_SEQUENCES = {
 }
 
 
-def decode_key(value):
+def decode_key(value, report_events=False):
     """Normalize a complete terminal byte sequence into a key name."""
-    event = re.fullmatch(rb'\x1b\[(\d+)(?:;\d+(?::([123]))?)?u', value)
+    if re.fullmatch(rb'\x1b\[(?:99|67);[56](?::[12])?u', value):
+        raise KeyboardInterrupt
+    event = re.fullmatch(rb'\x1b\[(\d+)(?::[\d:]*)?(?:;\d+(?::([123]))?)?(?:;[\d:]*)?u', value)
     arrow = re.fullmatch(rb'\x1b\[1;\d+:([123])([ABCD])', value)
     if event:
         code = int(event[1])
@@ -26,10 +29,18 @@ def decode_key(value):
         key = {13: 'enter', 27: 'escape', 32: 'space',
                57352: 'up', 57353: 'down',
                57350: 'left', 57351: 'right'}.get(code, chr(code).lower())
+        if key == '\x03':
+            raise KeyboardInterrupt
+        if report_events:
+            return {b'2': 'repeat:', b'3': 'release:'}.get(event[2], 'press:') + key
         return f'release:{key}' if event[2] == b'3' else key
     if arrow:
         key = {b'A': 'up', b'B': 'down', b'C': 'right', b'D': 'left'}[arrow[2]]
+        if report_events:
+            return {b'1': 'press:', b'2': 'repeat:', b'3': 'release:'}[arrow[1]] + key
         return f'release:{key}' if arrow[1] == b'3' else key
+    if value in (b'\x1b[I', b'\x1b[O'):
+        return 'focus-in' if value == b'\x1b[I' else 'focus-out'
     if value in (b'\r', b'\n'):
         return 'enter'
     if value == b' ':
@@ -50,6 +61,8 @@ class KeyReader:
         self.fd = None
         self.settings = None
         self.report_events = report_events
+        self.buffer = bytearray()
+        self.escape_started = None
 
     def __enter__(self):
         if not sys.stdin.isatty():
@@ -67,36 +80,52 @@ class KeyReader:
         if self.report_events:
             # Kitty keyboard protocol: disambiguate, event types, all keys.
             # Unsupported terminals ignore this request and retain the fallback.
-            sys.stdout.write('\x1b[>11u')
+            sys.stdout.write('\x1b[>11u\x1b[?1004h')
             sys.stdout.flush()
         return self
 
     def __exit__(self, *_):
-        if self.report_events:
-            sys.stdout.write('\x1b[<u')
-            sys.stdout.flush()
-        if self.settings is not None:
-            termios.tcsetattr(self.fd, termios.TCSADRAIN, self.settings)
+        try:
+            if self.report_events:
+                sys.stdout.write('\x1b[<u\x1b[?1004l')
+                sys.stdout.flush()
+        finally:
+            if self.settings is not None:
+                termios.tcsetattr(self.fd, termios.TCSANOW, self.settings)
 
     def read(self, timeout=None):
         """Return a normalized key name, or None when the timeout expires."""
-        ready, _, _ = select.select([self.fd], [], [], timeout)
-        if not ready:
-            return None
-        value = os.read(self.fd, 1)
-        if value != b'\x1b':
-            return decode_key(value)
-
-        # SSH and Docker can split one escape sequence across several reads.
-        # Collect the short burst rather than assuming '[A' arrives together.
-        sequence = bytearray(value)
-        while len(sequence) < 64:
-            ready, _, _ = select.select([self.fd], [], [], 0.05)
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            now = time.monotonic()
+            if self.buffer:
+                complete = self.buffer[0] != 27
+                if self.buffer[0] == 27:
+                    if len(self.buffer) == 1:
+                        complete = now - self.escape_started >= 0.05
+                    elif self.buffer[1] not in (ord('['), ord('O')):
+                        complete = True
+                    else:
+                        complete = len(self.buffer) > 2 and 0x40 <= self.buffer[-1] <= 0x7e
+                if complete:
+                    value = bytes(self.buffer)
+                    self.buffer.clear()
+                    return decode_key(value, self.report_events)
+                if len(self.buffer) > 64 or now - self.escape_started > 1.0:
+                    self.buffer.clear()
+                    raise ValueError('incomplete or oversized terminal key sequence')
+            wait = None if deadline is None else max(0.0, deadline - now)
+            if self.buffer == b'\x1b':
+                escape_wait = max(0.0, .05 - (now - self.escape_started))
+                wait = escape_wait if wait is None else min(wait, escape_wait)
+            ready, _, _ = select.select([self.fd], [], [], wait)
             if not ready:
-                break
-            sequence.extend(os.read(self.fd, 1))
-            if bytes(sequence) in ARROW_SEQUENCES:
-                break
-            if len(sequence) > 2 and 0x40 <= sequence[-1] <= 0x7e:
-                break
-        return decode_key(bytes(sequence))
+                if deadline is not None and time.monotonic() >= deadline:
+                    return None
+                continue
+            part = os.read(self.fd, 1)
+            if not part:
+                raise EOFError('terminal input disconnected')
+            if not self.buffer:
+                self.escape_started = time.monotonic()
+            self.buffer.extend(part)

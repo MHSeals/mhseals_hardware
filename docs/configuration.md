@@ -41,12 +41,36 @@ in 5% steps (0–100%), Space immediate neutral, X/Escape exit. Default speed is
 25%. The node independently neutralizes on missing commands after 0.5 seconds.
 
 The TUI requests Kitty keyboard release events. A compatible terminal and PTY
-chain allow neutral on release (within the 50 ms input loop). Ordinary SSH
+chain enable multi-key mode: hold W+D for forward/starboard, and add Left/Right
+for yaw. Opposite keys cancel; aliases (W and Up) do not double thrust.
+Translation diagonals are normalized to the selected translation magnitude;
+adding yaw can still increase individual mixer outputs. The speed percentage
+is a command scale, not a measured boat speed or a per-motor power limit.
+Releasing one key leaves the others active (within the 50 ms input loop).
+The TUI explicitly displays whether it has received extended keyboard events.
+Use a compatible terminal such as Kitty, including through SSH; intermediate
+terminal multiplexers must forward the protocol. Do not assume every terminal
+or SSH/client/multiplexer combination supports it.
+
+Ordinary SSH
 terminal input has **no key-up signal**: first press gets 0.65 s grace for OS
 repeat startup; subsequent repeats expire after 0.15 s. A quick tap in fallback
-mode can therefore remain active for the initial grace interval. Space is the
+mode can therefore remain active for the initial grace interval. This mode
+deliberately remains single-key: it cannot reliably infer W+D or key release.
+Extended mode uses a shared input watchdog so only the newest key needs to
+repeat. Input loss clears the chord; repeat events alone cannot re-arm it.
+Release and press again after a timeout. OS repeat must be enabled and its
+initial delay shorter than the configured initial grace. Excessive network
+delay causes a deliberate safety stop, not guaranteed uninterrupted motion.
+Focus-out (where reported), Space, exit and input EOF clear all motion. A
+terminal that loses a release without reporting focus loss cannot reveal the
+true held-key state; retain Space and an independent physical cutoff.
+
+Space is the
 explicit immediate stop. Configure both intervals in YAML; do not increase the
-repeat timeout to accommodate the first repeat. Test terminal behavior with
+repeat timeout to accommodate the first repeat. First test with
+`ros2 run mhseals_hardware keyboard_control --dry-run` (no ROS publishing).
+Test terminal behavior with
 propulsion power disconnected before operating the boat. This is not a physical
 emergency stop; loss of the controller/PWM process requires independent hardware
 safety provisions.

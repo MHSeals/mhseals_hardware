@@ -122,8 +122,12 @@ ros2 run mhseals_hardware keyboard_control
 
 W/S or Up/Down commands surge, A/D commands sway, Left/Right commands yaw,
 Space stops, and X exits. `+`/`-` changes thrust speed in 5% steps.
-Release-aware terminals stop on release; ordinary terminals use initial-repeat
-grace followed by a short repeat timeout. See [configuration](docs/configuration.md)
+Release-aware terminals support held combinations: W+D is forward/starboard;
+add Left/Right to rotate. Translation diagonals are normalized. Ordinary
+terminals explicitly remain single-key, with initial-repeat grace followed by
+a short repeat timeout. Test your terminal safely with
+`ros2 run mhseals_hardware keyboard_control --dry-run`.
+See [configuration](docs/configuration.md)
 for the safety limitations and timeout settings. `boat_manual` remains a
 compatibility alias; the canonical command matches `keyboard_control.py`.
 

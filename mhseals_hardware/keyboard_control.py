@@ -4,6 +4,7 @@ import argparse
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 from geometry_msgs.msg import Twist
 import rclpy
@@ -18,7 +19,7 @@ from mhseals_hardware.configuration import load_config
 from mhseals_hardware.manual_state import ManualState
 
 
-def manual_panel(active='NEUTRAL', amplitude=0.25):
+def manual_panel(active='NEUTRAL', amplitude=0.25, event_mode=False):
     """Render controls and the currently commanded direction."""
     return Panel(
         '[bold]W/S or ↑/↓[/] forward/reverse    '
@@ -26,21 +27,20 @@ def manual_panel(active='NEUTRAL', amplitude=0.25):
         '[bold]←/→[/] rotate CCW/CW             '
         '[bold]Space[/] stop    [bold]X[/] return\n\n'
         f'Command: [yellow]{active}[/]    Speed: {amplitude:.0%} '
-        '([bold]+/-[/] adjust by 5%)\n'
-        '[dim]Release-aware terminals stop immediately. Otherwise: initial '
-        'repeat grace, then short repeat timeout. Space always stops.[/]',
+        '([bold]+/-[/] adjust by 5%)\n' +
+        ('[dim]Multi-key mode: W+D diagonal; arrows add yaw. Release stops each key.[/]'
+         if event_mode else
+         '[yellow]Single-key fallback: terminal has not sent key events. '
+         'Use a Kitty-protocol terminal for held-key combinations.[/]') +
+        '\n[dim]Space clears all motion. Input timeout clears held keys; '
+        'release and press again to re-arm.[/]',
         title='Manual control', border_style='yellow')
 
 
-def publish_manual(message_publisher, axis=None, value=0.0):
+def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
     """Publish one manual planar command."""
     message = Twist()
-    if axis == 'surge':
-        message.linear.x = value
-    elif axis == 'sway':
-        message.linear.y = value
-    elif axis == 'yaw':
-        message.angular.z = value
+    message.linear.x, message.linear.y, message.angular.z = command
     message_publisher.publish(message)
 
 
@@ -55,13 +55,24 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 refresh_per_second=10) as live:
             while True:
                 key = keys.read(timeout=0.05)
-                now = time.monotonic()
-                if key in ('x', 'escape'):
-                    return
-                axis, value = state.update(key, now)
-                label = 'NEUTRAL' if axis is None else f'{axis.upper()} {value:+.2f}'
-                publish_manual(message_publisher, axis, value)
-                live.update(manual_panel(label, state.amplitude))
+                # Consume already queued events before publishing one coherent
+                # command; never publish an intermediate neutral between events.
+                for index in range(64):
+                    if key in ('x', 'escape', 'press:x', 'press:escape'):
+                        return
+                    command = state.update(key, time.monotonic())
+                    if key in ('space', 'press:space', 'focus-out'):
+                        break  # Stop must not be hidden by queued input.
+                    if index == 63:
+                        break
+                    key = keys.read(timeout=0)
+                    if key is None:
+                        break
+                label = ' '.join(f'{axis} {value:+.2f}' for axis, value in
+                                 zip(('SURGE', 'SWAY', 'YAW'), command) if value)
+                publish_manual(message_publisher, command)
+                live.update(manual_panel(label or 'NEUTRAL', state.amplitude,
+                                         state.event_mode))
     finally:
         publish_manual(message_publisher)
 
@@ -71,6 +82,8 @@ def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', help='shared hardware YAML path')
     parser.add_argument('--speed', type=float, help='initial thrust fraction, 0 to 1')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='test terminal keys and chords without publishing ROS commands')
     argv = sys.argv if args is None else ['keyboard_control', *args]
     options = parser.parse_args(remove_ros_args(args=argv)[1:])
     if options.speed is not None and not 0 <= options.speed <= 1:
@@ -78,6 +91,17 @@ def main(args=None):
     config = load_config(options.config)
     if options.speed is not None:
         config['manual_amplitude'] = options.speed
+    if options.dry_run:
+        console = Console()
+        console.print('[bold green]DRY RUN: no ROS commands or hardware outputs[/]')
+        try:
+            run_manual(SimpleNamespace(publish=lambda message: None), console,
+                       amplitude=config['manual_amplitude'],
+                       deadman_timeout=config['manual_repeat_timeout'],
+                       initial_timeout=config['manual_initial_timeout'])
+        except (KeyboardInterrupt, EOFError):
+            pass
+        return
     rclpy.init(args=args)
     node = Node('keyboard_control')
     publisher = node.create_publisher(Twist, '/cmd_vel', 10)
@@ -93,7 +117,7 @@ def main(args=None):
         run_manual(publisher, amplitude=config['manual_amplitude'],
                    deadman_timeout=config['manual_repeat_timeout'],
                    initial_timeout=config['manual_initial_timeout'])
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         pass
     finally:
         publish_manual(publisher)

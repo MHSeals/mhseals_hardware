@@ -22,22 +22,58 @@ class ManualState:
         self.initial_timeout = initial_timeout
         self.key = None
         self.deadline = 0.0
+        self.held = set()
+        self.event_mode = False
+        self.focused = True
 
     def update(self, key, now):
-        # Check expiry even when unrelated keys arrive (including speed keys).
+        # A shared watchdog is intentional: terminals usually repeat only the
+        # newest held key. Expiring each key separately breaks diagonal holds.
         if now >= self.deadline:
             self.key = None
-        if key == 'space' or key == f'release:{self.key}':
+            self.held.clear()
+        kind, _, name = (key or '').partition(':')
+        if kind not in ('press', 'repeat', 'release'):
+            kind, name = 'legacy', key
+        elif kind in ('press', 'repeat'):
+            self.event_mode = True
+        if name == 'focus-out':
+            self.focused = False
+        elif name == 'focus-in':
+            self.focused = True
+        if name in ('space', 'focus-out', 'focus-in') and kind != 'release':
             self.key = None
-        elif key in ('+', '=', '-', '_'):
+            self.held.clear()
+        elif kind == 'release':
+            self.held.discard(name)
+            if name == self.key:
+                self.key = None
+            # The OS may restart its initial repeat delay for the remaining key.
+            if self.held:
+                self.deadline = now + self.initial_timeout
+        elif name in ('+', '=', '-', '_'):
             self.amplitude = round(max(0.0, min(1.0, self.amplitude +
-                                   (0.05 if key in ('+', '=') else -0.05))), 2)
-        elif key in MANUAL_KEYS:
-            timeout = (self.repeat_timeout if key == self.key
+                                   (0.05 if name in ('+', '=') else -0.05))), 2)
+        elif name in MANUAL_KEYS and self.focused and kind in ('press', 'repeat'):
+            # Never re-arm a timed-out/stopped chord from repeat events alone.
+            if kind == 'press':
+                self.held.add(name)
+                self.deadline = now + self.initial_timeout
+            elif name in self.held:
+                self.deadline = now + self.repeat_timeout
+            self.key = None
+        elif name in MANUAL_KEYS and self.focused and not self.event_mode:
+            timeout = (self.repeat_timeout if name == self.key
                        else self.initial_timeout)
-            self.key = key
+            self.key = name
             self.deadline = now + timeout
-        if self.key is None:
-            return None, 0.0
-        axis, direction = MANUAL_KEYS[self.key]
-        return axis, direction * self.amplitude
+        keys = self.held if self.event_mode else ({self.key} if self.key else set())
+        # Aliases do not double an axis, opposing directions cancel.
+        axes = {axis: set() for axis in ('surge', 'sway', 'yaw')}
+        for active in keys:
+            axis, direction = MANUAL_KEYS[active]
+            axes[axis].add(direction)
+        x, y, yaw = (sum(axes[axis]) for axis in ('surge', 'sway', 'yaw'))
+        scale = max(1.0, math.hypot(x, y))
+        return (x / scale * self.amplitude, y / scale * self.amplitude,
+                yaw * self.amplitude)
