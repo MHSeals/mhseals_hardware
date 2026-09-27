@@ -45,7 +45,7 @@ def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
 
 
 def run_manual(message_publisher, console=None, amplitude=0.25,
-               deadman_timeout=0.15, initial_timeout=0.65):
+               deadman_timeout=0.15, initial_timeout=0.65, status_panel=None):
     """Run manual control until X, always finishing with a neutral command."""
     console = console or Console()
     state = ManualState(amplitude, deadman_timeout, initial_timeout)
@@ -58,7 +58,7 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 # Consume already queued events before publishing one coherent
                 # command; never publish an intermediate neutral between events.
                 for index in range(64):
-                    if key in ('x', 'escape', 'press:x', 'press:escape'):
+                    if key in ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape'):
                         return
                     command = state.update(key, time.monotonic())
                     if key in ('space', 'press:space', 'focus-out'):
@@ -71,8 +71,8 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 label = ' '.join(f'{axis} {value:+.2f}' for axis, value in
                                  zip(('SURGE', 'SWAY', 'YAW'), command) if value)
                 publish_manual(message_publisher, command)
-                live.update(manual_panel(label or 'NEUTRAL', state.amplitude,
-                                         state.event_mode))
+                render = status_panel or manual_panel
+                live.update(render(label or 'NEUTRAL', state.amplitude, state.event_mode))
     finally:
         publish_manual(message_publisher)
 

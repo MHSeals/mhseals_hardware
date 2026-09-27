@@ -133,35 +133,38 @@ compatibility alias; the canonical command matches `keyboard_control.py`.
 
 ## Guided boat test
 
-The guided workflow checks sensor traffic, identifies physical thruster
-positions, runs repeatable surge/sway/yaw trials, and records ROS bags:
+The commissioning dashboard starts **disarmed**, attaching to existing ROS
+topics without launching sensors, recording, or opening PWM/GPIO:
 
 ```bash
 ros2 run mhseals_hardware boat_test
 ```
 
-Press Enter at the FCU prompt to use the detected stable serial device. The
-runner prefers flight-controller names under `/dev/serial/by-id`, then
-`ttyACM*`/`ttyUSB*`, and falls back to `serial:///dev/ttyACM0:57600`.
+Tab cycles overview, sensors, TF, mapping, results, and logs. **H** explicitly
+arms/disarms, **M** enters manual control, **1/2/3** characterizes surge/sway/yaw,
+**R** edits the persistent map without pulses, **I** identifies outputs with
+pulses, **B** toggles recording, and **E** saves a JSON report. Space stops;
+Q exits. In manual mode M/X/Esc returns and Space clears motion.
 
-Use `--allow-missing-sensors` for a secured thruster-only bring-up. With
-`--identify-thrusters`, the workflow pulses each output at 15 percent and
-asks which position moved, then saves the map. Otherwise the shared YAML map
-is reused. Its test menu supports surge, sway, yaw, all tests,
-and the same deadman manual controller. Process logs and bags are stored under
-`bags/`.
+Use `--monitor-only` on a laptop to disable physical/configuration actions.
+`--start-stack` explicitly launches real sensor/odometry processes; omit it
+when those are already running. `--record` starts recording immediately.
+See [the operator guide](docs/boat-test.md) for interlocks, measurements,
+topic overrides, mapping/pin configuration, and validation limitations.
 
 Common options:
 
 ```bash
 ros2 run mhseals_hardware boat_test \
+  --start-stack --record \
   --fcu-url serial:///dev/ttyACM0:57600 \
-  --channel-map 2,4,1,3 \
-  --allow-missing-sensors
+  --require-tf
 ```
 
 The FCU URL above is MAVROS telemetry and is unrelated to thruster control.
 Ctrl+C neutralizes thrusters, stops the hardware node, and flushes the bag.
+The tool stops only processes it started. Sensor checks do not replace a
+physical power cutoff or independently verify actual motor rotation.
 
 ## Development
 
