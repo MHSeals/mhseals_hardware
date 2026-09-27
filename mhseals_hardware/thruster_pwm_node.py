@@ -8,7 +8,6 @@ import rclpy
 from rclpy.node import Node
 
 from mhseals_hardware.odroid_pwm import (
-    DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE, DEFAULT_PWM_CHIPS,
     OdroidPWMOutputs,
 )
 from mhseals_hardware.thruster_mixer import (

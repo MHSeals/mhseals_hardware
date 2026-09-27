@@ -3,18 +3,29 @@
 from pathlib import Path
 import glob
 import time
+from mhseals_hardware.configuration import load_defaults
 
 
 # pwmchip numbers are allocated dynamically. Platform-address globs remain
 # stable and correspond to physical J2 pins 7, 12, 15, and 33 respectively.
-DEFAULT_PWM_CHIPS = (
-    '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*',
-    '/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*',
-    '/sys/devices/platform/febf0030.pwm/pwm/pwmchip*',
-    '/sys/devices/platform/febe0000.pwm/pwm/pwmchip*',
-)
-DEFAULT_MOSFET_CHIP = '/dev/gpiochip3'
-DEFAULT_MOSFET_LINE = 28  # GPIO3_D4, physical header pin 11
+_DEFAULTS = load_defaults()
+DEFAULT_PWM_CHIPS = tuple(_DEFAULTS['pwm_chips'])
+DEFAULT_MOSFET_CHIP = _DEFAULTS['mosfet_chip']
+DEFAULT_MOSFET_LINE = _DEFAULTS['mosfet_line']
+DEFAULT_MOSFET_ACTIVE_HIGH = _DEFAULTS['mosfet_active_high']
+
+
+def resolve_gpio_chip(value, sysfs='/sys/bus/gpio/devices'):
+    """Resolve a GPIO bank label, never assume bank == device number."""
+    if str(value).startswith('/dev/gpiochip'):
+        return str(value)
+    matches = [p.parent.name for p in Path(sysfs).glob('gpiochip*/label')
+               if p.read_text().strip() == value]
+    if len(matches) != 1:
+        raise FileNotFoundError(
+            f'expected one GPIO bank labelled {value}, found {len(matches)}; '
+            'check gpiodetect and the container /sys and /dev mounts')
+    return '/dev/' + matches[0]
 
 
 def resolve_pwm_chip(value):
@@ -103,7 +114,7 @@ class MosfetEnable:
     """Hold the M2 pin-11 MOSFET enable line active while outputs are armed."""
 
     def __init__(self, chip=DEFAULT_MOSFET_CHIP,
-                 line=DEFAULT_MOSFET_LINE, active_high=True):
+                 line=DEFAULT_MOSFET_LINE, active_high=DEFAULT_MOSFET_ACTIVE_HIGH):
         self.chip_path = str(chip)
         self.offset = int(line)
         self.active_high = bool(active_high)
@@ -118,7 +129,8 @@ class MosfetEnable:
                 'python3-libgpiod is required to control MOSFET enable pin 11') \
                 from error
         self.gpiod = gpiod
-        self.chip = gpiod.Chip(self.chip_path)
+        self.resolved_chip = resolve_gpio_chip(self.chip_path)
+        self.chip = gpiod.Chip(self.resolved_chip)
         if hasattr(self.chip, 'request_lines'):
             inactive = (gpiod.line.Value.INACTIVE if self.active_high else
                         gpiod.line.Value.ACTIVE)
@@ -129,11 +141,12 @@ class MosfetEnable:
                 consumer='mhseals-thruster-mosfet',
                 config={self.offset: settings})
         else:
-            self.request = self.chip.get_line(self.offset)
-            self.request.request(
+            request = self.chip.get_line(self.offset)
+            request.request(
                 consumer='mhseals-thruster-mosfet',
                 type=gpiod.LINE_REQ_DIR_OUT,
                 default_vals=[0 if self.active_high else 1])
+            self.request = request
         return self
 
     def set_enabled(self, enabled):
@@ -170,7 +183,7 @@ class OdroidPWMOutputs:
                  frequency_hz=50.0, neutral_us=1500,
                  mosfet_chip=DEFAULT_MOSFET_CHIP,
                  mosfet_line=DEFAULT_MOSFET_LINE,
-                 mosfet_active_high=True):
+                 mosfet_active_high=DEFAULT_MOSFET_ACTIVE_HIGH):
         if len(chips) != 4:
             raise ValueError('exactly four PWM chip paths are required')
         channels = channels or (0, 0, 0, 0)

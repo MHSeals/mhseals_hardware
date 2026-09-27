@@ -23,9 +23,12 @@ The stable PWM controller paths, in canonical order, are:
 /sys/devices/platform/febe0000.pwm/pwm/pwmchip*
 ```
 
-Physical header pin 11 (`GPIO3_D4`, `/dev/gpiochip3` line 28) is the
+Physical header J2 pin 11 (`GPIO3_D4`, bank label `gpio3`, line 28) is the
 active-high MOSFET enable. Every hardware entry point configures neutral PWM
 before enabling it, and disables the MOSFET before PWM during shutdown.
+The GPIO device number is resolved at runtime, not assumed to equal the bank.
+See [trigger wiring and voltage checks](docs/odroid-mosfet-research.md) and
+[updating existing installations](docs/configuration.md#mosfet-trigger-check).
 
 The device-tree source is
 [`config/odroid-m2-thruster-pwm-overlay.dts`](config/odroid-m2-thruster-pwm-overlay.dts).
@@ -35,7 +38,7 @@ The running M2 image must expose all four controllers.
 
 The ODROID installation of `astro_dock` mounts `/sys` read-write. Install the
 versioned host service once to export the disabled PWM channels at boot and
-grant unprivileged access specifically to their control files and `gpiochip3`:
+grant unprivileged access specifically to their control files and bank `gpio3`:
 
 ```bash
 cd ~/astro_dock/src/mhseals_hardware

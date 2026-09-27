@@ -4,6 +4,7 @@ import math
 import os
 from pathlib import Path
 import tempfile
+import re
 
 import yaml
 
@@ -34,8 +35,9 @@ def validate_config(config):
         raise ValueError('mosfet_line must be a nonnegative integer')
     if type(config['mosfet_active_high']) is not bool:
         raise ValueError('mosfet_active_high must be a boolean')
-    if not isinstance(config['mosfet_chip'], str) or not config['mosfet_chip'].startswith('/dev/gpiochip'):
-        raise ValueError('mosfet_chip must be an absolute gpiochip device path')
+    if not isinstance(config['mosfet_chip'], str) or not re.fullmatch(
+            r'(?:/dev/gpiochip\d+|gpio\d+)', config['mosfet_chip']):
+        raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')
     for key in ('command_timeout', 'manual_repeat_timeout', 'manual_initial_timeout'):
         if not math.isfinite(config[key]) or not 0 < config[key] <= 2:
             raise ValueError(f'{key} must be finite and within (0, 2] seconds')
@@ -44,9 +46,14 @@ def validate_config(config):
     return config
 
 
-def load_config(path=None):
+def load_defaults():
+    """Shipped defaults only; never read per-user overrides at import time."""
     defaults = Path(__file__).with_name('config') / 'default.yaml'
-    config = yaml.safe_load(defaults.read_text())
+    return validate_config(yaml.safe_load(defaults.read_text()))
+
+
+def load_config(path=None):
+    config = load_defaults()
     selected = config_path(path)
     if selected.exists():
         overrides = yaml.safe_load(selected.read_text())

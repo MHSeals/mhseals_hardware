@@ -1,12 +1,75 @@
 """Unit tests for native Linux PWM conversion and output behavior."""
 
 from pathlib import Path
+from types import SimpleNamespace
+import sys
 
 import pytest
 
 from mhseals_hardware.odroid_pwm import (
     OdroidPWMOutputs, SysfsPWMChannel, period_ns, pulse_ns, resolve_pwm_chip,
 )
+
+
+def test_gpio_bank_resolves_independently_of_device_number(tmp_path):
+    from mhseals_hardware.odroid_pwm import resolve_gpio_chip
+    for number, label in ((3, 'gpio1'), (5, 'gpio3')):
+        chip = tmp_path / f'gpiochip{number}'
+        chip.mkdir()
+        (chip / 'label').write_text(label + '\n')
+    assert resolve_gpio_chip('gpio3', tmp_path) == '/dev/gpiochip5'
+    with pytest.raises(FileNotFoundError):
+        resolve_gpio_chip('gpio4', tmp_path)
+    assert resolve_gpio_chip('/dev/gpiochip5', tmp_path) == '/dev/gpiochip5'
+
+
+@pytest.mark.parametrize('version', [1, 2])
+@pytest.mark.parametrize('active_high', [True, False])
+def test_mosfet_polarity_and_release(monkeypatch, version, active_high):
+    from mhseals_hardware.odroid_pwm import MosfetEnable
+    events = []
+
+    class Request:
+        def request(self, **kwargs):
+            events.append(kwargs['default_vals'][0])
+
+        def set_value(self, *args):
+            if len(args) != version:
+                raise TypeError('wrong API signature')
+            events.append(args[-1])
+
+        def release(self):
+            events.append('release')
+
+    class Chip:
+        def __init__(self, path):
+            assert path == '/dev/gpiochip5'
+
+        def close(self):
+            events.append('close')
+
+        def get_line(self, offset):
+            assert offset == 28
+            return Request()
+
+    if version == 2:
+        def request_lines(self, **kwargs):
+            events.append(kwargs['config'][28].output_value)
+            return Request()
+        Chip.request_lines = request_lines
+    module = SimpleNamespace(Chip=Chip, LINE_REQ_DIR_OUT=3)
+    if version == 2:
+        module.LineSettings = SimpleNamespace
+        module.line = SimpleNamespace(
+            Value=SimpleNamespace(ACTIVE=1, INACTIVE=0),
+            Direction=SimpleNamespace(OUTPUT=3))
+    monkeypatch.setitem(sys.modules, 'gpiod', module)
+    enable = MosfetEnable('/dev/gpiochip5', 28, active_high).open()
+    enable.set_enabled(True)
+    enable.close()
+    enable.close()
+    assert events == [int(not active_high), int(active_high),
+                      int(not active_high), 'release', 'close']
 
 
 def fake_chip(root, number):

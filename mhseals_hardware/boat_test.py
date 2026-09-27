@@ -801,8 +801,8 @@ def build_parser():
     parser.add_argument('--pwm-channels', type=parse_int_list,
                         default=(0, 0, 0, 0))
     parser.add_argument('--frequency', type=float, default=50.0)
-    parser.add_argument('--mosfet-chip', default='/dev/gpiochip3')
-    parser.add_argument('--mosfet-line', type=int, default=28)
+    parser.add_argument('--mosfet-chip', help='GPIO bank label or explicit device path')
+    parser.add_argument('--mosfet-line', type=int)
     parser.add_argument('--optional-sensors', action='store_true',
                         help='also launch camera and LiDAR drivers')
     parser.add_argument(

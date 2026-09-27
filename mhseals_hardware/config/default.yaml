@@ -7,7 +7,7 @@ pwm_chips:
   - /sys/devices/platform/febe0000.pwm/pwm/pwmchip*
 pwm_channels: [0, 0, 0, 0]
 frequency: 50.0
-mosfet_chip: /dev/gpiochip3
+mosfet_chip: gpio3  # Bank label, NOT the dynamically numbered device node.
 mosfet_line: 28
 mosfet_active_high: true
 command_timeout: 0.5

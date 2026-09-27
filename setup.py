@@ -23,6 +23,7 @@ setup(
         'console_scripts': [
             'thruster_pwm_node = mhseals_hardware.thruster_pwm_node:main',
             'thruster_test = mhseals_hardware.thruster_test:main',
+            'mosfet_test = mhseals_hardware.mosfet_test:main',
             'boat_test = mhseals_hardware.boat_test:main',
             'keyboard_control = mhseals_hardware.keyboard_control:main',
             # Compatibility alias for existing operator scripts.

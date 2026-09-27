@@ -23,4 +23,22 @@ for address in "${PWM_CONTROLLERS[@]}"; do
         "${chip}/pwm0/duty_cycle" "${chip}/pwm0/polarity"
 done
 
-chmod 0666 /dev/gpiochip3
+# The installed YAML is copied from the same defaults used by Python. This
+# reads its plain scalar bank selector, not an independently maintained pin.
+selector=${MHSEALS_MOSFET_CHIP:-$(awk '$1 == "mosfet_chip:" {print $2}' /usr/local/share/mhseals/hardware-default.yaml)}
+if [[ "$selector" =~ ^gpio[0-9]+$ ]]; then
+    matches=()
+    for label in /sys/bus/gpio/devices/gpiochip*/label; do
+        [[ -f "$label" ]] || continue
+        if [[ "$(<"$label")" == "$selector" ]]; then
+            directory=${label%/label}
+            matches+=("/dev/${directory##*/}")
+        fi
+    done
+    [[ ${#matches[@]} -eq 1 ]] || { echo "Expected one GPIO bank $selector" >&2; exit 1; }
+    selector=${matches[0]}
+fi
+[[ "$selector" =~ ^/dev/gpiochip[0-9]+$ && -c "$selector" ]] || {
+    echo "Invalid or missing MOSFET GPIO device: $selector" >&2; exit 1;
+}
+chmod 0666 "$selector"

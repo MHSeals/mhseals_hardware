@@ -14,10 +14,13 @@ for source in "${HELPER_SOURCE}" "${UNIT_SOURCE}"; do
 done
 
 sudo install -D -m 0755 "${HELPER_SOURCE}" "${HELPER_TARGET}"
+sudo install -D -m 0644 "${SCRIPT_DIR}/../mhseals_hardware/config/default.yaml" \
+    /usr/local/share/mhseals/hardware-default.yaml
 sudo install -m 0644 "${UNIT_SOURCE}" "${UNIT_TARGET}"
 sudo rm -f "${LEGACY_RULE}"
 sudo systemctl daemon-reload
 sudo systemctl enable --now mhseals-thruster-access.service
+sudo systemctl restart mhseals-thruster-access.service
 
 echo "Installed and started mhseals-thruster-access.service"
 echo "Recreate the dev container after confirming /sys:/sys:rw is configured."

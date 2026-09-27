@@ -24,7 +24,7 @@ CLI overrides take precedence for that invocation. Add `--save-config` to
 `boat_test` or `thruster_test` to persist pin overrides. For example:
 
 ```sh
-ros2 run mhseals_hardware boat_test --mosfet-line 28 --save-config
+ros2 run mhseals_hardware boat_test --mosfet-chip gpio3 --mosfet-line 28 --save-config
 ros2 run mhseals_hardware boat_test --identify-thrusters
 ```
 
@@ -33,6 +33,43 @@ submerged propellers, and saves the completed channel mapping atomically.
 Normal runs reuse the saved/default mapping without repeating identification.
 For the ROS node, `--ros-args -p config_file:=/absolute/hardware.yaml` selects
 the file; explicit ROS parameters override its values. Changes require restart.
+
+## MOSFET trigger check
+
+The shipped setting is `mosfet_chip: gpio3`, `mosfet_line: 28`,
+`mosfet_active_high: true`: **J2 physical pin 11** to the compatible trigger
+input, **J2 pin 6** to signal ground for a non-isolated module. See the
+[primary-source wiring research](odroid-mosfet-research.md) for electrical
+caveats and the possible CAN-overlay conflict. It is high only while hardware
+outputs are armed; the passive boat dashboard does not enable it.
+
+Existing saved YAML takes precedence over new defaults. Replace only its
+`mosfet_chip: /dev/gpiochip3` with `mosfet_chip: gpio3`; preserve your other
+boat settings. Explicit `/dev/gpiochipN` overrides remain supported but bypass
+bank-label resolution. All Python entry points use the same shipped YAML.
+
+After pulling, rerun `./scripts/install_odroid_access.sh` **on the host**;
+it installs the shared defaults and refreshes permissions for the resolved
+bank, including when its device number changed. Custom banks require setting
+`MHSEALS_MOSFET_CHIP` in the host service's systemd environment override and
+restarting that service to match the runtime YAML. The helper reads only the
+plain bank selector from the installed shipped YAML, not your user overrides.
+Inside the container rebuild and source the workspace:
+
+```sh
+colcon build --packages-select mhseals_hardware
+source install/setup.bash
+ros2 run mhseals_hardware mosfet_test --mosfet-chip gpio3 --mosfet-line 28
+```
+
+Disconnect propulsion power and stop controller processes first. The test
+requires typing `ENABLE`, holds inactive for 2 seconds then active for 5 seconds,
+and deasserts/releases on normal exit or Ctrl+C. It never writes PWM; any
+previously running PWM is not stopped. Measure pin 11 against pin 6 with a
+meter, first with the trigger disconnected, then check compatibility with the
+module's documented input threshold before connecting it. A GPIO readback is
+not a voltage measurement. Use a suitable external pull-down for shutdown or
+process failure; software release cannot guarantee the pin remains low.
 
 ## Manual keyboard control
 
