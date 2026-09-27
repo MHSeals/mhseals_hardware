@@ -17,9 +17,9 @@ class RemoteController(Node):
     def __init__(self):
         super().__init__('remote_controller')
 
-        self.declare_parameter('center_pwm', 1500)
-        self.declare_parameter('pwm_range', 500)
-        self.declare_parameter('deadband_pwm', 40)
+        self.declare_parameter('center_pwm', 0)
+        self.declare_parameter('pwm_range', 100)
+        self.declare_parameter('deadband_pwm', 5)
         self.declare_parameter('max_linear_speed', 1.0)
         self.declare_parameter('max_angular_speed', 1.0)
         self.declare_parameter('timeout', 0.75)
@@ -43,6 +43,10 @@ class RemoteController(Node):
 
     def normalized_channel(self, pwm):
         """Return a channel value in [-1, 1], with a center deadband."""
+        # RCIn stores channels as uint16.  Decode negative values from
+        # controllers which put their signed -100..100 output in that field.
+        if pwm > 0x7fff:
+            pwm -= 0x10000
         offset = float(pwm - self.center_pwm)
         if abs(offset) <= self.deadband_pwm:
             return 0.0
