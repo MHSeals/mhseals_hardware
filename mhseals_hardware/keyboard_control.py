@@ -1,11 +1,14 @@
 """Deadman keyboard control for an omni boat through ``cmd_vel``."""
 
+import argparse
+import sys
 import threading
 import time
 
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
+from rclpy.utilities import remove_ros_args
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -65,6 +68,16 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
 
 def main(args=None):
     """Run standalone keyboard control for a remote thruster node."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--config', help='shared hardware YAML path')
+    parser.add_argument('--speed', type=float, help='initial thrust fraction, 0 to 1')
+    argv = sys.argv if args is None else ['keyboard_control', *args]
+    options = parser.parse_args(remove_ros_args(args=argv)[1:])
+    if options.speed is not None and not 0 <= options.speed <= 1:
+        parser.error('--speed must be between 0 and 1')
+    config = load_config(options.config)
+    if options.speed is not None:
+        config['manual_amplitude'] = options.speed
     rclpy.init(args=args)
     node = Node('keyboard_control')
     publisher = node.create_publisher(Twist, '/cmd_vel', 10)
@@ -77,7 +90,6 @@ def main(args=None):
     thread = threading.Thread(target=spin, daemon=True)
     thread.start()
     try:
-        config = load_config()
         run_manual(publisher, amplitude=config['manual_amplitude'],
                    deadman_timeout=config['manual_repeat_timeout'],
                    initial_timeout=config['manual_initial_timeout'])
