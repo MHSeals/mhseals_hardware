@@ -23,6 +23,27 @@ def test_gpio_bank_resolves_independently_of_device_number(tmp_path):
     assert resolve_gpio_chip('/dev/gpiochip5', tmp_path) == '/dev/gpiochip5'
 
 
+def test_gpio_bank_resolves_with_gpiod_when_sysfs_has_no_labels(tmp_path,
+                                                                monkeypatch):
+    from mhseals_hardware import odroid_pwm
+
+    class Chip:
+        def __init__(self, path):
+            self.path = path
+
+        def label(self):
+            return {'/dev/gpiochip3': 'gpio3'}[self.path]
+
+        def close(self):
+            pass
+
+    monkeypatch.setitem(sys.modules, 'gpiod', SimpleNamespace(Chip=Chip))
+    monkeypatch.setattr(odroid_pwm.glob, 'glob',
+                        lambda _pattern: ['/dev/gpiochip3'])
+    assert odroid_pwm.resolve_gpio_chip('gpio3', tmp_path) == \
+        '/dev/gpiochip3'
+
+
 @pytest.mark.parametrize('version', [1, 2])
 @pytest.mark.parametrize('active_high', [True, False])
 def test_mosfet_polarity_and_release(monkeypatch, version, active_high):

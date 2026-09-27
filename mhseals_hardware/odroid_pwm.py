@@ -16,16 +16,41 @@ DEFAULT_MOSFET_ACTIVE_HIGH = _DEFAULTS['mosfet_active_high']
 
 
 def resolve_gpio_chip(value, sysfs='/sys/bus/gpio/devices'):
-    """Resolve a GPIO bank label, never assume bank == device number."""
+    """Resolve a GPIO bank label using either sysfs or the GPIO character API."""
     if str(value).startswith('/dev/gpiochip'):
         return str(value)
-    matches = [p.parent.name for p in Path(sysfs).glob('gpiochip*/label')
-               if p.read_text().strip() == value]
+    matches = {'/dev/' + p.parent.name
+               for p in Path(sysfs).glob('gpiochip*/label')
+               if p.read_text().strip() == value}
+
+    # Some kernels no longer expose gpiochip labels as sysfs attributes.  The
+    # label remains available through the GPIO character-device ioctl used by
+    # both the libgpiod 1.x and 2.x Python APIs.
+    try:
+        import gpiod
+    except ImportError:
+        gpiod = None
+    if gpiod is not None:
+        for path in glob.glob('/dev/gpiochip*'):
+            chip = None
+            try:
+                chip = gpiod.Chip(path)
+                if hasattr(chip, 'get_info'):
+                    label = chip.get_info().label
+                else:
+                    label = chip.label()
+                if label == value:
+                    matches.add(path)
+            except (OSError, PermissionError):
+                continue
+            finally:
+                if chip is not None and hasattr(chip, 'close'):
+                    chip.close()
     if len(matches) != 1:
         raise FileNotFoundError(
             f'expected one GPIO bank labelled {value}, found {len(matches)}; '
             'check gpiodetect and the container /sys and /dev mounts')
-    return '/dev/' + matches[0]
+    return matches.pop()
 
 
 def resolve_pwm_chip(value):
