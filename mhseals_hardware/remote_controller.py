@@ -17,9 +17,9 @@ class RemoteController(Node):
     def __init__(self):
         super().__init__('remote_controller')
 
-        self.declare_parameter('center_pwm', 0)
-        self.declare_parameter('pwm_range', 100)
-        self.declare_parameter('deadband_pwm', 5)
+        self.declare_parameter('center_pwm', 1500)
+        self.declare_parameter('pwm_range', 1000)
+        self.declare_parameter('deadband_pwm', 100)
         self.declare_parameter('max_linear_speed', 1.0)
         self.declare_parameter('max_angular_speed', 1.0)
         self.declare_parameter('timeout', 0.75)
