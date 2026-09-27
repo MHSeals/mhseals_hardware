@@ -1,0 +1,20 @@
+# Physical outputs 1..4: ODROID-M2 J2 pins 7, 12, 15, 33.
+# MOSFET enable: J2 pin 11. Keep stable platform paths, not pwmchip numbers.
+pwm_chips:
+  - /sys/devices/platform/febd0030.pwm/pwm/pwmchip*
+  - /sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*
+  - /sys/devices/platform/febf0030.pwm/pwm/pwmchip*
+  - /sys/devices/platform/febe0000.pwm/pwm/pwmchip*
+pwm_channels: [0, 0, 0, 0]
+frequency: 50.0
+mosfet_chip: /dev/gpiochip3
+mosfet_line: 28
+mosfet_active_high: true
+command_timeout: 0.5
+# Canonical FL, FR, RR, RL -> physical output (1-based).
+channel_map: [1, 2, 3, 4]
+# Rows FL, FR, RR, RL; columns surge, sway, yaw.
+thruster_matrix: [-1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0]
+manual_amplitude: 0.25
+manual_repeat_timeout: 0.15
+manual_initial_timeout: 0.65

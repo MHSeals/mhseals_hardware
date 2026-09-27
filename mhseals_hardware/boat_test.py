@@ -10,6 +10,7 @@ import signal
 import subprocess
 import threading
 import time
+from mhseals_hardware.configuration import configure_args, save_config
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -33,7 +34,7 @@ from mhseals_hardware.thruster_mixer import (
 )
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.fcu import default_fcu_url
-from mhseals_hardware.manual_control import run_manual
+from mhseals_hardware.keyboard_control import run_manual
 from mhseals_hardware.odroid_pwm import DEFAULT_PWM_CHIPS, OdroidPWMOutputs
 
 
@@ -379,7 +380,8 @@ class BoatTest:
             self.args.pwm_chips, self.args.pwm_channels,
             self.args.frequency,
             mosfet_chip=self.args.mosfet_chip,
-            mosfet_line=self.args.mosfet_line).open()
+            mosfet_line=self.args.mosfet_line,
+            mosfet_active_high=self.args.mosfet_active_high).open()
         self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
         observations = {}
         used = set()
@@ -438,6 +440,8 @@ class BoatTest:
             '-p', f'frequency:={self.args.frequency}',
             '-p', f'mosfet_chip:={self.args.mosfet_chip}',
             '-p', f'mosfet_line:={self.args.mosfet_line}',
+            '-p', f'mosfet_active_high:={str(self.args.mosfet_active_high).lower()}',
+            '-p', f'command_timeout:={self.args.command_timeout}',
             '-p', f'channel_map:={map_yaml}',
             '-p', f'thruster_matrix:={matrix_yaml}',
         ])
@@ -542,7 +546,9 @@ class BoatTest:
             if choice == 'manual control':
                 self.emit('manual_control_start')
                 run_manual(self.command_publisher, self.console,
-                           self.args.manual_amplitude)
+                           self.args.manual_amplitude,
+                           self.args.manual_repeat_timeout,
+                           self.args.manual_initial_timeout)
                 self.emit('manual_control_stop')
                 continue
             axes = (tuple(AXIS_GUIDANCE) if choice == 'all tests'
@@ -554,11 +560,21 @@ class BoatTest:
                 self.run_axis(axis)
 
     def run(self):
+        self.console.print(Panel(
+            'This starts REAL ODROID PWM/GPIO. Secure the boat; clear and '
+            'submerge propellers. Only one command controller may run.\n'
+            'Press Enter to proceed, or Ctrl+C to cancel.',
+            title='Physical thruster warning', style='yellow'))
+        self.console.input()
         self.start_measurement_stack()
         self.check_command_topic()
         self.channel_map = (self.identify_thrusters()
-                            if self.args.channel_map is None
+                            if self.args.identify_thrusters
                             else validate_channel_map(self.args.channel_map))
+        if self.args.identify_thrusters:
+            self.args.hardware_config['channel_map'] = list(self.channel_map)
+            saved = save_config(self.args.hardware_config, self.args.config)
+            self.console.print(f'[green]Saved hardware mapping to {saved}[/]')
         self.start_hardware()
         self.characterize()
 
@@ -596,6 +612,8 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description='TUI for bagged omni-boat characterization')
     parser.add_argument('--fcu-url', help='MAVROS FCU URL')
+    parser.add_argument('--identify-thrusters', action='store_true',
+                        help='pulse outputs to identify and persist a new channel map')
     parser.add_argument('--pwm-chips',
                         type=lambda value: tuple(v.strip() for v in value.split(',')),
                         default=DEFAULT_PWM_CHIPS,
@@ -631,7 +649,7 @@ def build_parser():
 
 
 def main(args=None):
-    parsed = build_parser().parse_args(args)
+    parsed = configure_args(build_parser(), args)
     prompt_hardware(parsed)
     parsed.thruster_matrix = tuple(
         value for row in validate_mixer(parsed.thruster_matrix) for value in row)

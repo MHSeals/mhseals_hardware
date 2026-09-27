@@ -1,6 +1,7 @@
 """Mix ROS velocity commands into native Odroid PWM outputs."""
 
 import time
+from mhseals_hardware.configuration import load_config, validate_config
 
 from geometry_msgs.msg import Twist
 import rclpy
@@ -21,16 +22,11 @@ class ThrusterPWMNode(Node):
 
     def __init__(self):
         super().__init__('thruster_pwm_node')
-        self.declare_parameter('pwm_chips', list(DEFAULT_PWM_CHIPS))
-        self.declare_parameter('pwm_channels', [0, 0, 0, 0])
-        self.declare_parameter('frequency', 50.0)
-        self.declare_parameter('mosfet_chip', DEFAULT_MOSFET_CHIP)
-        self.declare_parameter('mosfet_line', DEFAULT_MOSFET_LINE)
-        self.declare_parameter('mosfet_active_high', True)
-        self.declare_parameter('command_timeout', 0.5)
-        self.declare_parameter('channel_map', [1, 2, 3, 4])
-        self.declare_parameter('thruster_matrix',
-                               [v for row in THRUSTER_MIXER for v in row])
+        self.declare_parameter('config_file', '')
+        config = load_config(self.get_parameter('config_file').value or None)
+        for key, value in config.items():
+            self.declare_parameter(key, value)
+        validate_config({key: self.get_parameter(key).value for key in config})
         self.command_timeout = float(
             self.get_parameter('command_timeout').value)
         self.channel_map = validate_channel_map(

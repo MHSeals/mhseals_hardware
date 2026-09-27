@@ -74,7 +74,7 @@ before enabling live controls. It always neutralizes on exit.
 
 | Key | Action |
 | --- | --- |
-| Up / Down | Select all, FL, FR, RR, or RL |
+| Up / Down | Select all or physical outputs 1–4 |
 | Left / Right | Decrease/increase pulse width by 10 us |
 | `[` / `]` | Decrease/increase pulse width by 1 us |
 | `N`, `F`, `B` | Neutral, forward, or reverse preset |
@@ -117,12 +117,15 @@ Use `channel_map` to map canonical positions to physical outputs, for example
 For deadman keyboard control from any machine on the same ROS domain:
 
 ```bash
-ros2 run mhseals_hardware boat_manual
+ros2 run mhseals_hardware keyboard_control
 ```
 
 W/S or Up/Down commands surge, A/D commands sway, Left/Right commands yaw,
-Space stops, and X exits. Commands expire after 750 ms unless keys continue
-arriving.
+Space stops, and X exits. `+`/`-` changes thrust speed in 5% steps.
+Release-aware terminals stop on release; ordinary terminals use initial-repeat
+grace followed by a short repeat timeout. See [configuration](docs/configuration.md)
+for the safety limitations and timeout settings. `boat_manual` remains a
+compatibility alias; the canonical command matches `keyboard_control.py`.
 
 ## Guided boat test
 
@@ -137,9 +140,10 @@ Press Enter at the FCU prompt to use the detected stable serial device. The
 runner prefers flight-controller names under `/dev/serial/by-id`, then
 `ttyACM*`/`ttyUSB*`, and falls back to `serial:///dev/ttyACM0:57600`.
 
-Use `--allow-missing-sensors` for a secured thruster-only bring-up. If no
-`--channel-map` is given, the workflow pulses each output at 15 percent and
-asks which position moved. Its test menu supports surge, sway, yaw, all tests,
+Use `--allow-missing-sensors` for a secured thruster-only bring-up. With
+`--identify-thrusters`, the workflow pulses each output at 15 percent and
+asks which position moved, then saves the map. Otherwise the shared YAML map
+is reused. Its test menu supports surge, sway, yaw, all tests,
 and the same deadman manual controller. Process logs and bags are stored under
 `bags/`.
 
@@ -156,6 +160,12 @@ The FCU URL above is MAVROS telemetry and is unrelated to thruster control.
 Ctrl+C neutralizes thrusters, stops the hardware node, and flushes the bag.
 
 ## Development
+
+Shared YAML configuration, pin persistence, and keyboard behavior are documented
+in [docs/configuration.md](docs/configuration.md). The operator commands are
+`keyboard_control` (cmd_vel keyboard publisher), `thruster_pwm_node` (real
+outputs), `thruster_test` (direct PWM test), `boat_test` (guided tests and bags),
+and `remote_controller` (MAVROS RC input). Run only one cmd_vel controller.
 
 Run the ROS-independent tests with:
 

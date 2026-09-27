@@ -12,7 +12,8 @@ setup(
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
     ],
-    install_requires=['setuptools', 'rich', 'gpiod'],
+    package_data={package_name: ['config/*.yaml']},
+    install_requires=['setuptools', 'rich', 'gpiod', 'PyYAML'],
     zip_safe=True,
     author='MHS Seals',
     description='Native ODROID-M2 PWM thruster control for MHS Seals',
@@ -21,9 +22,11 @@ setup(
     entry_points={
         'console_scripts': [
             'thruster_pwm_node = mhseals_hardware.thruster_pwm_node:main',
-            'thruster_test = mhseals_hardware.thruster_test_tui:main',
+            'thruster_test = mhseals_hardware.thruster_test:main',
             'boat_test = mhseals_hardware.boat_test:main',
-            'boat_manual = mhseals_hardware.manual_control:main',
+            'keyboard_control = mhseals_hardware.keyboard_control:main',
+            # Compatibility alias for existing operator scripts.
+            'boat_manual = mhseals_hardware.keyboard_control:main',
             'remote_controller = mhseals_hardware.remote_controller:main',
         ],
     },

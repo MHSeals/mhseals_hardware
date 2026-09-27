@@ -1,7 +1,8 @@
-"""Live native-PWM thruster bring-up tool, designed for nested SSH PTYs."""
+"""Direct physical-output PWM test; command and module are thruster_test."""
 
 import argparse
 import time
+from mhseals_hardware.configuration import configure_args
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -42,7 +43,7 @@ class ThrusterTestTUI:
         table.add_column('Output')
         table.add_column('PWM device')
         table.add_column('Pulse', justify='right')
-        names = ('ALL', 'FL', 'FR', 'RR', 'RL')
+        names = ('ALL', 'Physical 1', 'Physical 2', 'Physical 3', 'Physical 4')
         for index, name in enumerate(names):
             marker = '[bold cyan]›[/]' if self.selected == index else ' '
             if index == 0:
@@ -75,7 +76,7 @@ class ThrusterTestTUI:
 
     def adjust_pulse(self, amount):
         for index in self.targets():
-            self.pulses[index] = max(1000, min(2000,
+            self.pulses[index] = max(1100, min(1900,
                                              self.pulses[index] + amount))
         self.state = 'CUSTOM'
         self.apply_pulses()
@@ -115,9 +116,9 @@ class ThrusterTestTUI:
 def build_parser():
     parser = argparse.ArgumentParser(
         description='Interactive four-thruster Odroid PWM test')
-    parser.add_argument('--pwm-chips', default=','.join(DEFAULT_PWM_CHIPS),
+    parser.add_argument('--pwm-chips', type=parse_csv, default=DEFAULT_PWM_CHIPS,
                         help='four comma-separated pwmchip paths')
-    parser.add_argument('--pwm-channels', default='0,0,0,0',
+    parser.add_argument('--pwm-channels', type=lambda s: parse_csv(s, int), default=(0, 0, 0, 0),
                         help='channel within each pwmchip')
     parser.add_argument('--mosfet-chip', default=DEFAULT_MOSFET_CHIP)
     parser.add_argument('--mosfet-line', type=int, default=DEFAULT_MOSFET_LINE)
@@ -126,9 +127,9 @@ def build_parser():
 
 
 def main(args=None):
-    parsed = build_parser().parse_args(args)
-    chips = parse_csv(parsed.pwm_chips)
-    channels = parse_csv(parsed.pwm_channels, int)
+    parsed = configure_args(build_parser(), args)
+    chips = parsed.pwm_chips
+    channels = parsed.pwm_channels
     console = Console()
     console.print(Panel(
         '[bold red]Propellers must be clear and submerged.[/]\n'
@@ -139,7 +140,8 @@ def main(args=None):
     outputs = OdroidPWMOutputs(
         chips, channels, 50.0,
         mosfet_chip=parsed.mosfet_chip,
-        mosfet_line=parsed.mosfet_line).open()
+        mosfet_line=parsed.mosfet_line,
+        mosfet_active_high=parsed.mosfet_active_high).open()
     try:
         console.print(
             f'[yellow]Holding neutral for {ARMING_SECONDS:g} seconds '

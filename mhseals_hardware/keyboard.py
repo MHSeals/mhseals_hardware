@@ -1,6 +1,7 @@
 """Small Unix terminal key reader used by the interactive ROS TUIs."""
 
 import os
+import re
 import select
 import sys
 import termios
@@ -16,6 +17,19 @@ ARROW_SEQUENCES = {
 
 def decode_key(value):
     """Normalize a complete terminal byte sequence into a key name."""
+    event = re.fullmatch(rb'\x1b\[(\d+)(?:;\d+(?::([123]))?)?u', value)
+    arrow = re.fullmatch(rb'\x1b\[1;\d+:([123])([ABCD])', value)
+    if event:
+        code = int(event[1])
+        if code > 0x10ffff:
+            return None
+        key = {13: 'enter', 27: 'escape', 32: 'space',
+               57352: 'up', 57353: 'down',
+               57350: 'left', 57351: 'right'}.get(code, chr(code).lower())
+        return f'release:{key}' if event[2] == b'3' else key
+    if arrow:
+        key = {b'A': 'up', b'B': 'down', b'C': 'right', b'D': 'left'}[arrow[2]]
+        return f'release:{key}' if arrow[1] == b'3' else key
     if value in (b'\r', b'\n'):
         return 'enter'
     if value == b' ':
@@ -32,9 +46,10 @@ def decode_key(value):
 class KeyReader:
     """Read individual keys while restoring the terminal on every exit."""
 
-    def __init__(self):
+    def __init__(self, report_events=False):
         self.fd = None
         self.settings = None
+        self.report_events = report_events
 
     def __enter__(self):
         if not sys.stdin.isatty():
@@ -49,9 +64,17 @@ class KeyReader:
         attributes[6][termios.VMIN] = 1
         attributes[6][termios.VTIME] = 0
         termios.tcsetattr(self.fd, termios.TCSANOW, attributes)
+        if self.report_events:
+            # Kitty keyboard protocol: disambiguate, event types, all keys.
+            # Unsupported terminals ignore this request and retain the fallback.
+            sys.stdout.write('\x1b[>11u')
+            sys.stdout.flush()
         return self
 
     def __exit__(self, *_):
+        if self.report_events:
+            sys.stdout.write('\x1b[<u')
+            sys.stdout.flush()
         if self.settings is not None:
             termios.tcsetattr(self.fd, termios.TCSADRAIN, self.settings)
 
@@ -67,11 +90,13 @@ class KeyReader:
         # SSH and Docker can split one escape sequence across several reads.
         # Collect the short burst rather than assuming '[A' arrives together.
         sequence = bytearray(value)
-        while len(sequence) < 8:
+        while len(sequence) < 64:
             ready, _, _ = select.select([self.fd], [], [], 0.05)
             if not ready:
                 break
             sequence.extend(os.read(self.fd, 1))
             if bytes(sequence) in ARROW_SEQUENCES:
+                break
+            if len(sequence) > 2 and 0x40 <= sequence[-1] <= 0x7e:
                 break
         return decode_key(bytes(sequence))
