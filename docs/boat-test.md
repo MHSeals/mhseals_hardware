@@ -116,9 +116,10 @@ snapshot without requiring a bag. B records all ROS topics (watch disk space and
 camera bandwidth); owned process logs append under `bags/logs/<session>/`.
 Keep persistent configuration/bags in a mounted directory inside containers.
 
-Fit a recorded run with `ros2 run mhseals_hardware thrust_characterize --bag
-<bag> --config ~/.config/mhseals/hardware.yaml`. Include mixed surge, sway, and
-yaw commands to estimate combined limits. The command writes a reviewed
+Fit a recorded effort run with `ros2 run mhseals_hardware thrust_characterize --bag
+<bag> --cmd-topic /cmd_vel_effort --config ~/.config/mhseals/hardware.yaml`
+when velocity control was enabled; use the default `/cmd_vel` for direct PWM
+effort tests. Include mixed surge, sway, and yaw commands to estimate combined limits. The command writes a reviewed
 candidate profile and can generate a complete Nav2 YAML. Use
 `boat_test --velocity-control` only after reviewing that profile.
 

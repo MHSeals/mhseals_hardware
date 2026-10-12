@@ -135,6 +135,7 @@ hardware profile:
 ```bash
 ros2 run mhseals_hardware thrust_characterize \
   --bag bags/boat_test_20261012 \
+  --cmd-topic /cmd_vel_effort \
   --config ~/.config/mhseals/hardware.yaml \
   --nav2-params /path/to/mhseals_nav/config/nav2_params.yaml \
   --nav2-overlay ~/.config/mhseals/nav2_calibrated.yaml
@@ -147,6 +148,10 @@ mixer in the same atomically-written YAML. The generated Nav2 profile is used
 explicitly with `params_file:=~/.config/mhseals/nav2_calibrated.yaml`; it never
 silently changes the checked-in defaults. Review the report and test low
 amplitudes before using `--apply-matrix`.
+
+Use the default `/cmd_vel` when the PWM node was driven directly with normalized
+effort. When `--velocity-control` was active, fit `/cmd_vel_effort` instead;
+`/cmd_vel` then contains SI velocity requests rather than actuator effort.
 
 After a valid characterization, the optional controller closes the velocity
 loop with bounded integral trim for neutral-current drift. It accepts SI body
