@@ -27,6 +27,12 @@ Physical header J2 pin 11 (`GPIO3_D4`, bank label `gpio3`, line 28) is the
 active-high MOSFET enable. Every hardware entry point configures neutral PWM
 before enabling it, and disables the MOSFET before PWM during shutdown.
 The GPIO device number is resolved at runtime, not assumed to equal the bank.
+Connect pin 11 only to a compatible logic-level trigger and pin 6 to its signal
+ground; never use the GPIO to power a load or feed a higher voltage back into
+the board. Verify the module's input-high threshold with a meter, check for a
+CAN or other line consumer, and provide an external inactive-state pull-down
+where the module requires one. A GPIO readback is not proof of voltage or
+propeller rotation.
 See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
 section for deployment notes and safety checks.
 
