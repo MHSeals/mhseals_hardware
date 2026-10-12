@@ -25,6 +25,7 @@ setup(
             'thruster_test = mhseals_hardware.thruster_test:main',
             'mosfet_test = mhseals_hardware.mosfet_test:main',
             'boat_test = mhseals_hardware.boat_test:main',
+            'thrust_characterize = mhseals_hardware.thrust_characterization:main',
             'keyboard_control = mhseals_hardware.keyboard_control:main',
             # Compatibility alias for existing operator scripts.
             'boat_manual = mhseals_hardware.keyboard_control:main',

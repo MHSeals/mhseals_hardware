@@ -20,6 +20,18 @@ def config_path(path=None):
 def validate_config(config):
     validate_channel_map(config['channel_map'])
     validate_mixer(config['thruster_matrix'])
+    characterization = config.get('characterization', {})
+    if not isinstance(characterization, dict):
+        raise ValueError('characterization must be a mapping')
+    limits = characterization.get('motion_limits', {})
+    if limits and not isinstance(limits, dict):
+        raise ValueError('characterization.motion_limits must be a mapping')
+    for group in ('velocity', 'acceleration', 'deceleration', 'combined'):
+        values = limits.get(group, {})
+        if values and (not isinstance(values, dict) or any(
+                not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0
+                for value in values.values())):
+            raise ValueError(f'characterization.motion_limits.{group} must contain finite nonnegative values')
     if len(config['pwm_chips']) != 4 or not all(
             isinstance(p, str) and p.startswith('/sys/')
             for p in config['pwm_chips']):
