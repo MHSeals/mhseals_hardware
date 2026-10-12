@@ -92,7 +92,7 @@ def _normal_equations(samples):
         tuple(row[index + 1] for index in range(3)) for row in coefficients)
 
 
-def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER):
+def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, source="samples"):
     """Return calibration data suitable for writing to hardware YAML.
 
     Samples are paired command and odometry observations.  Commands are the
@@ -136,7 +136,7 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER):
             deceleration[axis] = max(deceleration[axis], -change)
     return {
         "version": 1,
-        "source": "rosbag2" if normalized else "samples",
+        "source": source,
         "identified_at": datetime.now(timezone.utc).isoformat(),
         "sample_count": len(normalized),
         "bias": {axis: bias[i] for i, axis in enumerate(AXES)},
@@ -227,7 +227,8 @@ def main(argv=None):
     else:
         samples = read_json_samples(args.samples)
     config = load_config(args.config) if args.config else load_config()
-    result = characterize_samples(samples, config["thruster_matrix"])
+    result = characterize_samples(samples, config["thruster_matrix"],
+                                 source="rosbag2" if args.bag else "samples")
     config["thruster_matrix"] = result["thruster_matrix"]
     config["characterization"] = result
     target = args.output or args.config
