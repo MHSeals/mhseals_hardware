@@ -27,8 +27,8 @@ Physical header J2 pin 11 (`GPIO3_D4`, bank label `gpio3`, line 28) is the
 active-high MOSFET enable. Every hardware entry point configures neutral PWM
 before enabling it, and disables the MOSFET before PWM during shutdown.
 The GPIO device number is resolved at runtime, not assumed to equal the bank.
-See [trigger wiring and voltage checks](docs/odroid-mosfet-research.md) and
-[updating existing installations](docs/configuration.md#mosfet-trigger-check).
+See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
+section for deployment notes and safety checks.
 
 The device-tree source is
 [`config/odroid-m2-thruster-pwm-overlay.dts`](config/odroid-m2-thruster-pwm-overlay.dts).
@@ -182,8 +182,8 @@ add Left/Right to rotate. Translation diagonals are normalized. Ordinary
 terminals explicitly remain single-key, with initial-repeat grace followed by
 a short repeat timeout. Test your terminal safely with
 `ros2 run mhseals_hardware keyboard_control --dry-run`.
-See [configuration](docs/configuration.md)
-for the safety limitations and timeout settings. `boat_manual` remains a
+See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
+section for the safety limitations and timeout settings. `boat_manual` remains a
 compatibility alias; the canonical command matches `keyboard_control.py`.
 
 ## Guided boat test
@@ -205,8 +205,8 @@ Q exits. In manual mode M/X/Esc returns and Space clears motion.
 Use `--monitor-only` on a laptop to disable physical/configuration actions.
 `--start-stack` explicitly launches real sensor/odometry processes; omit it
 when those are already running. `--record` starts recording immediately.
-See [the operator guide](docs/boat-test.md) for interlocks, measurements,
-topic overrides, mapping/pin configuration, and validation limitations.
+The root [hardware and camera setup](../../README.md#hardware-and-cameras)
+section covers the shared configuration and deployment conventions.
 
 Common options:
 
@@ -225,7 +225,7 @@ physical power cutoff or independently verify actual motor rotation.
 ## Development
 
 Shared YAML configuration, pin persistence, and keyboard behavior are documented
-in [docs/configuration.md](docs/configuration.md). The operator commands are
+in this README. The operator commands are
 `keyboard_control` (cmd_vel keyboard publisher), `thruster_pwm_node` (real
 outputs), `thruster_test` (direct PWM test), `boat_test` (guided tests and bags),
 and `remote_controller` (MAVROS RC input). Run only one cmd_vel controller.
