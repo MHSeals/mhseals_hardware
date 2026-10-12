@@ -92,6 +92,23 @@ def _normal_equations(samples):
                 rhs[axis][i] += velocity[axis] * row[i]
     for i in range(4):
         gram[i][i] += 1e-8
+    # Do not turn a one-axis bag into a seemingly valid 3-axis calibration.
+    rank_rows = [row[:] for row in gram]
+    rank = 0
+    for col in range(4):
+        pivot = max(range(rank, 4), key=lambda row: abs(rank_rows[row][col]))
+        if abs(rank_rows[pivot][col]) < 1e-6:
+            continue
+        rank_rows[rank], rank_rows[pivot] = rank_rows[pivot], rank_rows[rank]
+        scale = rank_rows[rank][col]
+        rank_rows[rank] = [value / scale for value in rank_rows[rank]]
+        for row in range(4):
+            if row != rank:
+                factor = rank_rows[row][col]
+                rank_rows[row] = [a - factor * b for a, b in zip(rank_rows[row], rank_rows[rank])]
+        rank += 1
+    if rank < 4:
+        raise ValueError('samples must excite neutral, surge, sway, and yaw')
     coefficients = []
     for axis in range(3):
         aug = [gram[row][:] + [rhs[axis][row]] for row in range(4)]

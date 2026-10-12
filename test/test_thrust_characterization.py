@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from pytest import approx
 
@@ -29,3 +30,10 @@ def test_json_samples_accepts_sample_wrapper(tmp_path):
     path = tmp_path / 'samples.json'
     path.write_text(json.dumps({'samples': samples()}))
     assert len(read_json_samples(path)) == 8
+
+
+def test_underexcited_bag_is_rejected():
+    with pytest.raises(ValueError, match='excite'):
+        characterize_samples([
+            {'time': i, 'command': (1, 0, 0), 'velocity': (i * .1, 0, 0)}
+            for i in range(8)])
