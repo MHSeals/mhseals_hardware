@@ -32,6 +32,14 @@ def nav2_profile(result, source):
     deceleration = limits["deceleration"]
     controller = profile["controller_server"]["ros__parameters"]
     controller["FollowPath"]["desired_linear_vel"] = velocity["surge"]
+    # RPP's in-place turns and the behavior server use independent rotational
+    # caps; keep both inside the measured yaw envelope.
+    controller["FollowPath"]["max_angular_accel"] = acceleration["yaw"]
+    controller["FollowPath"]["rotate_to_heading_angular_vel"] = velocity["yaw"]
+    behavior = profile.get("behavior_server", {}).get("ros__parameters", {})
+    if behavior:
+        behavior["max_rotational_vel"] = velocity["yaw"]
+        behavior["rotational_acc_lim"] = acceleration["yaw"]
     smoother = profile["velocity_smoother"]["ros__parameters"]
     smoother["max_velocity"] = [velocity[axis] for axis in AXES]
     smoother["min_velocity"] = [-velocity[axis] for axis in AXES]
