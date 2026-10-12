@@ -81,3 +81,27 @@ def test_manual_interlock_blocks_motion_but_allows_final_neutral():
     assert not sent
     action.manual_publish(twist())
     assert sent == [(0, 0, 0)]
+
+
+@pytest.mark.parametrize('optional_sensors', [False, True])
+def test_measurement_startup_owns_one_shared_stack(optional_sensors):
+    source = Path(__file__).parents[1] / 'mhseals_hardware/boat_test.py'
+    cls = next(n for n in ast.parse(source.read_text()).body
+               if isinstance(n, ast.ClassDef) and n.name == 'BoatTest')
+    method = next(n for n in cls.body if isinstance(n, ast.FunctionDef)
+                  and n.name == 'start_measurement_stack')
+    namespace = {}
+    exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), 'exec'),
+         namespace)
+    processes = []
+    owner = SimpleNamespace(
+        args=SimpleNamespace(fcu_url='serial:///dev/test:57600',
+                             optional_sensors=optional_sensors),
+        start_process=lambda name, command: processes.append((name, command)))
+    namespace['start_measurement_stack'](owner)
+    assert len(processes) == 1
+    name, command = processes[0]
+    assert name == 'odometry'  # Existing shutdown code owns this process group.
+    assert command[:4] == ['ros2', 'launch', 'mhseals_nav', 'boat_test.launch.py']
+    assert 'fcu_url:=serial:///dev/test:57600' in command
+    assert f'start_sensors:={str(optional_sensors).lower()}' in command

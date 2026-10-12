@@ -83,9 +83,10 @@ ros2 run mhseals_hardware boat_test --start-stack --record --require-tf \
   --fcu-url serial:///dev/ttyACM0:57600
 ```
 
-`--start-stack` uses mhseals_nav/odom.launch.py with `sim:=false`; do not use it
+`--start-stack` uses mhseals_nav/boat_test.launch.py (real localization); do not use it
 if another localization stack is running. `--optional-sensors` additionally
-starts sensors.launch.py and requires `--start-stack`. Startup failures appear
+starts local LiDAR through sensors.launch.py and requires `--start-stack`;
+the camera remains on the Jetson. Startup failures appear
 in process logs. This dashboard does not bridge isolated Foxy/Jazzy domains:
 a Foxy camera can be healthy yet correctly appear missing on the Jazzy Odroid.
 Set `--map-frame`, `--odom-frame`, `--base-frame` for another robot's convention.
@@ -114,6 +115,12 @@ Each completed trial saves `<bag-output>.report.json` atomically. E exports a
 snapshot without requiring a bag. B records all ROS topics (watch disk space and
 camera bandwidth); owned process logs append under `bags/logs/<session>/`.
 Keep persistent configuration/bags in a mounted directory inside containers.
+
+Fit a recorded run with `ros2 run mhseals_hardware thrust_characterize --bag
+<bag> --config ~/.config/mhseals/hardware.yaml`. Include mixed surge, sway, and
+yaw commands to estimate combined limits. The command writes a reviewed
+candidate profile and can generate a complete Nav2 YAML. Use
+`boat_test --velocity-control` only after reviewing that profile.
 
 ## Validation and maintenance
 

@@ -12,6 +12,7 @@ import csv
 from datetime import datetime, timezone
 import json
 import math
+from bisect import bisect_right
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
@@ -19,6 +20,24 @@ from mhseals_hardware.configuration import load_config, save_config
 from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, validate_mixer
 
 AXES = ("surge", "sway", "yaw")
+
+
+def nav2_profile(result, source):
+    """Return a complete Nav2 profile with measured component limits."""
+    import yaml
+    profile = yaml.safe_load(Path(source).read_text())
+    limits = result["motion_limits"]
+    velocity = limits["velocity"]
+    acceleration = limits["acceleration"]
+    deceleration = limits["deceleration"]
+    controller = profile["controller_server"]["ros__parameters"]
+    controller["FollowPath"]["desired_linear_vel"] = velocity["surge"]
+    smoother = profile["velocity_smoother"]["ros__parameters"]
+    smoother["max_velocity"] = [velocity[axis] for axis in AXES]
+    smoother["min_velocity"] = [-velocity[axis] for axis in AXES]
+    smoother["max_accel"] = [acceleration[axis] for axis in AXES]
+    smoother["max_decel"] = [-deceleration[axis] for axis in AXES]
+    return profile
 
 
 def _vector(value, name):
@@ -97,8 +116,9 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
 
     Samples are paired command and odometry observations.  Commands are the
     normalized inputs consumed by ``thruster_pwm_node``; velocities are SI
-    units from odometry.  The fitted gain can be used to correct the mixer so
-    a requested velocity produces the measured velocity in steady state.
+    units from odometry. The fitted gain drives the optional calibrated
+    velocity controller; the physical effort mixer remains unchanged unless
+    ``--apply-matrix`` is explicitly requested.
     """
     mixer = tuple(value for row in mixer for value in row) if len(mixer) == 4 and hasattr(mixer[0], "__iter__") else mixer
     normalized = []
@@ -134,6 +154,15 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
             change = (current[1][index] - previous[1][index]) / dt
             acceleration[axis] = max(acceleration[axis], change)
             deceleration[axis] = max(deceleration[axis], -change)
+    combined = {}
+    for command, velocity, _ in normalized:
+        active = tuple(axis for axis, value in zip(AXES, command) if abs(value) > .02)
+        if len(active) < 2:
+            continue
+        direction = ','.join(f'{axis}={1 if command[AXES.index(axis)] > 0 else -1}'
+                             for axis in active)
+        speed = math.sqrt(sum(velocity[index] ** 2 for index in range(3)))
+        combined[direction] = max(combined.get(direction, 0.0), speed)
     return {
         "version": 1,
         "source": source,
@@ -142,7 +171,11 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
         "bias": {axis: bias[i] for i, axis in enumerate(AXES)},
         "velocity_gain": {axis: {name: gain[i][j] for j, name in enumerate(AXES)}
                            for i, axis in enumerate(AXES)},
-        "thruster_matrix": [value for row in corrected for value in row],
+        # This is an optional feed-forward allocation expressed in the
+        # original command units.  It is not a replacement for the physical
+        # effort mixer unless the operator explicitly applies it.
+        "recommended_velocity_allocation": [value for row in corrected for value in row],
+        "thruster_matrix": [value for row in validate_mixer(mixer) for value in row],
         "motion_limits": {
             "velocity": {axis: limits[axis]["velocity"] for axis in AXES},
             "acceleration": acceleration,
@@ -150,12 +183,17 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
             "combined": {"surge": limits["surge"]["velocity"],
                          "sway": limits["sway"]["velocity"],
                          "yaw": limits["yaw"]["velocity"]},
+            "combined_directions": combined,
         },
     }
 
 
 def read_json_samples(path: Path):
-    value = json.loads(path.read_text())
+    text = path.read_text()
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        value = [json.loads(line) for line in text.splitlines() if line.strip()]
     if isinstance(value, Mapping):
         value = value.get("samples", [])
     return value
@@ -178,13 +216,16 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local"):
     try:
         import rosbag2_py
         from rclpy.serialization import deserialize_message
-        from rosidl_runtime_py.utilities import get_message
         from geometry_msgs.msg import Twist
         from nav_msgs.msg import Odometry
     except ImportError as error:
         raise RuntimeError("ROS 2 rosbag dependencies are required for --bag") from error
     reader = rosbag2_py.SequentialReader()
-    reader.open(rosbag2_py.StorageOptions(uri=str(path), storage_id=""),
+    storage_id = "sqlite3"
+    metadata = path / "metadata.yaml"
+    if metadata.exists() and "storage_identifier: mcap" in metadata.read_text():
+        storage_id = "mcap"
+    reader.open(rosbag2_py.StorageOptions(uri=str(path), storage_id=storage_id),
                 rosbag2_py.ConverterOptions("cdr", "cdr"))
     topics = {topic.name: topic.type for topic in reader.get_all_topics_and_types()}
     if command_topic not in topics or odom_topic not in topics:
@@ -203,7 +244,13 @@ def read_rosbag(path: Path, command_topic="/cmd_vel", odom_topic="/odom/local"):
         else:
             if not commands:
                 continue
-            command = min(commands, key=lambda item: abs(item[0] - timestamp))[1]
+            # Hold the latest command already received.  Pairing with a future
+            # command creates artificial response and stopping samples at
+            # phase boundaries.
+            index = bisect_right([item[0] for item in commands], timestamp) - 1
+            if index < 0:
+                continue
+            command = commands[index][1]
             twist = msg.twist.twist
             samples.append({"time": timestamp, "command": command,
                             "velocity": (twist.linear.x, twist.linear.y, twist.angular.z)})
@@ -217,6 +264,12 @@ def main(argv=None):
     source.add_argument("--samples", type=Path, help="JSON or CSV samples")
     parser.add_argument("--config", type=Path, help="hardware YAML to update")
     parser.add_argument("--output", type=Path, help="write calibration YAML")
+    parser.add_argument("--apply-matrix", action="store_true",
+                        help="replace the physical effort mixer after review")
+    parser.add_argument("--nav2-params", type=Path,
+                        help="source Nav2 YAML when generating --nav2-overlay")
+    parser.add_argument("--nav2-overlay", type=Path,
+                        help="write a complete Nav2 YAML with measured limits")
     parser.add_argument("--cmd-topic", default="/cmd_vel")
     parser.add_argument("--odom-topic", default="/odom/local")
     args = parser.parse_args(argv)
@@ -229,11 +282,19 @@ def main(argv=None):
     config = load_config(args.config) if args.config else load_config()
     result = characterize_samples(samples, config["thruster_matrix"],
                                  source="rosbag2" if args.bag else "samples")
-    config["thruster_matrix"] = result["thruster_matrix"]
+    if args.apply_matrix:
+        config["thruster_matrix"] = result["recommended_velocity_allocation"]
     config["characterization"] = result
     target = args.output or args.config
     if target:
         save_config(config, target)
+    if args.nav2_overlay:
+        if not args.nav2_params:
+            parser.error('--nav2-overlay requires --nav2-params')
+        import yaml
+        args.nav2_overlay.parent.mkdir(parents=True, exist_ok=True)
+        args.nav2_overlay.write_text(yaml.safe_dump(
+            nav2_profile(result, args.nav2_params), sort_keys=False))
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

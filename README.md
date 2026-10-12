@@ -125,6 +125,45 @@ Results are proportionally desaturated before conversion to 1100--1900 us.
 Use `channel_map` to map canonical positions to physical outputs, for example
 `[2,4,1,3]`.
 
+### Characterization and calibrated velocity control
+
+`thruster_pwm_node` deliberately accepts normalized effort. It does not turn
+metres/second into PWM by itself. Record a commissioning run containing
+`/cmd_vel` and `/odom/local`, then fit the response and write a candidate
+hardware profile:
+
+```bash
+ros2 run mhseals_hardware thrust_characterize \
+  --bag bags/boat_test_20261012 \
+  --config ~/.config/mhseals/hardware.yaml \
+  --nav2-params /path/to/mhseals_nav/config/nav2_params.yaml \
+  --nav2-overlay ~/.config/mhseals/nav2_calibrated.yaml
+```
+
+JSON or CSV samples are also accepted with `--samples`. The fitter estimates
+neutral drift, the 3×3 body-velocity response, acceleration/deceleration, and
+per-axis limits while retaining the pin paths, channel map, and physical effort
+mixer in the same atomically-written YAML. The generated Nav2 profile is used
+explicitly with `params_file:=~/.config/mhseals/nav2_calibrated.yaml`; it never
+silently changes the checked-in defaults. Review the report and test low
+amplitudes before using `--apply-matrix`.
+
+After a valid characterization, the optional controller closes the velocity
+loop with bounded integral trim for neutral-current drift. It accepts SI body
+velocity on `/cmd_vel`, publishes normalized effort on `/cmd_vel_effort`, and
+the PWM node is remapped to that effort topic:
+
+```bash
+ros2 run mhseals_hardware calibrated_velocity_controller
+ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effort
+```
+
+The dashboard can own both processes with `boat_test --velocity-control`.
+Characterization cannot guarantee zero drift in changing wind/current; the
+integral trim is bounded and the watchdog always returns the outputs to neutral.
+Combined surge/sway/yaw commands are limited by the generated Nav2 velocity
+smoother, which preserves their direction through common saturation.
+
 For deadman keyboard control from any machine on the same ROS domain:
 
 ```bash
@@ -153,6 +192,7 @@ ros2 run mhseals_hardware boat_test
 
 Tab cycles overview, sensors, TF, mapping, results, and logs. **H** explicitly
 arms/disarms, **M** enters manual control, **1/2/3** characterizes surge/sway/yaw,
+**C** records combined surge/sway/yaw trials,
 **R** edits the persistent map without pulses, **I** identifies outputs with
 pulses, **B** toggles recording, and **E** saves a JSON report. Space stops;
 Q exits. In manual mode M/X/Esc returns and Space clears motion.

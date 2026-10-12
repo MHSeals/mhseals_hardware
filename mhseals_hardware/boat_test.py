@@ -272,16 +272,12 @@ class BoatTest:
             log_file.close()
 
     def start_measurement_stack(self):
-        """Start minimal MAVROS, optional sensors if requested, then rosbag."""
+        """Use the shared nav test stack; this dashboard owns tests and bags."""
         self.start_process('odometry', [
-            'ros2', 'launch', 'mhseals_nav', 'odom.launch.py', 'sim:=false',
+            'ros2', 'launch', 'mhseals_nav', 'boat_test.launch.py',
             f'fcu_url:={self.args.fcu_url}',
+            f'start_sensors:={str(self.args.optional_sensors).lower()}',
         ])
-        if self.args.optional_sensors:
-            self.start_process('sensors', [
-                'ros2', 'launch', 'mhseals_nav', 'sensors.launch.py',
-                'sim:=false',
-            ])
 
     def dashboard(self):
         if time.monotonic() - self.last_pwm_read > 1:
@@ -442,7 +438,15 @@ class BoatTest:
                                     self.args.pwm_chips) + ']'
         channels_yaml = '[' + ','.join(str(value) for value in
                                        self.args.pwm_channels) + ']'
-        self.start_process('hardware', [
+        if self.args.velocity_control:
+            controller_command = [
+                'ros2', 'run', 'mhseals_hardware', 'calibrated_velocity_controller',
+            ]
+            if self.args.config:
+                controller_command.extend(['--ros-args', '-p',
+                                            f'config_file:={self.args.config}'])
+            self.start_process('velocity', controller_command)
+        hardware_command = [
             'ros2', 'run', 'mhseals_hardware', 'thruster_pwm_node',
             '--ros-args', '-p', f'pwm_chips:={chips_yaml}',
             '-p', f'pwm_channels:={channels_yaml}',
@@ -453,8 +457,15 @@ class BoatTest:
             '-p', f'command_timeout:={self.args.command_timeout}',
             '-p', f'channel_map:={map_yaml}',
             '-p', f'thruster_matrix:={matrix_yaml}',
-        ])
+        ]
+        if self.args.velocity_control:
+            hardware_command.extend(['--ros-args', '-r', 'cmd_vel:=/cmd_vel_effort'])
+        self.start_process('hardware', hardware_command)
         time.sleep(5)
+        if self.args.velocity_control and self.processes['velocity'].poll() is not None:
+            self.stop_process('velocity')
+            self.stop_process('hardware')
+            raise RuntimeError('calibrated velocity controller exited during startup')
         if self.processes['hardware'].poll() is not None:
             raise RuntimeError('thruster PWM node exited during startup')
         self.command_publisher = self.node.create_publisher(Twist, '/cmd_vel', 10)
@@ -471,7 +482,9 @@ class BoatTest:
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
             message = Twist()
-            if axis == 'surge':
+            if isinstance(axis, (tuple, list)):
+                message.linear.x, message.linear.y, message.angular.z = axis
+            elif axis == 'surge':
                 message.linear.x = value
             elif axis == 'sway':
                 message.linear.y = value
@@ -494,7 +507,9 @@ class BoatTest:
                     if key in ('space', 'q', 'escape'):
                         raise RuntimeError('trial cancelled by operator')
                     message = Twist()
-                    if axis == 'surge':
+                    if isinstance(axis, (tuple, list)):
+                        message.linear.x, message.linear.y, message.angular.z = axis
+                    elif axis == 'surge':
                         message.linear.x = value
                     elif axis == 'sway':
                         message.linear.y = value
@@ -548,9 +563,31 @@ class BoatTest:
             self.publish_command(duration=0.5)
             self.active_test = None
 
+    def run_combined(self):
+        """Record mixed-axis response trials for the offline envelope fitter."""
+        vectors = ((1., 1., 0.), (1., -1., 0.), (1., 0., 1.),
+                   (1., 0., -1.), (0., 1., 1.), (0., 1., -1.),
+                   (1., 1., 1.))
+        self.active_test = 'combined'
+        try:
+            for vector in vectors:
+                scale = max(abs(value) for value in vector)
+                command = tuple(value * self.args.amplitude / scale for value in vector)
+                self.emit('combined_trial_start', command=command,
+                          baseline=self.args.baseline_duration,
+                          duration=self.args.command_duration)
+                self.timed_phase(None, 0.0, self.args.baseline_duration)
+                self.timed_phase(command, 0.0, self.args.command_duration)
+                self.timed_phase(None, 0.0, self.args.settle_duration)
+                self.emit('combined_trial_stop', command=command)
+                self.save_report()
+        finally:
+            self.publish_command(duration=.5)
+            self.active_test = None
+
     def select_test(self):
         """Select a test from the live dashboard with arrows or shortcuts."""
-        shortcuts = {'1': 'surge', '2': 'sway', '3': 'yaw', 'm': 'manual control',
+        shortcuts = {'1': 'surge', '2': 'sway', '3': 'yaw', 'c': 'combined', 'm': 'manual control',
                      'h': 'arm', 'r': 'remap', 'i': 'identify', 'b': 'record',
                      'e': 'export', 'q': 'finish and save bag', 'space': 'stop'}
         with KeyReader() as keys, Live(
@@ -566,7 +603,10 @@ class BoatTest:
                     self.notice = f'Trial effort {self.args.amplitude:.0%}; {self.args.command_duration:g}s per pulse'
                 elif key in shortcuts:
                     return shortcuts[key]
-                if self.armed and self.processes['hardware'].poll() is not None:
+                if (self.armed and (self.processes['hardware'].poll() is not None or
+                                    (self.args.velocity_control and
+                                     self.processes.get('velocity') and
+                                     self.processes['velocity'].poll() is not None))):
                     self.disarm()
                     self.notice = 'Hardware process exited; disarmed'
                 live.update(self.dashboard())
@@ -576,6 +616,7 @@ class BoatTest:
             self.publish_command(duration=.2)
         finally:
             self.stop_process('hardware')
+            self.stop_process('velocity')
             if self.command_publisher is not None:
                 self.node.destroy_publisher(self.command_publisher)
                 self.command_publisher = None
@@ -727,6 +768,10 @@ class BoatTest:
                     self.assert_motion_ready()
                     self.run_axis(choice)
                     self.view = 'results'
+                elif choice == 'combined':
+                    self.assert_motion_ready()
+                    self.run_combined()
+                    self.view = 'results'
             except (RuntimeError, OSError, ValueError) as error:
                 self.disarm()
                 self.notice = str(error)
@@ -759,6 +804,7 @@ class BoatTest:
             finally:
                 self.pwm_outputs.close()
         self.stop_process('hardware')
+        self.stop_process('velocity')
         self.stop_process('bag', timeout=20)
         self.stop_process('sensors')
         self.stop_process('odometry')
@@ -784,6 +830,8 @@ def build_parser():
     parser.add_argument('--start-stack', action='store_true', help='launch odom stack; default attaches to existing topics only')
     parser.add_argument('--record', action='store_true', help='start rosbag recording on entry (B toggles)')
     parser.add_argument('--monitor-only', action='store_true', help='disable physical actions and mapping changes')
+    parser.add_argument('--velocity-control', action='store_true',
+                        help='use characterization feedback to convert SI cmd_vel to PWM effort')
     parser.add_argument('--odom-topic', default='/odom/local')
     parser.add_argument('--camera-topic', default='/front_camera/rgb/image')
     parser.add_argument('--camera-type', choices=('raw', 'compressed'), default='raw')
@@ -804,7 +852,7 @@ def build_parser():
     parser.add_argument('--mosfet-chip', help='GPIO bank label or explicit device path')
     parser.add_argument('--mosfet-line', type=int)
     parser.add_argument('--optional-sensors', action='store_true',
-                        help='also launch camera and LiDAR drivers')
+                        help='also launch local LiDAR; camera remains on the Jetson')
     parser.add_argument(
         '--allow-missing-sensors', action='store_true',
         help='continue to thruster tests when required sensor data is missing')
@@ -830,7 +878,7 @@ def build_parser():
 def main(args=None):
     argv = sys.argv[1:] if args is None else list(args)
     parser = build_parser()
-    if '--monitor-only' in argv and ('--save-config' in argv or '--identify-thrusters' in argv):
+    if '--monitor-only' in argv and ('--save-config' in argv or '--identify-thrusters' in argv or '--velocity-control' in argv):
         parser.error('--monitor-only cannot identify thrusters or save hardware configuration')
     parsed = configure_args(parser, argv)
     if parsed.start_stack:
@@ -847,6 +895,8 @@ def main(args=None):
         raise ValueError('--optional-sensors requires --start-stack')
     if parsed.monitor_only and (parsed.identify_thrusters or parsed.save_config):
         raise ValueError('--monitor-only cannot identify thrusters or save hardware configuration')
+    if parsed.monitor_only and parsed.velocity_control:
+        raise ValueError('--monitor-only cannot start the velocity controller')
     parsed.thruster_matrix = tuple(
         value for row in validate_mixer(parsed.thruster_matrix) for value in row)
     if parsed.channel_map is not None:

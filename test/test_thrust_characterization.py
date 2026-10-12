@@ -22,6 +22,7 @@ def test_fits_gain_and_limits():
     assert result['velocity_gain']['surge']['surge'] == approx(0.6)
     assert result['motion_limits']['velocity']['sway'] == approx(0.4)
     assert len(result['thruster_matrix']) == 12
+    assert result['motion_limits']['combined_directions']
 
 
 def test_json_samples_accepts_sample_wrapper(tmp_path):

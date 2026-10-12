@@ -32,6 +32,21 @@ def validate_config(config):
                 not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0
                 for value in values.values())):
             raise ValueError(f'characterization.motion_limits.{group} must contain finite nonnegative values')
+    gain = characterization.get('velocity_gain')
+    if gain:
+        if not isinstance(gain, dict) or any(axis not in gain for axis in ('surge', 'sway', 'yaw')):
+            raise ValueError('characterization.velocity_gain must contain surge, sway, yaw rows')
+        for row in gain.values():
+            if not isinstance(row, dict) or any(axis not in row for axis in ('surge', 'sway', 'yaw')):
+                raise ValueError('characterization.velocity_gain rows must contain surge, sway, yaw')
+            if any(not isinstance(value, (int, float)) or not math.isfinite(value)
+                   for value in row.values()):
+                raise ValueError('characterization.velocity_gain values must be finite')
+    bias = characterization.get('bias')
+    if bias and (not isinstance(bias, dict) or any(
+            axis not in bias or not isinstance(bias[axis], (int, float)) or
+            not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
+        raise ValueError('characterization.bias must contain finite surge, sway, yaw values')
     if len(config['pwm_chips']) != 4 or not all(
             isinstance(p, str) and p.startswith('/sys/')
             for p in config['pwm_chips']):
