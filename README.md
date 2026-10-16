@@ -151,6 +151,14 @@ Results are proportionally desaturated before conversion to 1100--1900 us.
 Use `channel_map` to map canonical positions to physical outputs, for example
 `[2,4,1,3]`.
 
+`reversed` (FL, FR, RR, RL booleans) flips a thruster that is wired or mounted
+backwards; `thruster_identify` and the test suite's thruster set record it.
+When started with `config_file`, the node reloads `channel_map`,
+`thruster_matrix`, `reversed` and `command_timeout` within a second of the YAML
+changing, without disarming; pin and backend changes need a restart. For bench
+tests it also takes raw pulses per physical output on `~/test_pulses`
+(`std_msgs/msg/UInt16MultiArray`, 1100-1900 us), under the same watchdog.
+
 ### Simulator outputs
 
 With `output_backend: topic` the node publishes the four pulse widths
