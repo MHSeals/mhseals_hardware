@@ -106,15 +106,12 @@ ros2 run mhseals_hardware thruster_identify
 
 With the boat secured and every propeller clear and submerged, type `ARM`.
 After five seconds of neutral, each output is pulsed alone at 15% effort. Answer
-which thruster moved, which way its propeller turned (viewed from the propeller
-toward the motor), and whether its thrust pointed the expected way. A reversed
-thruster stops the run. Space, Q or Esc during a pulse returns every output to
-neutral. The mapping is saved to the hardware YAML only after you confirm it.
-No sensors are used; the operator's observations are the measurement.
-
-`--manual` enters a known mapping by hand without pulsing anything.
-`--output-backend topic` identifies the simulator's thrusters through
-`pwm_topic` instead of the pins; only `channel_map` is ever saved.
+which thruster moved, which way its propeller turned, and whether its thrust
+pointed the expected way; a wrong way is saved as `reversed`. Space, Q or Esc
+during a pulse returns every output to neutral. Nothing is saved until you
+confirm. `--manual` enters a known mapping without pulses; `--output-backend
+topic` identifies the simulator's thrusters. Only `channel_map` and `reversed`
+are written. The test suite's Thrusters panel does the same on its page.
 
 ## ROS control
 
@@ -189,17 +186,11 @@ ros2 run mhseals_testing thrust_characterize \
   --nav2-overlay ~/.config/mhseals/nav2_calibrated.yaml
 ```
 
-JSON or CSV samples are also accepted with `--samples`. The fitter estimates
-neutral drift, the 3×3 body-velocity response, acceleration/deceleration, and
-per-axis limits while retaining the pin paths, channel map, and physical effort
-mixer in the same atomically-written YAML. The generated Nav2 profile is used
-explicitly with `params_file:=~/.config/mhseals/nav2_calibrated.yaml`; it never
-silently changes the checked-in defaults. Review the report and test low
-amplitudes before using `--apply-matrix`.
-
-Use the default `/cmd_vel` when the PWM node was driven directly with normalized
-effort. When `--velocity-control` was active, fit `/cmd_vel_effort` instead;
-`/cmd_vel` then contains SI velocity requests rather than actuator effort.
+It fits neutral drift, the 3×3 velocity response, acceleration and per-axis
+limits into the hardware YAML, and writes a Nav2 profile to pass explicitly as
+`params_file:=...`. Fit `/cmd_vel_effort` when the bag was recorded with
+`--velocity-control`, else the default `/cmd_vel`. Review the result before
+`--apply-matrix`.
 
 After a valid characterization, the optional controller closes the velocity
 loop with bounded integral trim for neutral-current drift. It accepts SI body
@@ -211,11 +202,8 @@ ros2 run mhseals_hardware calibrated_velocity_controller
 ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effort
 ```
 
-`ros2 run mhseals_testing boat_test --velocity-control` arms both.
-Characterization cannot guarantee zero drift in changing wind/current; the
-integral trim is bounded and the watchdog always returns the outputs to neutral.
-Combined surge/sway/yaw commands are limited by the generated Nav2 velocity
-smoother, which preserves their direction through common saturation.
+`ros2 run mhseals_testing boat_test --velocity-control` arms both. The integral
+trim is bounded and the watchdog always returns the outputs to neutral.
 
 For deadman keyboard control from any machine on the same ROS domain:
 
@@ -239,7 +227,7 @@ Sensor, actuation, navigation and mission tests live in
 [`mhseals_testing`](https://github.com/mhseals/mhseals_testing)
 (`ros2 run mhseals_testing boat_test`). It arms this package's
 `thruster_pwm_node` and `calibrated_velocity_controller` as supervised
-children and runs `thruster_identify` for thruster mapping.
+children, and edits the mapping and reversals through the driver's hot reload.
 
 ## Development
 

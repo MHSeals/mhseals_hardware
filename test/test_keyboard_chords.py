@@ -207,3 +207,17 @@ def test_ctrl_hjkl_and_ctrl_arrows_are_focus_keys_and_enter_stays_enter():
     assert [decode_key(b'\x1b[1;5' + c) for c in (b'A', b'B', b'C', b'D')] == [
         'ctrl-up', 'ctrl-down', 'ctrl-right', 'ctrl-left']
     assert decode_key(b'\r') == 'enter' and decode_key(b'\x1b[A') == 'up'
+
+
+def test_arrow_presses_join_held_chords_so_the_boat_can_turn_while_moving():
+    from mhseals_hardware.keyboard import decode_key
+    from mhseals_hardware.manual_state import ManualState
+    keys = [decode_key(raw, report_events=True) for raw in (
+        b'\x1b[119u', b'\x1b[D', b'\x1b[1;1:2D', b'\x1b[119;1:2u')]
+    assert keys == ['press:w', 'press:left', 'repeat:left', 'repeat:w']
+    state = ManualState(0.25, 0.15, 0.65)
+    for now, key in enumerate(keys):
+        command = state.update(key, now * 0.05)
+    assert command[0] > 0 and command[2] > 0  # forward and turning left together
+    assert state.update(decode_key(b'\x1b[1;1:3D', report_events=True), 0.3)[2] == 0
+    assert decode_key(b'\x1b[D') == 'left'  # plain terminals keep plain names

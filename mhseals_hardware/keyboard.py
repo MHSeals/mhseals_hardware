@@ -69,7 +69,10 @@ def decode_key(value, report_events=False):
     if value == b'\x03':
         raise KeyboardInterrupt
     if value in ARROW_SEQUENCES:
-        return ARROW_SEQUENCES[value]
+        # With event reporting on, a terminal sends an arrow press as the plain
+        # sequence (only repeats and releases carry an event type), so it is a press.
+        plain = not ARROW_SEQUENCES[value].startswith('ctrl-')
+        return ('press:' if report_events and plain else '') + ARROW_SEQUENCES[value]
     if value == b'\x1b[Z':  # Shift+Tab
         return 'backtab'
     if value == b'\x1b':
