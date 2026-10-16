@@ -189,8 +189,7 @@ terminals explicitly remain single-key, with initial-repeat grace followed by
 a short repeat timeout. Test your terminal safely with
 `ros2 run mhseals_hardware keyboard_control --dry-run`.
 See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
-section for the safety limitations and timeout settings. `boat_manual` remains a
-compatibility alias; the canonical command matches `keyboard_control.py`.
+section for the safety limitations and timeout settings.
 
 ## Guided boat test
 
