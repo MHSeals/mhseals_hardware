@@ -222,7 +222,16 @@ class OdroidPWMOutputs:
                                     mosfet_active_high)
                         if mosfet_chip else None)
 
+    @classmethod
+    def from_config(cls, config):
+        """Build outputs from a hardware config mapping (see configuration.py)."""
+        return cls(config['pwm_chips'], config['pwm_channels'], config['frequency'],
+                   mosfet_chip=config['mosfet_chip'], mosfet_line=config['mosfet_line'],
+                   mosfet_active_high=config['mosfet_active_high'])
+
     def open(self):
+        # Order matters for safety: every channel is at neutral before the
+        # MOSFET powers the ESCs, and any failure leaves everything disabled.
         opened = []
         try:
             for channel in self.channels:
@@ -256,6 +265,8 @@ class OdroidPWMOutputs:
         self.set_pulse_widths([self.neutral_us] * 4)
 
     def close(self):
+        # Cut ESC power first, then neutralize and disable each channel. Keep
+        # going after errors so one bad channel cannot leave another running.
         first_error = None
         if self.mosfet is not None:
             try:

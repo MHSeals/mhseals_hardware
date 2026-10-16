@@ -4,11 +4,12 @@
 
 import time
 
-import rclpy
 from geometry_msgs.msg import Twist
 from mavros_msgs.msg import RCIn
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+
+from mhseals_hardware.ros_util import run_node, twist_from
 
 
 class RemoteController(Node):
@@ -68,11 +69,11 @@ class RemoteController(Node):
         channel_2 = self.normalized_channel(msg.channels[1])
         channel_4 = self.normalized_channel(msg.channels[3])
 
-        command = Twist()
-        command.linear.x = channel_2 * self.max_linear_speed
-        command.linear.y = -channel_1 * self.max_linear_speed
-        command.angular.z = -channel_4 * self.max_angular_speed
-        self.publisher.publish(command)
+        # Right stick: channel 2 is forward, channel 1 is right (negative
+        # sway). Left stick channel 4 is right (clockwise, negative yaw).
+        self.publisher.publish(twist_from((channel_2 * self.max_linear_speed,
+                                           -channel_1 * self.max_linear_speed,
+                                           -channel_4 * self.max_angular_speed)))
         # A monotonic clock is immune to NTP and flight-controller clock steps.
         self.last_rc_time = time.monotonic()
 
@@ -89,13 +90,7 @@ class RemoteController(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    node = RemoteController()
-    try:
-        rclpy.spin(node)
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    run_node(RemoteController, args)
 
 
 if __name__ == '__main__':

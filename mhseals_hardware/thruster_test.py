@@ -2,32 +2,28 @@
 
 import argparse
 import time
-from mhseals_hardware.configuration import configure_args
 
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
+from mhseals_hardware.configuration import configure_args, parse_csv
 from mhseals_hardware.keyboard import KeyReader
-from mhseals_hardware.odroid_pwm import (
-    DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE, DEFAULT_PWM_CHIPS,
-    OdroidPWMOutputs,
-)
+from mhseals_hardware.odroid_pwm import OdroidPWMOutputs
+from mhseals_hardware.thruster_mixer import MAX_PWM, MIN_PWM, NEUTRAL_PWM
 
 
-PRESETS = {'n': ('NEUTRAL', 1500), 'f': ('FORWARD', 1600),
-           'b': ('REVERSE', 1400), 'z': ('MINIMUM', 1100),
-           'x': ('MAXIMUM', 1900)}
+# Key -> (label, pulse width in us). F/B are a gentle +/-25% effort.
+PRESETS = {'n': ('NEUTRAL', NEUTRAL_PWM), 'f': ('FORWARD', NEUTRAL_PWM + 100),
+           'b': ('REVERSE', NEUTRAL_PWM - 100), 'z': ('MINIMUM', MIN_PWM),
+           'x': ('MAXIMUM', MAX_PWM)}
+# ESCs must see uninterrupted neutral after power-up before they accept throttle.
 ARMING_SECONDS = 3.0
 
 
-def parse_csv(text, cast=str):
-    return tuple(cast(value.strip()) for value in text.split(','))
-
-
 class ThrusterTestTUI:
-    """Edit frequency and individual/all pulse widths without restarting."""
+    """Edit individual or all pulse widths live; frequency stays fixed at 50 Hz."""
 
     def __init__(self, outputs, console=None, pulse_step=10):
         self.outputs = outputs
@@ -62,6 +58,7 @@ class ThrusterTestTUI:
         return Group(status, table)
 
     def targets(self):
+        # Row 0 is "all outputs"; rows 1-4 are the physical outputs.
         return range(4) if self.selected == 0 else (self.selected - 1,)
 
     def apply_pulses(self):
@@ -76,8 +73,7 @@ class ThrusterTestTUI:
 
     def adjust_pulse(self, amount):
         for index in self.targets():
-            self.pulses[index] = max(1100, min(1900,
-                                             self.pulses[index] + amount))
+            self.pulses[index] = max(MIN_PWM, min(MAX_PWM, self.pulses[index] + amount))
         self.state = 'CUSTOM'
         self.apply_pulses()
 
@@ -110,26 +106,26 @@ class ThrusterTestTUI:
                         self.apply_pulses()
                     live.update(self.render())
         finally:
+            # Any exit path, including exceptions, leaves the thrusters stopped.
             self.outputs.neutral()
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
         description='Interactive four-thruster Odroid PWM test')
-    parser.add_argument('--pwm-chips', type=parse_csv, default=DEFAULT_PWM_CHIPS,
+    # Defaults for these come from the hardware config via configure_args.
+    parser.add_argument('--pwm-chips', type=parse_csv,
                         help='four comma-separated pwmchip paths')
-    parser.add_argument('--pwm-channels', type=lambda s: parse_csv(s, int), default=(0, 0, 0, 0),
+    parser.add_argument('--pwm-channels', type=lambda s: parse_csv(s, int),
                         help='channel within each pwmchip')
-    parser.add_argument('--mosfet-chip', default=DEFAULT_MOSFET_CHIP)
-    parser.add_argument('--mosfet-line', type=int, default=DEFAULT_MOSFET_LINE)
+    parser.add_argument('--mosfet-chip')
+    parser.add_argument('--mosfet-line', type=int)
     parser.add_argument('--pulse-step', type=int, default=10)
     return parser
 
 
 def main(args=None):
     parsed = configure_args(build_parser(), args)
-    chips = parsed.pwm_chips
-    channels = parsed.pwm_channels
     console = Console()
     console.print(Panel(
         '[bold red]Propellers must be clear and submerged.[/]\n'
@@ -137,11 +133,7 @@ def main(args=None):
         'Press Enter to arm PWM, or Ctrl+C to cancel.',
         title='Physical thruster warning'))
     console.input()
-    outputs = OdroidPWMOutputs(
-        chips, channels, 50.0,
-        mosfet_chip=parsed.mosfet_chip,
-        mosfet_line=parsed.mosfet_line,
-        mosfet_active_high=parsed.mosfet_active_high).open()
+    outputs = OdroidPWMOutputs.from_config(parsed.hardware_config).open()
     try:
         console.print(
             f'[yellow]Holding neutral for {ARMING_SECONDS:g} seconds '

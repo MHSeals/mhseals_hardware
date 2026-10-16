@@ -7,6 +7,12 @@ import time
 
 
 class BoatMonitor:
+    """Collect sensor rates, TF edges, events and trial results for the dashboard.
+
+    Callbacks write from the ROS thread; the UI reads ``snapshot()``. Every
+    buffer is bounded so a long session cannot grow memory without limit.
+    """
+
     def __init__(self, stale_after=2.0, clock=time.monotonic):
         self.stale_after = stale_after
         self.clock = clock
@@ -66,6 +72,10 @@ class BoatMonitor:
                                      if len(times) > 1 and times[-1] > times[0] else 0,
                                      values=deepcopy(entry['values']))
             edges = dict(self.edges)
+            # For each required chain (e.g. map -> odom), build a graph of the
+            # fresh edges and search it for a directed path. A frame with more
+            # than one parent, or a cycle, is a broken TF tree even when a path
+            # exists.
             tf = []
             for source, target in required_tf:
                 graph = {}

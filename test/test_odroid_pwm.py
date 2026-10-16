@@ -1,6 +1,5 @@
 """Unit tests for native Linux PWM conversion and output behavior."""
 
-from pathlib import Path
 from types import SimpleNamespace
 import sys
 

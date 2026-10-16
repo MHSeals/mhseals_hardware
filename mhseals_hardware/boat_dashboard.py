@@ -6,7 +6,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from mhseals_hardware.thruster_mixer import mix_thrusters
+from mhseals_hardware.thruster_mixer import POSITIONS, mix_thrusters
 
 VIEWS = ('overview', 'sensors', 'tf', 'mapping', 'results', 'logs')
 COLORS = {'LIVE': 'green', 'WARN': 'yellow', 'STALE': 'yellow', 'MISSING': 'red'}
@@ -64,7 +64,7 @@ def mapping_panel(context, compact=False):
     command = context.get('command', (0, 0, 0))
     outputs = mix_thrusters(*command, mixer=context['matrix'])
     labels = {position: f'{position.upper()} → #{channel}  {output if output else 0:+.0%}'
-              for position, channel, output in zip(('fl', 'fr', 'rr', 'rl'), mapping, outputs)}
+              for position, channel, output in zip(POSITIONS, mapping, outputs)}
     hull = Text(f"           BOW / +surge\n{labels['fl']}     {labels['fr']}\n"
                 f"     │                   │\n{labels['rl']}     {labels['rr']}\n"
                 'Predicted mixer effort; not motor feedback', style='cyan')
@@ -73,7 +73,7 @@ def mapping_panel(context, compact=False):
     table = Table(expand=True)
     for name in ('Position', 'Output', 'PWM chip', 'Channel', 'Readback'):
         table.add_column(name, no_wrap=True, overflow='ellipsis')
-    for position, channel in zip(('FL', 'FR', 'RR', 'RL'), mapping):
+    for position, channel in zip((p.upper() for p in POSITIONS), mapping):
         readback = context.get('pwm_readback', ['not sampled'] * 4)[channel - 1]
         if readback == 'unavailable / unexported':
             readback = 'unavailable'

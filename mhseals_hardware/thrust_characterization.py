@@ -14,12 +14,12 @@ import json
 import math
 from bisect import bisect_right
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping
 
 from mhseals_hardware.configuration import load_config, save_config
-from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, validate_mixer
+import numpy
 
-AXES = ("surge", "sway", "yaw")
+from mhseals_hardware.thruster_mixer import AXES, THRUSTER_MIXER, validate_mixer
 
 
 def nav2_profile(result, source):
@@ -61,79 +61,33 @@ def _vector(value, name):
 
 def _inverse(matrix, regularization=1e-6):
     """Invert a 3x3 matrix, with a small ridge term for weak experiments."""
-    rows = [list(map(float, row)) for row in matrix]
-    for i in range(3):
-        rows[i][i] += regularization
-    aug = [rows[i] + [1.0 if i == j else 0.0 for j in range(3)]
-           for i in range(3)]
-    for col in range(3):
-        pivot = max(range(col, 3), key=lambda row: abs(aug[row][col]))
-        if abs(aug[pivot][col]) < 1e-9:
-            raise ValueError("commands do not excite all three motion axes")
-        aug[col], aug[pivot] = aug[pivot], aug[col]
-        scale = aug[col][col]
-        aug[col] = [item / scale for item in aug[col]]
-        for row in range(3):
-            if row == col:
-                continue
-            scale = aug[row][col]
-            aug[row] = [a - scale * b for a, b in zip(aug[row], aug[col])]
-    return tuple(tuple(aug[row][3 + col] for col in range(3)) for row in range(3))
-
-
-def _matmul(left, right):
-    return tuple(tuple(sum(left[i][k] * right[k][j] for k in range(3))
-                         for j in range(3)) for i in range(len(left)))
+    ridged = numpy.asarray(matrix, dtype=float) + regularization * numpy.eye(3)
+    if abs(numpy.linalg.det(ridged)) < 1e-12:
+        raise ValueError("commands do not excite all three motion axes")
+    return tuple(tuple(float(value) for value in row) for row in numpy.linalg.inv(ridged))
 
 
 def _normal_equations(samples):
-    # Fit v = bias + gain * command using ordinary least squares.  The tiny
-    # 4x4 solve avoids requiring NumPy on the robot image.
-    gram = [[0.0] * 4 for _ in range(4)]
-    rhs = [[0.0] * 4 for _ in range(3)]
-    for command, velocity, _ in samples:
-        row = (1.0, *command)
-        for i in range(4):
-            for j in range(4):
-                gram[i][j] += row[i] * row[j]
-            for axis in range(3):
-                rhs[axis][i] += velocity[axis] * row[i]
-    for i in range(4):
-        gram[i][i] += 1e-8
+    """Fit velocity = bias + gain @ command by ordinary least squares.
+
+    Each sample contributes the row (1, surge, sway, yaw). Summing row^T row
+    gives the 4x4 Gram matrix, and summing velocity * row gives one right-hand
+    side per measured axis; solving each system yields that axis's bias and
+    three gains.
+    """
+    rows = numpy.array([(1.0, *command) for command, _, _ in samples])
+    velocities = numpy.array([velocity for _, velocity, _ in samples])
+    gram = rows.T @ rows + 1e-8 * numpy.eye(4)
     # Do not turn a one-axis bag into a seemingly valid 3-axis calibration.
-    rank_rows = [row[:] for row in gram]
-    rank = 0
-    for col in range(4):
-        pivot = max(range(rank, 4), key=lambda row: abs(rank_rows[row][col]))
-        if abs(rank_rows[pivot][col]) < 1e-6:
-            continue
-        rank_rows[rank], rank_rows[pivot] = rank_rows[pivot], rank_rows[rank]
-        scale = rank_rows[rank][col]
-        rank_rows[rank] = [value / scale for value in rank_rows[rank]]
-        for row in range(4):
-            if row != rank:
-                factor = rank_rows[row][col]
-                rank_rows[row] = [a - factor * b for a, b in zip(rank_rows[row], rank_rows[rank])]
-        rank += 1
-    if rank < 4:
+    if numpy.linalg.matrix_rank(gram, tol=1e-6) < 4:
         raise ValueError('samples must excite neutral, surge, sway, and yaw')
-    coefficients = []
-    for axis in range(3):
-        aug = [gram[row][:] + [rhs[axis][row]] for row in range(4)]
-        for col in range(4):
-            pivot = max(range(col, 4), key=lambda row: abs(aug[row][col]))
-            if abs(aug[pivot][col]) < 1e-10:
-                raise ValueError("not enough varied command samples")
-            aug[col], aug[pivot] = aug[pivot], aug[col]
-            scale = aug[col][col]
-            aug[col] = [item / scale for item in aug[col]]
-            for row in range(4):
-                if row != col:
-                    scale = aug[row][col]
-                    aug[row] = [a - scale * b for a, b in zip(aug[row], aug[col])]
-        coefficients.append(tuple(aug[row][4] for row in range(4)))
-    return tuple(row[0] for row in coefficients), tuple(
-        tuple(row[index + 1] for index in range(3)) for row in coefficients)
+    try:
+        coefficients = numpy.linalg.solve(gram, rows.T @ velocities).T  # one row per axis
+    except numpy.linalg.LinAlgError as error:
+        raise ValueError("not enough varied command samples") from error
+    bias = tuple(float(row[0]) for row in coefficients)
+    gain = tuple(tuple(float(value) for value in row[1:]) for row in coefficients)
+    return bias, gain
 
 
 def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, source="samples"):
@@ -159,7 +113,7 @@ def characterize_samples(samples: Iterable[Mapping], mixer=THRUSTER_MIXER, sourc
     bias, gain = _normal_equations(normalized)
     try:
         inverse_gain = _inverse(gain)
-        corrected = _matmul(validate_mixer(mixer), inverse_gain)
+        corrected = (numpy.asarray(validate_mixer(mixer)) @ numpy.asarray(inverse_gain)).tolist()
         corrected = tuple(tuple(max(-1.0, min(1.0, value)) for value in row)
                           for row in corrected)
     except ValueError:

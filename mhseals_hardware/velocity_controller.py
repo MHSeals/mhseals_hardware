@@ -9,36 +9,20 @@ from __future__ import annotations
 import math
 import time
 
+import numpy
+
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-import rclpy
 from rclpy.node import Node
 
 from mhseals_hardware.configuration import load_config
-
-AXES = ("surge", "sway", "yaw")
+from mhseals_hardware.ros_util import run_node, twist_from, twist_values
+from mhseals_hardware.thruster_mixer import AXES
 
 
 def _matrix(value):
-    return tuple(tuple(float(row[name]) for name in AXES) for row in value)
-
-
-def _inverse(matrix):
-    aug = [list(row) + [1.0 if i == j else 0.0 for j in range(3)]
-           for i, row in enumerate(matrix)]
-    for col in range(3):
-        pivot = max(range(col, 3), key=lambda i: abs(aug[i][col]))
-        if abs(aug[pivot][col]) < 1e-9:
-            raise ValueError("velocity_gain is singular")
-        aug[col], aug[pivot] = aug[pivot], aug[col]
-        scale = aug[col][col]
-        aug[col] = [v / scale for v in aug[col]]
-        for row in range(3):
-            if row == col:
-                continue
-            scale = aug[row][col]
-            aug[row] = [a - scale * b for a, b in zip(aug[row], aug[col])]
-    return tuple(tuple(aug[i][j + 3] for j in range(3)) for i in range(3))
+    """Turn the saved {axis: {axis: gain}} mapping into a 3x3 matrix."""
+    return tuple(tuple(float(value[row][name]) for name in AXES) for row in AXES)
 
 
 class VelocityController(Node):
@@ -58,7 +42,11 @@ class VelocityController(Node):
         gain = characterization.get('velocity_gain')
         if not gain:
             raise ValueError('characterization.velocity_gain is required')
-        self._gain_inv = _inverse(_matrix(gain))
+        # velocity = bias + gain @ effort, so effort = gain^-1 @ (velocity - bias).
+        try:
+            self._gain_inv = numpy.linalg.inv(_matrix(gain)).tolist()
+        except numpy.linalg.LinAlgError as error:
+            raise ValueError("velocity_gain is singular") from error
         self._bias = tuple(float(characterization.get('bias', {}).get(axis, 0.0))
                            for axis in AXES)
         limits = characterization.get('motion_limits', {}).get('velocity', {})
@@ -78,14 +66,13 @@ class VelocityController(Node):
         self.create_timer(0.05, self._watchdog)
 
     def _odom(self, message):
-        twist = message.twist.twist
-        self._velocity = (twist.linear.x, twist.linear.y, twist.angular.z)
+        self._velocity = twist_values(message.twist.twist)
 
     def _command(self, message):
         now = time.monotonic()
         dt = min(0.2, max(0.0, now - self._last))
         self._last = now
-        desired = (message.linear.x, message.linear.y, message.angular.z)
+        desired = twist_values(message)
         error = tuple(desired[i] - self._velocity[i] for i in range(3))
         feedback = bool(self.get_parameter('feedback').value)
         for i in range(3):
@@ -93,15 +80,14 @@ class VelocityController(Node):
                 self._integral[i] = max(-self._integral_limit[i], min(
                     self._integral_limit[i], self._integral[i] + error[i] * dt))
         target = tuple(max(-self._limits[i], min(self._limits[i], desired[i])) for i in range(3))
+        # Feed-forward from the fitted model, plus PI feedback on odometry error.
         feedforward = tuple(sum(self._gain_inv[i][j] * (target[j] - self._bias[j]) for j in range(3))
                             for i in range(3))
         effort = tuple(feedforward[i] + (self._kp[i] * error[i] + self._ki[i] * self._integral[i]
                                         if feedback else 0.0) for i in range(3))
         effort = tuple(max(-1.0, min(1.0, value)) if math.isfinite(value) else 0.0
                        for value in effort)
-        out = Twist()
-        out.linear.x, out.linear.y, out.angular.z = effort
-        self._pub.publish(out)
+        self._pub.publish(twist_from(effort))
         self._last_command = now
 
     def _watchdog(self):
@@ -112,13 +98,7 @@ class VelocityController(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    node = VelocityController()
-    try:
-        rclpy.spin(node)
-    finally:
-        node.destroy_node()
-        rclpy.try_shutdown()
+    run_node(VelocityController, args)
 
 
 if __name__ == '__main__':

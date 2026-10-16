@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from mhseals_hardware.thruster_mixer import axis_command
+
 
 def action_fixture(keys, fault=False):
     clock = SimpleNamespace(now=0.)
@@ -27,14 +29,16 @@ def action_fixture(keys, fault=False):
     def twist():
         return SimpleNamespace(linear=SimpleNamespace(x=0., y=0.), angular=SimpleNamespace(z=0.))
     source = Path(__file__).parents[1] / 'mhseals_hardware/boat_test.py'
-    cls = next(n for n in ast.parse(source.read_text()).body
+    tree = ast.parse(source.read_text())
+    cls = next(n for n in tree.body
                if isinstance(n, ast.ClassDef) and n.name == 'BoatTest')
     methods = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name in
                ('timed_phase', 'publish_command', 'manual_publish', 'assert_motion_ready')]
+    helpers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'axis_twist']
     stub = ast.ClassDef(name='Actions', bases=[], keywords=[], body=methods, decorator_list=[])
     namespace = dict(time=SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep),
-                     KeyReader=Reader, Live=Live, Twist=twist)
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[stub], type_ignores=[])),
+                     KeyReader=Reader, Live=Live, Twist=twist, axis_command=axis_command)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[*helpers, stub], type_ignores=[])),
                  str(source), 'exec'), namespace)
     action = namespace['Actions']()
     action.command_publisher = SimpleNamespace(publish=lambda message: sent.append(

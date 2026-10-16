@@ -1,16 +1,45 @@
-"""ROS-independent planar thruster mixing and output mapping."""
+"""ROS-independent planar thruster mixing and output mapping.
 
+Conventions used throughout the package:
+  * Body axes follow ROS REP 103: surge is +x forward, sway is +y port/left,
+    yaw is +z counterclockwise seen from above.
+  * Commands are normalized effort in [-1, 1] per axis, not m/s or rad/s.
+  * Thrusters are listed in canonical order FL, FR, RR, RL. ``channel_map``
+    says which physical PWM output (1-4) drives each canonical position.
+"""
+
+AXES = ('surge', 'sway', 'yaw')
+
+# ESC pulse widths in microseconds: 1500 is stopped, +/-400 is full effort.
 NEUTRAL_PWM = 1500
 PWM_SCALE = 400
 MIN_PWM = 1100
 MAX_PWM = 1900
+
 POSITIONS = ('fl', 'fr', 'rr', 'rl')
+# Rows are thrusters in POSITIONS order; columns are surge, sway, yaw.
 THRUSTER_MIXER = (
     (-1.0, 1.0, 1.0),
     (-1.0, -1.0, -1.0),
     (1.0, -1.0, 1.0),
     (1.0, 1.0, -1.0),
 )
+
+
+def axis_command(axis=None, value=0.0):
+    """Return a (surge, sway, yaw) command.
+
+    ``axis`` is an axis name driven at ``value``, an explicit three-value
+    command, or None for neutral.
+    """
+    if isinstance(axis, (tuple, list)):
+        return tuple(float(component) for component in axis)
+    return tuple(float(value) if name == axis else 0.0 for name in AXES)
+
+
+def effort_to_pulse(effort):
+    """Convert one normalized thruster effort into a clamped ESC pulse (us)."""
+    return max(MIN_PWM, min(MAX_PWM, round(NEUTRAL_PWM + PWM_SCALE * effort)))
 
 
 def channel_map_from_observations(observations):
@@ -55,5 +84,7 @@ def mix_thrusters(surge, sway, yaw, mixer=THRUSTER_MIXER):
     """Return normalized, desaturated outputs in FL, FR, RR, RL order."""
     commands = [row[0] * surge + row[1] * sway + row[2] * yaw
                 for row in mixer]
+    # Scale every thruster down together when any would exceed full effort,
+    # so the commanded direction is kept and only its magnitude shrinks.
     peak = max(1.0, *(abs(command) for command in commands))
     return [command / peak for command in commands]

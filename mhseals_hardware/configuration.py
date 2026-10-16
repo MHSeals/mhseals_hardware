@@ -18,8 +18,11 @@ def config_path(path=None):
 
 
 def validate_config(config):
+    """Reject a config that could drive the wrong pins or produce unsafe output."""
+    # Thruster layout.
     validate_channel_map(config['channel_map'])
     validate_mixer(config['thruster_matrix'])
+    # Optional calibration written by thrust_characterization.
     characterization = config.get('characterization', {})
     if not isinstance(characterization, dict):
         raise ValueError('characterization must be a mapping')
@@ -47,6 +50,7 @@ def validate_config(config):
             axis not in bias or not isinstance(bias[axis], (int, float)) or
             not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
         raise ValueError('characterization.bias must contain finite surge, sway, yaw values')
+    # PWM outputs and the MOSFET enable line.
     if len(config['pwm_chips']) != 4 or not all(
             isinstance(p, str) and p.startswith('/sys/')
             for p in config['pwm_chips']):
@@ -56,6 +60,7 @@ def validate_config(config):
     if len(config['pwm_channels']) != 4 or any(
             type(n) is not int or n < 0 for n in config['pwm_channels']):
         raise ValueError('pwm_channels must contain four nonnegative integers')
+    # Restarting PWM at another frequency can look like throttle to the ESCs.
     if config['frequency'] != 50:
         raise ValueError('ESC frequency must be 50 Hz')
     if type(config['mosfet_line']) is not int or config['mosfet_line'] < 0:
@@ -65,6 +70,7 @@ def validate_config(config):
     if not isinstance(config['mosfet_chip'], str) or not re.fullmatch(
             r'(?:/dev/gpiochip\d+|gpio\d+)', config['mosfet_chip']):
         raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')
+    # Watchdog and keyboard deadman timings.
     for key in ('command_timeout', 'manual_repeat_timeout', 'manual_initial_timeout'):
         if not math.isfinite(config[key]) or not 0 < config[key] <= 2:
             raise ValueError(f'{key} must be finite and within (0, 2] seconds')
@@ -80,6 +86,12 @@ def load_defaults():
 
 
 def load_config(path=None):
+    """Shipped defaults overlaid with the user's hardware YAML, if present.
+
+    The YAML path is ``path``, else $MHSEALS_HARDWARE_CONFIG, else
+    ~/.config/mhseals/hardware.yaml. Unknown keys are rejected so typos fail
+    loudly instead of being ignored.
+    """
     config = load_defaults()
     selected = config_path(path)
     if selected.exists():
@@ -115,8 +127,18 @@ def save_config(config, path=None):
     return target
 
 
+def parse_csv(text, cast=str):
+    """Parse a comma-separated CLI value such as '0,0,0,0' into a tuple."""
+    return tuple(cast(value.strip()) for value in text.split(','))
+
+
 def configure_args(parser, args=None):
-    """Apply shared defaults before parsing explicit CLI overrides."""
+    """Apply shared defaults before parsing explicit CLI overrides.
+
+    Precedence is shipped defaults, then the hardware YAML, then CLI flags whose
+    names match config keys (for example --pwm-chips sets pwm_chips). The merged
+    result is validated and returned as ``parsed.hardware_config``.
+    """
     parser.add_argument('--config', help='hardware YAML (or MHSEALS_HARDWARE_CONFIG)')
     parser.add_argument('--save-config', action='store_true',
                         help='persist pin/mixer overrides before opening hardware')

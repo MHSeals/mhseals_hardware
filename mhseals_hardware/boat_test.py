@@ -15,7 +15,6 @@ import time
 import socket
 import sys
 from types import SimpleNamespace
-from mhseals_hardware.configuration import configure_args, save_config
 
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
@@ -29,24 +28,27 @@ from rich.panel import Panel
 from sensor_msgs.msg import Image, CompressedImage, Imu, NavSatFix, PointCloud2
 from std_msgs.msg import String
 from tf2_msgs.msg import TFMessage
-from mhseals_hardware.boat_monitor import BoatMonitor, finite_values
-from mhseals_hardware.boat_dashboard import render_dashboard, VIEWS
 
+from mhseals_hardware.boat_dashboard import render_dashboard, VIEWS
+from mhseals_hardware.boat_monitor import BoatMonitor, finite_values
+from mhseals_hardware.configuration import configure_args, parse_csv, save_config
+from mhseals_hardware.fcu import default_fcu_url
+from mhseals_hardware.keyboard import KeyReader
+from mhseals_hardware.keyboard_control import run_manual
+from mhseals_hardware.odroid_pwm import OdroidPWMOutputs, resolve_pwm_chip
 from mhseals_hardware.thruster_mixer import (
     NEUTRAL_PWM,
-    PWM_SCALE,
+    POSITIONS,
     THRUSTER_MIXER,
+    axis_command,
     channel_map_from_observations,
+    effort_to_pulse,
     validate_channel_map,
     validate_mixer,
 )
-from mhseals_hardware.keyboard import KeyReader
-from mhseals_hardware.fcu import default_fcu_url
-from mhseals_hardware.keyboard_control import run_manual
-from mhseals_hardware.odroid_pwm import DEFAULT_PWM_CHIPS, OdroidPWMOutputs, resolve_pwm_chip
 
-
-POSITIONS = ('fl', 'fr', 'rr', 'rl')
+# Effort used to briefly spin one thruster during output identification.
+IDENTIFY_EFFORT = 0.15
 POSITION_NAMES = {
     'fl': 'front-left', 'fr': 'front-right',
     'rr': 'rear-right', 'rl': 'rear-left',
@@ -63,6 +65,7 @@ AXIS_GUIDANCE = {
         -1: ('around the boat', 'rotate clockwise in place'),
     },
 }
+# (dashboard name, default topic, message type, required for motion tests)
 SENSOR_SPECS = (
     ('odometry', '/odom/local', Odometry, True),
     ('FCU odometry', '/odom/mavros', Odometry, False),
@@ -73,18 +76,21 @@ SENSOR_SPECS = (
 )
 
 
-def parse_int_list(text):
-    """Parse a comma-separated integer list."""
-    return tuple(int(value.strip()) for value in text.split(','))
-
-
-def parse_float_list(text):
-    """Parse a comma-separated float list."""
-    return tuple(float(value.strip()) for value in text.split(','))
+def axis_twist(axis=None, value=0.0):
+    """Twist for one axis at ``value``, an explicit (surge, sway, yaw), or neutral."""
+    message = Twist()
+    message.linear.x, message.linear.y, message.angular.z = axis_command(axis, value)
+    return message
 
 
 class BoatTest:
-    """Own the ROS status monitor, child processes, TUI, and safe shutdown."""
+    """Own the ROS status monitor, child processes, TUI, and safe shutdown.
+
+    The tool starts passive: it only watches sensors and TF. Physical output
+    needs an explicit arm (H, then typing ARM), which launches thruster_pwm_node
+    as a child process; disarming or any fault stops it, so outputs return to
+    neutral and power off.
+    """
 
     def __init__(self, args):
         self.args = args
@@ -141,6 +147,7 @@ class BoatTest:
             self.monitor.event('Monitor fault: ' + self.monitor_fault)
 
     def sensor_callback(self, sensor, message):
+        """Summarize one sensor message and flag anything that makes it untrustworthy."""
         stamp = message.header.stamp
         stamp_age = self.node.get_clock().now().nanoseconds / 1e9 - stamp.sec - stamp.nanosec / 1e9
         values, issue = {'sensor_frame': message.header.frame_id}, ''
@@ -201,6 +208,7 @@ class BoatTest:
         self.monitor.observe(sensor, values, issue, stamp_age)
 
     def tf_callback(self, message, info, static=False):
+        """Record TF edges with the publisher identity, to spot competing publishers."""
         now = self.node.get_clock().now().nanoseconds / 1e9
         gid = info.get('publisher_gid', b'') if isinstance(info, dict) else info.publisher_gid
         authority = bytes(gid).hex()
@@ -378,20 +386,17 @@ class BoatTest:
             'Boat secured; all propellers clear and submerged.\n'
             'Identify outputs against 1=FL, 2=FR, 3=RR, 4=RL.',
             title='Thruster identification', style='yellow'))
-        self.pwm_outputs = OdroidPWMOutputs(
-            self.args.pwm_chips, self.args.pwm_channels,
-            self.args.frequency,
-            mosfet_chip=self.args.mosfet_chip,
-            mosfet_line=self.args.mosfet_line,
-            mosfet_active_high=self.args.mosfet_active_high).open()
+        # Drives PWM directly (no ROS node) so each output can be pulsed alone.
+        self.pwm_outputs = OdroidPWMOutputs.from_config(self.args.hardware_config).open()
         observations = {}
         used = set()
         try:
             self.send_pwm([NEUTRAL_PWM] * 4, 5.0)
             for channel in range(1, 5):
-                self.console.input(f'Press Enter to pulse physical output {channel} at 15%... ')
+                self.console.input(f'Press Enter to pulse physical output {channel} '
+                                   f'at {IDENTIFY_EFFORT:.0%}... ')
                 values = [NEUTRAL_PWM] * 4
-                values[channel - 1] += round(PWM_SCALE * 0.15)
+                values[channel - 1] = effort_to_pulse(IDENTIFY_EFFORT)
                 self.emit('identification_start', physical_channel=channel)
                 self.send_pwm(values, 0.75)
                 self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
@@ -428,6 +433,7 @@ class BoatTest:
         return channel_map_from_observations(observations)
 
     def start_hardware(self):
+        """Arm: launch thruster_pwm_node (and the velocity controller) as children."""
         if any(info.node_name == 'thruster_pwm_node' for info in
                self.node.get_subscriptions_info_by_topic('/cmd_vel')):
             raise RuntimeError('another thruster driver already subscribes to /cmd_vel')
@@ -481,15 +487,7 @@ class BoatTest:
             return
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
-            message = Twist()
-            if isinstance(axis, (tuple, list)):
-                message.linear.x, message.linear.y, message.angular.z = axis
-            elif axis == 'surge':
-                message.linear.x = value
-            elif axis == 'sway':
-                message.linear.y = value
-            elif axis == 'yaw':
-                message.angular.z = value
+            message = axis_twist(axis, value)
             self.command_publisher.publish(message)
             self.command = (message.linear.x, message.linear.y, message.angular.z)
             time.sleep(0.1)
@@ -506,15 +504,7 @@ class BoatTest:
                     key = keys.read(timeout=.05)
                     if key in ('space', 'q', 'escape'):
                         raise RuntimeError('trial cancelled by operator')
-                    message = Twist()
-                    if isinstance(axis, (tuple, list)):
-                        message.linear.x, message.linear.y, message.angular.z = axis
-                    elif axis == 'surge':
-                        message.linear.x = value
-                    elif axis == 'sway':
-                        message.linear.y = value
-                    elif axis == 'yaw':
-                        message.angular.z = value
+                    message = axis_twist(axis, value)
                     self.command_publisher.publish(message)
                     self.command = (message.linear.x, message.linear.y, message.angular.z)
                     live.update(self.dashboard())
@@ -522,6 +512,11 @@ class BoatTest:
             self.publish_command(duration=.1)
 
     def run_axis(self, axis):
+        """Run baseline, command and settle phases for each direction of one axis.
+
+        The baseline measures drift before thrust, so the trial result reports
+        the response to the command rather than current or wind.
+        """
         counts = Counter()
         self.active_test = axis
         self.emit('test_set_start', axis=axis)
@@ -624,6 +619,7 @@ class BoatTest:
             self.command = (0., 0., 0.)
 
     def assert_motion_ready(self):
+        """Interlock checked before and during every motion: raise to stop safely."""
         if self.monitor_fault:
             raise RuntimeError('monitor fault: ' + self.monitor_fault)
         if not self.armed or self.processes['hardware'].poll() is not None:
@@ -842,13 +838,11 @@ def build_parser():
     parser.add_argument('--repeats', type=int, default=1, help='trials per direction (1..5)')
     parser.add_argument('--identify-thrusters', action='store_true',
                         help='pulse outputs to identify and persist a new channel map')
-    parser.add_argument('--pwm-chips',
-                        type=lambda value: tuple(v.strip() for v in value.split(',')),
-                        default=DEFAULT_PWM_CHIPS,
+    # Hardware flags default to the hardware config via configure_args.
+    parser.add_argument('--pwm-chips', type=parse_csv,
                         help='four comma-separated Linux pwmchip paths')
-    parser.add_argument('--pwm-channels', type=parse_int_list,
-                        default=(0, 0, 0, 0))
-    parser.add_argument('--frequency', type=float, default=50.0)
+    parser.add_argument('--pwm-channels', type=lambda value: parse_csv(value, int))
+    parser.add_argument('--frequency', type=float)
     parser.add_argument('--mosfet-chip', help='GPIO bank label or explicit device path')
     parser.add_argument('--mosfet-line', type=int)
     parser.add_argument('--optional-sensors', action='store_true',
@@ -859,9 +853,9 @@ def build_parser():
     parser.add_argument(
         '--show-process-output', action='store_true',
         help='show raw child-process output instead of logging it')
-    parser.add_argument('--channel-map', type=parse_int_list,
+    parser.add_argument('--channel-map', type=lambda value: parse_csv(value, int),
                         help='canonical-to-physical FL,FR,RR,RL map')
-    parser.add_argument('--thruster-matrix', type=parse_float_list,
+    parser.add_argument('--thruster-matrix', type=lambda value: parse_csv(value, float),
                         default=tuple(v for row in THRUSTER_MIXER for v in row))
     parser.add_argument('--stale-after', type=float, default=2.0)
     parser.add_argument('--amplitude', type=float, default=0.25)
