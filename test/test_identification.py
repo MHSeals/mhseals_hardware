@@ -53,8 +53,8 @@ def test_identifies_a_swapped_wiring_and_pulses_one_output_at_a_time():
         answers += [position, 'CCW', 'yes']
     run, events = harness(answers)
     outputs = FakeOutputs()
-    channel_map, rotations = run(outputs)
-    assert channel_map == (2, 1, 4, 3)  # canonical FL, FR, RR, RL -> physical outputs
+    channel_map, rotations, reversed = run(outputs)
+    assert channel_map == (2, 1, 4, 3) and reversed == (False,) * 4  # canonical FL, FR, RR, RL -> physical outputs
     assert rotations == {position: 'CCW' for position in ('fl', 'fr', 'rr', 'rl')}
     pulse = effort_to_pulse(identification.IDENTIFY_EFFORT)
     for channel in range(4):
@@ -66,12 +66,17 @@ def test_identifies_a_swapped_wiring_and_pulses_one_output_at_a_time():
     assert [event for event, _ in events].count('identification_result') == 4
 
 
-def test_reversed_polarity_raises_and_leaves_outputs_neutral():
-    run, _ = harness(['fl', 'CW', 'no'])
+def test_a_backwards_thruster_is_recorded_as_reversed():
+    answers = []
+    for position, polarity in (('fl', 'no'), ('fr', 'yes'), ('rr', 'yes'), ('rl', 'no')):
+        answers += [position, 'CW', polarity]
+    run, events = harness(answers)
     outputs = FakeOutputs()
-    with pytest.raises(RuntimeError, match='front-left polarity is reversed'):
-        run(outputs)
+    channel_map, _, reversed = run(outputs)
+    assert channel_map == (1, 2, 3, 4) and reversed == (True, False, False, True)
     assert outputs.writes[-1] == [NEUTRAL_PWM] * 4
+    assert [d['reversed'] for e, d in events if e == 'identification_result'] == [
+        True, False, False, True]
 
 
 def test_space_during_a_pulse_cancels_at_neutral():
@@ -133,6 +138,7 @@ def test_save_mapping_persists_only_the_channel_map(tmp_path):
     path.write_text('frequency: 50.0\n')
     console = type('Console', (), {'print': lambda self, *a: None,
                                     'input': lambda self, prompt: 'y'})()
-    save_mapping(console, (2, 1, 4, 3), path)
+    save_mapping(console, (2, 1, 4, 3), path, (True, False, False, False))
     saved = yaml.safe_load(path.read_text())
     assert saved['channel_map'] == [2, 1, 4, 3] and saved['output_backend'] == 'odroid'
+    assert saved['reversed'] == [True, False, False, False]

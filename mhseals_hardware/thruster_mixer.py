@@ -72,6 +72,24 @@ def validate_channel_map(values):
     return channels
 
 
+def validate_reversed(values):
+    """Four booleans in FL, FR, RR, RL order: True flips that thruster's effort."""
+    if len(values) != 4 or any(type(value) is not bool for value in values):
+        raise ValueError('reversed must contain four booleans (FL, FR, RR, RL)')
+    return tuple(values)
+
+
+def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4):
+    """Effort command -> ESC pulse per physical output (outputs 1-4 in order).
+
+    Mix and desaturate, flip reversed thrusters (a motor wired or a propeller
+    mounted backwards), convert to pulses, then route each position to its output.
+    """
+    efforts = [-effort if flip else effort
+               for effort, flip in zip(mix_thrusters(*command, mixer), reversed)]
+    return map_channels([effort_to_pulse(effort) for effort in efforts], channel_map)
+
+
 def map_channels(values, channel_map):
     """Map canonical FL, FR, RR, RL values onto physical PWM outputs."""
     mapped = [None] * 4

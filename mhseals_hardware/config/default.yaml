@@ -17,6 +17,8 @@ mosfet_active_high: true
 command_timeout: 0.5
 # Canonical FL, FR, RR, RL -> physical output (1-based).
 channel_map: [1, 2, 3, 4]
+# FL, FR, RR, RL: true flips a thruster wired or mounted backwards.
+reversed: [false, false, false, false]
 # Rows FL, FR, RR, RL; columns surge, sway, yaw.
 thruster_matrix: [-1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0]
 manual_amplitude: 0.25

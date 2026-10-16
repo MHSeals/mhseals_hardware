@@ -49,9 +49,10 @@ def identify_thrusters(outputs, prompt, choose, emit=lambda *args, **kwargs: Non
 
     ``outputs`` must already be open. ``prompt(message)`` waits for Enter,
     ``choose(title, options, shortcuts)`` returns an option, and ``emit(event,
-    **details)`` records progress. Returns ``(channel_map, rotations)``, where
-    ``rotations`` maps each position to 'CW' or 'CCW'. Outputs are neutral on
-    every exit path.
+    **details)`` records progress. Returns ``(channel_map, rotations, reversed)``:
+    ``rotations`` maps each position to 'CW' or 'CCW', and ``reversed`` flags
+    (FL, FR, RR, RL) the thrusters whose positive thrust points the wrong way.
+    Outputs are neutral on every exit path.
     """
     neutral = [NEUTRAL_PWM] * 4
 
@@ -59,7 +60,7 @@ def identify_thrusters(outputs, prompt, choose, emit=lambda *args, **kwargs: Non
         with open_keys() as keys:
             hold(outputs, pulses, seconds, keys, clock)
 
-    observations, rotations = {}, {}
+    observations, rotations, flipped = {}, {}, set()
     try:
         hold_for(neutral, ARMING_SECONDS)
         for channel in range(1, 5):
@@ -81,14 +82,16 @@ def identify_thrusters(outputs, prompt, choose, emit=lambda *args, **kwargs: Non
             expected = 'aft' if position.startswith('f') else 'forward'
             if choose(f'Did positive local thrust point {expected}?',
                       ('yes', 'no'), {'y': 0, 'n': 1}) != 'yes':
-                raise RuntimeError(f'{POSITION_NAMES[position]} polarity is reversed')
+                flipped.add(position)  # saved as a reversal, applied by the driver
             observations[channel] = position
             rotations[position] = rotation
             emit('identification_result', physical_channel=channel, position=position,
-                 rotation=rotation, rotation_view='from propeller toward motor')
+                 rotation=rotation, reversed=position in flipped,
+                 rotation_view='from propeller toward motor')
     finally:
         outputs.neutral()
-    return channel_map_from_observations(observations), rotations
+    return (channel_map_from_observations(observations), rotations,
+            tuple(position in flipped for position in POSITIONS))
 
 
 def choose_mapping(choose):
@@ -103,12 +106,15 @@ def choose_mapping(choose):
     return validate_channel_map(mapping)
 
 
-def save_mapping(console, channel_map, path):
-    console.print(f'FL, FR, RR, RL -> physical outputs {list(channel_map)}')
+def save_mapping(console, channel_map, path, reversed=None):
+    flips = '' if reversed is None else f'; reversed {list(reversed)}'
+    console.print(f'FL, FR, RR, RL -> physical outputs {list(channel_map)}{flips}')
     if console.input('Save this mapping? [y/N] ').strip().lower() != 'y':
         return
     # Only the mapping is persisted; one-off overrides such as --output-backend are not.
     config = dict(load_config(path), channel_map=list(channel_map))
+    if reversed is not None:
+        config['reversed'] = list(reversed)
     console.print(f'Saved {save_config(config, path)}')
 
 
@@ -136,14 +142,14 @@ def main(args=None):
         return
     outputs = make_outputs(parsed.hardware_config).open()
     try:
-        channel_map, rotations = identify_thrusters(outputs, console.input, choose)
+        channel_map, rotations, reversed = identify_thrusters(outputs, console.input, choose)
     except (RuntimeError, KeyboardInterrupt) as error:  # Cancelled is a RuntimeError
         console.print(f'[yellow]Stopped: {error or "interrupted"}; mapping unchanged.[/]')
         return
     finally:
         outputs.close()
     console.print(f'Propeller rotations: {rotations}')
-    save_mapping(console, channel_map, parsed.config)
+    save_mapping(console, channel_map, parsed.config, reversed)
 
 
 if __name__ == '__main__':

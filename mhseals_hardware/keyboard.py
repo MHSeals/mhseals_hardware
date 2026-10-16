@@ -62,6 +62,8 @@ def decode_key(value, report_events=False):
         raise KeyboardInterrupt
     if value in ARROW_SEQUENCES:
         return ARROW_SEQUENCES[value]
+    if value == b'\x1b[Z':  # Shift+Tab
+        return 'backtab'
     if value == b'\x1b':
         return 'escape'
     return value.decode('utf-8', errors='ignore').lower()

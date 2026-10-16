@@ -8,7 +8,9 @@ import re
 
 import yaml
 
-from mhseals_hardware.thruster_mixer import validate_channel_map, validate_mixer
+from mhseals_hardware.thruster_mixer import (
+    validate_channel_map, validate_mixer, validate_reversed,
+)
 
 
 def config_path(path=None):
@@ -21,6 +23,7 @@ def validate_config(config):
     """Reject a config that could drive the wrong pins or produce unsafe output."""
     # Thruster layout.
     validate_channel_map(config['channel_map'])
+    validate_reversed(config['reversed'])
     validate_mixer(config['thruster_matrix'])
     # Optional calibration written by mhseals_testing's characterization.
     characterization = config.get('characterization', {})

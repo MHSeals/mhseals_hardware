@@ -67,3 +67,19 @@ def test_invalid_matrix_is_rejected(values):
 ))
 def test_terminal_keys_are_decoded(sequence, expected):
     assert decode_key(sequence) == expected
+
+
+def test_pulses_flip_reversed_thrusters_and_follow_the_channel_map():
+    import pytest
+    from mhseals_hardware.thruster_mixer import (
+        THRUSTER_MIXER, thruster_pulses, validate_reversed,
+    )
+    surge = thruster_pulses((0.25, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4))
+    assert surge == [1400, 1400, 1600, 1600]
+    flipped = thruster_pulses((0.25, 0, 0), THRUSTER_MIXER, (2, 1, 3, 4),
+                              (True, False, False, False))
+    assert flipped == [1400, 1600, 1600, 1600]  # FL now on output 2, flipped to 1600
+    with pytest.raises(ValueError):
+        validate_reversed([True, False, False])
+    with pytest.raises(ValueError):
+        validate_reversed([1, 0, 0, 0])

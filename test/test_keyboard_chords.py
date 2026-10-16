@@ -193,3 +193,8 @@ def test_actual_publish_loop_has_no_initial_neutral_and_finally_stops(disconnect
     assert all(vector[1] < 0 for t, vector in moving if t >= .1)
     if not disconnect:
         assert all(vector == (.25, 0, 0) for t, vector in messages if 1.2 <= t < 1.3)
+
+
+def test_shift_tab_is_backtab():
+    from mhseals_hardware.keyboard import decode_key
+    assert decode_key(b'\x1b[Z') == 'backtab' and decode_key(b'\t') == '\t'
