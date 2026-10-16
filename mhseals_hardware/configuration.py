@@ -22,7 +22,7 @@ def validate_config(config):
     # Thruster layout.
     validate_channel_map(config['channel_map'])
     validate_mixer(config['thruster_matrix'])
-    # Optional calibration written by thrust_characterization.
+    # Optional calibration written by mhseals_testing's characterization.
     characterization = config.get('characterization', {})
     if not isinstance(characterization, dict):
         raise ValueError('characterization must be a mapping')

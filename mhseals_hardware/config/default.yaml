@@ -23,5 +23,5 @@ manual_amplitude: 0.25
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
-# Optional field characterization populated by thrust_characterization.
+# Optional field characterization written by mhseals_testing (boat_test or thrust_characterize).
 characterization: {}

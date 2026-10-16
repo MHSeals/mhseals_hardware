@@ -167,13 +167,14 @@ ros2 run mhseals_hardware thruster_pwm_node --ros-args -p output_backend:=topic
 ### Characterization and calibrated velocity control
 
 `thruster_pwm_node` deliberately accepts normalized effort. It does not turn
-metres/second into PWM by itself. Record a commissioning run containing
-`/cmd_vel` and `/odom/local`, then fit the response and write a candidate
-hardware profile:
+metres/second into PWM by itself. The fit that does lives in
+[`mhseals_testing`](https://github.com/mhseals/mhseals_testing): its
+`boat_test` Characterize procedure drives the schedule and saves the result
+here on request, and `thrust_characterize` refits any session bag:
 
 ```bash
-ros2 run mhseals_hardware thrust_characterize \
-  --bag bags/boat_test_20261012 \
+ros2 run mhseals_testing thrust_characterize \
+  --bag bags/boat_20261012_101500 \
   --cmd-topic /cmd_vel_effort \
   --config ~/.config/mhseals/hardware.yaml \
   --nav2-params /path/to/mhseals_nav/config/nav2_params.yaml \
@@ -202,7 +203,7 @@ ros2 run mhseals_hardware calibrated_velocity_controller
 ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effort
 ```
 
-The dashboard can own both processes with `boat_test --velocity-control`.
+`ros2 run mhseals_testing boat_test --velocity-control` arms both.
 Characterization cannot guarantee zero drift in changing wind/current; the
 integral trim is bounded and the watchdog always returns the outputs to neutral.
 Combined surge/sway/yaw commands are limited by the generated Nav2 velocity
@@ -224,49 +225,22 @@ a short repeat timeout. Test your terminal safely with
 See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
 section for the safety limitations and timeout settings.
 
-## Guided boat test
+## Boat tests
 
-The commissioning dashboard starts **disarmed**, attaching to existing ROS
-topics without launching sensors, recording, or opening PWM/GPIO:
-
-```bash
-ros2 run mhseals_hardware boat_test
-```
-
-Tab cycles overview, sensors, TF, mapping, results, and logs. **H** explicitly
-arms/disarms, **M** enters manual control, **1/2/3** characterizes surge/sway/yaw,
-**C** records combined surge/sway/yaw trials,
-**R** edits the persistent map without pulses, **I** identifies outputs with
-pulses, **B** toggles recording, and **E** saves a JSON report. Space stops;
-Q exits. In manual mode M/X/Esc returns and Space clears motion.
-
-Use `--monitor-only` on a laptop to disable physical/configuration actions.
-`--start-stack` explicitly launches real sensor/odometry processes; omit it
-when those are already running. `--record` starts recording immediately.
-The root [hardware and camera setup](../../README.md#hardware-and-cameras)
-section covers the shared configuration and deployment conventions.
-
-Common options:
-
-```bash
-ros2 run mhseals_hardware boat_test \
-  --start-stack --record \
-  --fcu-url serial:///dev/ttyACM0:57600 \
-  --require-tf
-```
-
-The FCU URL above is MAVROS telemetry and is unrelated to thruster control.
-Ctrl+C neutralizes thrusters, stops the hardware node, and flushes the bag.
-The tool stops only processes it started. Sensor checks do not replace a
-physical power cutoff or independently verify actual motor rotation.
+Sensor, actuation, navigation and mission tests live in
+[`mhseals_testing`](https://github.com/mhseals/mhseals_testing)
+(`ros2 run mhseals_testing boat_test`). It arms this package's
+`thruster_pwm_node` and `calibrated_velocity_controller` as supervised
+children and runs `thruster_identify` for thruster mapping.
 
 ## Development
 
 Shared YAML configuration, pin persistence, and keyboard behavior are documented
 in this README. The operator commands are
 `keyboard_control` (cmd_vel keyboard publisher), `thruster_pwm_node` (real
-outputs), `thruster_test` (direct PWM test), `boat_test` (guided tests and bags),
-and `remote_controller` (MAVROS RC input). Run only one cmd_vel controller.
+outputs), `thruster_test` (direct PWM test), `thruster_identify` (output mapping),
+`calibrated_velocity_controller` (m/s to effort), and `remote_controller` (MAVROS
+RC input). Run only one cmd_vel controller.
 
 Run the ROS-independent tests with:
 
@@ -274,6 +248,7 @@ Run the ROS-independent tests with:
 python3 -m pytest -q
 ```
 
-The package intentionally contains only the native PWM driver, ROS bridge,
-mixer, direct test TUI, guided boat test, and their shared keyboard/manual
-control code.
+The package intentionally contains only pin-level and thruster code: the PWM
+outputs (pins or a simulator topic), the ROS bridge, the mixer, the velocity
+controller, the direct test and identification tools, and their shared
+keyboard/manual control code.
