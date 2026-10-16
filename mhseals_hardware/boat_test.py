@@ -34,25 +34,18 @@ from mhseals_hardware.boat_monitor import BoatMonitor, finite_values
 from mhseals_hardware.configuration import configure_args, parse_csv, save_config
 from mhseals_hardware.fcu import default_fcu_url
 from mhseals_hardware.keyboard import KeyReader
+from mhseals_hardware.identification import POSITION_NAMES, identify_thrusters
 from mhseals_hardware.keyboard_control import run_manual
+from mhseals_hardware.menu import select_option
 from mhseals_hardware.odroid_pwm import OdroidPWMOutputs, resolve_pwm_chip
 from mhseals_hardware.thruster_mixer import (
-    NEUTRAL_PWM,
     POSITIONS,
     THRUSTER_MIXER,
     axis_command,
-    channel_map_from_observations,
-    effort_to_pulse,
     validate_channel_map,
     validate_mixer,
 )
 
-# Effort used to briefly spin one thruster during output identification.
-IDENTIFY_EFFORT = 0.15
-POSITION_NAMES = {
-    'fl': 'front-left', 'fr': 'front-right',
-    'rr': 'rear-right', 'rl': 'rear-left',
-}
 THRUSTER_NUMBERS = {'fl': 1, 'fr': 2, 'rr': 3, 'rl': 4}
 AXIS_GUIDANCE = {
     'surge': {1: ('ahead', 'move forward'), -1: ('astern', 'reverse')},
@@ -339,98 +332,26 @@ class BoatTest:
                               for info in publishers)
             raise RuntimeError(f'/cmd_vel already has publishers: {names}')
 
-    def send_pwm(self, values, duration=0.0):
-        """Hold direct Odroid PWM values for an identification phase."""
-        deadline = time.monotonic() + duration
-        with KeyReader() as keys:
-            while True:
-                self.pwm_outputs.set_pulse_widths(values)
-                if time.monotonic() >= deadline:
-                    break
-                if keys.read(timeout=min(.05, max(0.0, deadline - time.monotonic()))) in ('space', 'q', 'escape'):
-                    self.pwm_outputs.neutral()
-                    raise RuntimeError('identification cancelled; neutral')
-
     def select_option(self, title, options, shortcuts=None):
         """Select an option with arrows/Enter or an explicit shortcut."""
-        selected = 0
-        shortcuts = shortcuts or {}
-
-        def render():
-            rows = []
-            for index, option in enumerate(options):
-                marker = '[bold cyan]›[/]' if index == selected else ' '
-                rows.append(f'{marker} {option}')
-            rows.append('\n[dim]↑/↓ select  •  Enter confirm[/]')
-            return Panel('\n'.join(rows), title=title, expand=False)
-
-        with KeyReader() as keys, Live(
-                render(), console=self.console,
-                refresh_per_second=10) as live:
-            while True:
-                key = keys.read(timeout=0.1)
-                if key == 'up':
-                    selected = (selected - 1) % len(options)
-                elif key == 'down':
-                    selected = (selected + 1) % len(options)
-                elif key == 'enter':
-                    return options[selected]
-                elif key in shortcuts:
-                    return options[shortcuts[key]]
-                elif key in ('q', 'escape'):
-                    raise RuntimeError('selection cancelled')
-                live.update(render())
+        return select_option(self.console, title, options, shortcuts)
 
     def identify_thrusters(self):
+        """Pulse each output with the shared identification routine and return the map."""
         self.console.print(Panel(
             'Boat secured; all propellers clear and submerged.\n'
             'Identify outputs against 1=FL, 2=FR, 3=RR, 4=RL.',
             title='Thruster identification', style='yellow'))
         # Drives PWM directly (no ROS node) so each output can be pulsed alone.
         self.pwm_outputs = OdroidPWMOutputs.from_config(self.args.hardware_config).open()
-        observations = {}
-        used = set()
         try:
-            self.send_pwm([NEUTRAL_PWM] * 4, 5.0)
-            for channel in range(1, 5):
-                self.console.input(f'Press Enter to pulse physical output {channel} '
-                                   f'at {IDENTIFY_EFFORT:.0%}... ')
-                values = [NEUTRAL_PWM] * 4
-                values[channel - 1] = effort_to_pulse(IDENTIFY_EFFORT)
-                self.emit('identification_start', physical_channel=channel)
-                self.send_pwm(values, 0.75)
-                self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
-                self.emit('identification_stop', physical_channel=channel)
-                choices = tuple(position for position in POSITIONS
-                                if position not in used)
-                position = self.select_option(
-                    'Which thruster moved?', choices,
-                    {str(index + 1): index
-                     for index in range(len(choices))})
-                rotation = self.select_option(
-                    'Prop rotation (viewed from propeller toward motor)',
-                    ('CCW', 'CW'), {'c': 0, 'w': 1})
-                expected = 'aft' if position.startswith('f') else 'forward'
-                answer = self.select_option(
-                    f'Did positive local thrust point {expected}?',
-                    ('yes', 'no'), {'y': 0, 'n': 1})
-                if answer != 'yes':
-                    raise RuntimeError(
-                        f'{POSITION_NAMES[position]} polarity is reversed')
-                observations[channel] = position
-                used.add(position)
-                self.thruster_rotations[position] = rotation
-                self.emit('identification_result', physical_channel=channel,
-                          position=position, rotation=rotation,
-                          rotation_view='from propeller toward motor')
+            channel_map, rotations = identify_thrusters(
+                self.pwm_outputs, self.console.input, self.select_option, self.emit)
         finally:
-            if self.pwm_outputs is not None:
-                try:
-                    self.send_pwm([NEUTRAL_PWM] * 4, 0.5)
-                finally:
-                    self.pwm_outputs.close()
-                    self.pwm_outputs = None
-        return channel_map_from_observations(observations)
+            self.pwm_outputs.close()
+            self.pwm_outputs = None
+        self.thruster_rotations.update(rotations)
+        return channel_map
 
     def start_hardware(self):
         """Arm: launch thruster_pwm_node (and the velocity controller) as children."""

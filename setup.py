@@ -24,6 +24,7 @@ setup(
             'thruster_pwm_node = mhseals_hardware.thruster_pwm_node:main',
             'thruster_test = mhseals_hardware.thruster_test:main',
             'mosfet_test = mhseals_hardware.mosfet_test:main',
+            'thruster_identify = mhseals_hardware.identification:main',
             'boat_test = mhseals_hardware.boat_test:main',
             'thrust_characterize = mhseals_hardware.thrust_characterization:main',
             'calibrated_velocity_controller = mhseals_hardware.velocity_controller:main',

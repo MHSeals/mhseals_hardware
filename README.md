@@ -96,6 +96,22 @@ changes are intentionally prohibited because restarting PWM can be interpreted
 as throttle by the ESCs. The terminal reader handles SSH and nested-container
 escape sequences and restores terminal state after interruption.
 
+## Thruster identification
+
+Find which physical output drives each thruster, and save it as `channel_map`:
+
+```bash
+ros2 run mhseals_hardware thruster_identify
+```
+
+With the boat secured and every propeller clear and submerged, type `ARM`.
+After five seconds of neutral, each output is pulsed alone at 15% effort. Answer
+which thruster moved, which way its propeller turned (viewed from the propeller
+toward the motor), and whether its thrust pointed the expected way. A reversed
+thruster stops the run. Space, Q or Esc during a pulse returns every output to
+neutral. The mapping is saved to the hardware YAML only after you confirm it.
+No sensors are used; the operator's observations are the measurement.
+
 ## ROS control
 
 Start the hardware node on the ODROID:
