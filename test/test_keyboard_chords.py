@@ -198,3 +198,12 @@ def test_actual_publish_loop_has_no_initial_neutral_and_finally_stops(disconnect
 def test_shift_tab_is_backtab():
     from mhseals_hardware.keyboard import decode_key
     assert decode_key(b'\x1b[Z') == 'backtab' and decode_key(b'\t') == '\t'
+
+
+def test_ctrl_hjkl_and_ctrl_arrows_are_focus_keys_and_enter_stays_enter():
+    from mhseals_hardware.keyboard import decode_key
+    assert [decode_key(b) for b in (b'\x08', b'\n', b'\x0b', b'\x0c')] == [
+        'ctrl-h', 'ctrl-j', 'ctrl-k', 'ctrl-l']
+    assert [decode_key(b'\x1b[1;5' + c) for c in (b'A', b'B', b'C', b'D')] == [
+        'ctrl-up', 'ctrl-down', 'ctrl-right', 'ctrl-left']
+    assert decode_key(b'\r') == 'enter' and decode_key(b'\x1b[A') == 'up'

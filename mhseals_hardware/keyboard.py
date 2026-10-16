@@ -13,7 +13,13 @@ ARROW_SEQUENCES = {
     b'\x1b[C': 'right', b'\x1b[D': 'left',
     b'\x1bOA': 'up', b'\x1bOB': 'down',
     b'\x1bOC': 'right', b'\x1bOD': 'left',
+    # Ctrl+arrows (modifier 5).
+    b'\x1b[1;5A': 'ctrl-up', b'\x1b[1;5B': 'ctrl-down',
+    b'\x1b[1;5C': 'ctrl-right', b'\x1b[1;5D': 'ctrl-left',
 }
+# Ctrl+H/J/K/L arrive as the control bytes BS, LF, VT, FF. Enter is CR, because
+# KeyReader turns off the terminal's CR-to-LF translation to keep the two apart.
+CONTROL_KEYS = {b'\x08': 'ctrl-h', b'\n': 'ctrl-j', b'\x0b': 'ctrl-k', b'\x0c': 'ctrl-l'}
 
 
 def decode_key(value, report_events=False):
@@ -54,8 +60,10 @@ def decode_key(value, report_events=False):
         return f'release:{key}' if arrow[1] == b'3' else key
     if value in (b'\x1b[I', b'\x1b[O'):
         return 'focus-in' if value == b'\x1b[I' else 'focus-out'
-    if value in (b'\r', b'\n'):
+    if value == b'\r':
         return 'enter'
+    if value in CONTROL_KEYS:
+        return CONTROL_KEYS[value]
     if value == b' ':
         return 'space'
     if value == b'\x03':
@@ -87,6 +95,7 @@ class KeyReader:
         # Be explicit instead of relying on the host Python's setcbreak
         # behavior. Nested SSH/docker PTYs otherwise sometimes retain ECHO.
         attributes = termios.tcgetattr(self.fd)
+        attributes[0] &= ~termios.ICRNL  # Enter stays CR, so Ctrl+J (LF) is its own key
         attributes[3] &= ~(
             termios.ICANON | termios.ECHO | termios.ECHONL)
         attributes[6][termios.VMIN] = 1
