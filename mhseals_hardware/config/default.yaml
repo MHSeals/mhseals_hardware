@@ -1,3 +1,7 @@
+# Where thruster pulses go: odroid (the PWM pins below) or topic (pwm_topic,
+# for a simulator; physical outputs 1-4 in order, microseconds).
+output_backend: odroid
+pwm_topic: /thrusters/pwm
 # Physical outputs 1..4: ODROID-M2 J2 pins 7, 12, 15, 33.
 # MOSFET enable: J2 pin 11. Keep stable platform paths, not pwmchip numbers.
 pwm_chips:

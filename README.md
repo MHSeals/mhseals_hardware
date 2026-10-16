@@ -147,6 +147,19 @@ Results are proportionally desaturated before conversion to 1100--1900 us.
 Use `channel_map` to map canonical positions to physical outputs, for example
 `[2,4,1,3]`.
 
+### Simulator outputs
+
+With `output_backend: topic` the node publishes the four pulse widths
+(physical outputs 1-4, microseconds, `std_msgs/msg/UInt16MultiArray`) on
+`pwm_topic` (default `/thrusters/pwm`) at 20 Hz instead of driving pins. The
+mixer, `channel_map` and calibration are applied exactly as on the boat, so
+crane_ml (`--crane-ros-thruster-pwm`) responds to the same outputs and
+`thruster_identify` works against the simulator too:
+
+```bash
+ros2 run mhseals_hardware thruster_pwm_node --ros-args -p output_backend:=topic
+```
+
 ### Characterization and calibrated velocity control
 
 `thruster_pwm_node` deliberately accepts normalized effort. It does not turn

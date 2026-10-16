@@ -12,9 +12,9 @@ from mhseals_hardware.thruster_mixer import validate_channel_map, validate_mixer
 
 
 def config_path(path=None):
-    return Path(path or os.environ.get(
-        'MHSEALS_HARDWARE_CONFIG',
-        str(Path.home() / '.config/mhseals/hardware.yaml'))).expanduser()
+    # An empty variable means unset, not the current directory.
+    return Path(path or os.environ.get('MHSEALS_HARDWARE_CONFIG')
+                or Path.home() / '.config/mhseals/hardware.yaml').expanduser()
 
 
 def validate_config(config):
@@ -51,6 +51,10 @@ def validate_config(config):
             not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
         raise ValueError('characterization.bias must contain finite surge, sway, yaw values')
     # PWM outputs and the MOSFET enable line.
+    if config['output_backend'] not in ('odroid', 'topic'):
+        raise ValueError('output_backend must be odroid or topic')
+    if not isinstance(config['pwm_topic'], str) or not config['pwm_topic'].startswith('/'):
+        raise ValueError('pwm_topic must be an absolute ROS topic')
     if len(config['pwm_chips']) != 4 or not all(
             isinstance(p, str) and p.startswith('/sys/')
             for p in config['pwm_chips']):

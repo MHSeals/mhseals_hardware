@@ -61,3 +61,10 @@ def test_cli_overrides_then_saves(tmp_path, monkeypatch):
 ])
 def test_terminal_events(sequence, key):
     assert decode_key(sequence) == key
+
+
+def test_empty_config_variable_means_default(monkeypatch, tmp_path):
+    from mhseals_hardware.configuration import config_path
+    monkeypatch.setenv('MHSEALS_HARDWARE_CONFIG', '')
+    monkeypatch.setenv('HOME', str(tmp_path))
+    assert config_path() == tmp_path / '.config/mhseals/hardware.yaml'

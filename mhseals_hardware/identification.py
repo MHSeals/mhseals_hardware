@@ -15,7 +15,7 @@ from rich.panel import Panel
 from mhseals_hardware.configuration import configure_args, save_config
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled, select_option  # noqa: F401 (Cancelled re-exported)
-from mhseals_hardware.odroid_pwm import OdroidPWMOutputs
+from mhseals_hardware.outputs import make_outputs
 from mhseals_hardware.thruster_mixer import (
     NEUTRAL_PWM, POSITIONS, channel_map_from_observations, effort_to_pulse,
 )
@@ -102,7 +102,7 @@ def main(args=None):
         title='Thruster identification', style='yellow'))
     if console.input('Confirm: ').strip() != 'ARM':
         return
-    outputs = OdroidPWMOutputs.from_config(parsed.hardware_config).open()
+    outputs = make_outputs(parsed.hardware_config).open()
     try:
         channel_map, rotations = identify_thrusters(
             outputs, console.input,
