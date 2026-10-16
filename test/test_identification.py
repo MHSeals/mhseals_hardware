@@ -111,3 +111,28 @@ def test_select_option_arrows_shortcuts_and_cancel():
     assert picker(['up', 'enter']) == 'c'  # wraps around
     with pytest.raises(Cancelled):
         picker(['escape'])
+
+
+def test_choose_mapping_assigns_each_output_once():
+    from mhseals_hardware.identification import choose_mapping
+    picks = iter(['2', '1', '4', '3'])
+    seen = []
+
+    def choose(title, options, shortcuts):
+        seen.append(options)
+        return next(picks)
+
+    assert choose_mapping(choose) == (2, 1, 4, 3)
+    assert seen[-1] == ('3',)  # each output can only be chosen once
+
+
+def test_save_mapping_persists_only_the_channel_map(tmp_path):
+    import yaml
+    from mhseals_hardware.identification import save_mapping
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('frequency: 50.0\n')
+    console = type('Console', (), {'print': lambda self, *a: None,
+                                    'input': lambda self, prompt: 'y'})()
+    save_mapping(console, (2, 1, 4, 3), path)
+    saved = yaml.safe_load(path.read_text())
+    assert saved['channel_map'] == [2, 1, 4, 3] and saved['output_backend'] == 'odroid'

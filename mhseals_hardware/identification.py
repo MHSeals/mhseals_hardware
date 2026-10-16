@@ -12,12 +12,12 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 
-from mhseals_hardware.configuration import configure_args, save_config
+from mhseals_hardware.configuration import configure_args, load_config, save_config
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled, select_option  # noqa: F401 (Cancelled re-exported)
-from mhseals_hardware.outputs import make_outputs
+from mhseals_hardware.outputs import BACKENDS, make_outputs
 from mhseals_hardware.thruster_mixer import (
-    NEUTRAL_PWM, POSITIONS, channel_map_from_observations, effort_to_pulse,
+    NEUTRAL_PWM, POSITIONS, channel_map_from_observations, effort_to_pulse, validate_channel_map,
 )
 
 # A gentle pulse is enough to see which thruster moves.
@@ -91,10 +91,42 @@ def identify_thrusters(outputs, prompt, choose, emit=lambda *args, **kwargs: Non
     return channel_map_from_observations(observations), rotations
 
 
+def choose_mapping(choose):
+    """Enter the channel map by hand (no pulses): the output wired to each position."""
+    available, mapping = [1, 2, 3, 4], []
+    for position in POSITIONS:
+        chosen = int(choose(f'Physical output for {POSITION_NAMES[position]}',
+                            tuple(str(number) for number in available),
+                            {str(number): index for index, number in enumerate(available)}))
+        mapping.append(chosen)
+        available.remove(chosen)
+    return validate_channel_map(mapping)
+
+
+def save_mapping(console, channel_map, path):
+    console.print(f'FL, FR, RR, RL -> physical outputs {list(channel_map)}')
+    if console.input('Save this mapping? [y/N] ').strip().lower() != 'y':
+        return
+    # Only the mapping is persisted; one-off overrides such as --output-backend are not.
+    config = dict(load_config(path), channel_map=list(channel_map))
+    console.print(f'Saved {save_config(config, path)}')
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument('--manual', action='store_true',
+                        help='enter the mapping by hand instead of pulsing outputs')
+    parser.add_argument('--output-backend', choices=BACKENDS,
+                        help='odroid pins or a simulator topic (default from the config)')
     parsed = configure_args(parser, args)
     console = Console()
+    choose = lambda title, options, shortcuts: select_option(console, title, options, shortcuts)
+    if parsed.manual:
+        try:
+            save_mapping(console, choose_mapping(choose), parsed.config)
+        except (RuntimeError, KeyboardInterrupt) as error:
+            console.print(f'[yellow]Stopped: {error or "interrupted"}; mapping unchanged.[/]')
+        return
     console.print(Panel(
         'Boat secured; all propellers clear and submerged; power cutoff within reach.\n'
         'Each output is pulsed alone. Space, Q or Esc during a pulse returns to neutral.\n'
@@ -104,18 +136,14 @@ def main(args=None):
         return
     outputs = make_outputs(parsed.hardware_config).open()
     try:
-        channel_map, rotations = identify_thrusters(
-            outputs, console.input,
-            lambda title, options, shortcuts: select_option(console, title, options, shortcuts))
+        channel_map, rotations = identify_thrusters(outputs, console.input, choose)
     except (RuntimeError, KeyboardInterrupt) as error:  # Cancelled is a RuntimeError
         console.print(f'[yellow]Stopped: {error or "interrupted"}; mapping unchanged.[/]')
         return
     finally:
         outputs.close()
-    console.print(f'FL, FR, RR, RL -> physical outputs {list(channel_map)}; rotations {rotations}')
-    if console.input('Save this mapping? [y/N] ').strip().lower() == 'y':
-        config = dict(parsed.hardware_config, channel_map=list(channel_map))
-        console.print(f'Saved {save_config(config, parsed.config)}')
+    console.print(f'Propeller rotations: {rotations}')
+    save_mapping(console, channel_map, parsed.config)
 
 
 if __name__ == '__main__':

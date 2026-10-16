@@ -112,6 +112,10 @@ thruster stops the run. Space, Q or Esc during a pulse returns every output to
 neutral. The mapping is saved to the hardware YAML only after you confirm it.
 No sensors are used; the operator's observations are the measurement.
 
+`--manual` enters a known mapping by hand without pulsing anything.
+`--output-backend topic` identifies the simulator's thrusters through
+`pwm_topic` instead of the pins; only `channel_map` is ever saved.
+
 ## ROS control
 
 Start the hardware node on the ODROID:
