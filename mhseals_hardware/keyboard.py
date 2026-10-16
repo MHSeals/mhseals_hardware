@@ -77,6 +77,17 @@ def decode_key(value, report_events=False):
     return value.decode('utf-8', errors='ignore').lower()
 
 
+def terminal_write(sequence):
+    """Send a control sequence to the real terminal.
+
+    sys.__stdout__, not sys.stdout: a full-screen Rich Live redirects sys.stdout
+    to print captured text above the display, which would swallow the request.
+    """
+    stream = sys.__stdout__ or sys.stdout
+    stream.write(sequence)
+    stream.flush()
+
+
 class KeyReader:
     """Read individual keys while restoring the terminal on every exit."""
 
@@ -104,15 +115,13 @@ class KeyReader:
         if self.report_events:
             # Kitty keyboard protocol: disambiguate, event types, all keys.
             # Unsupported terminals ignore this request and retain the fallback.
-            sys.stdout.write('\x1b[>11u\x1b[?1004h')
-            sys.stdout.flush()
+            terminal_write('\x1b[>11u\x1b[?1004h')
         return self
 
     def __exit__(self, *_):
         try:
             if self.report_events:
-                sys.stdout.write('\x1b[<u\x1b[?1004l')
-                sys.stdout.flush()
+                terminal_write('\x1b[<u\x1b[?1004l')
         finally:
             if self.settings is not None:
                 termios.tcsetattr(self.fd, termios.TCSANOW, self.settings)
