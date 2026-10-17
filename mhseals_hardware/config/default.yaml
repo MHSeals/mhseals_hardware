@@ -21,6 +21,9 @@ channel_map: [1, 2, 3, 4]
 reversed: [false, false, false, false]
 # Rows FL, FR, RR, RL; columns surge, sway, yaw.
 thruster_matrix: [-1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0]
+# Rows and columns surge, sway, yaw, applied before the mixer: cancels the
+# cross-coupling the characterization measured. Identity means none.
+decoupling: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 manual_amplitude: 0.25
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65

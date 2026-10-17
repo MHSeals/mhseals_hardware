@@ -24,6 +24,8 @@ THRUSTER_MIXER = (
     (1.0, -1.0, 1.0),
     (1.0, 1.0, -1.0),
 )
+# Rows and columns surge, sway, yaw: the fitted correction for cross-coupling.
+IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
 
 
 def axis_command(axis=None, value=0.0):
@@ -64,6 +66,21 @@ def validate_mixer(values):
                  for index in range(0, 12, 3))
 
 
+def validate_decoupling(values):
+    """Return a 3x3 decoupling matrix from a flat, finite 9-value sequence."""
+    if len(values) != 9:
+        raise ValueError('decoupling must contain exactly 9 values')
+    values = tuple(float(value) for value in values)
+    if not all(value == value and abs(value) != float('inf') for value in values):
+        raise ValueError('decoupling values must be finite')
+    return tuple(tuple(values[index:index + 3]) for index in range(0, 9, 3))
+
+
+def decouple(command, decoupling=IDENTITY):
+    """Apply the decoupling: e' = C e, so asking for one axis yields only that axis."""
+    return tuple(sum(row[j] * command[j] for j in range(3)) for row in decoupling)
+
+
 def validate_channel_map(values):
     """Validate canonical-to-physical output numbers."""
     channels = tuple(int(value) for value in values)
@@ -79,14 +96,16 @@ def validate_reversed(values):
     return tuple(values)
 
 
-def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4):
+def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4, decoupling=IDENTITY):
     """Effort command -> ESC pulse per physical output (outputs 1-4 in order).
 
-    Mix and desaturate, flip reversed thrusters (a motor wired or a propeller
-    mounted backwards), convert to pulses, then route each position to its output.
+    Decouple the axes, mix and desaturate, flip reversed thrusters (a motor
+    wired or a propeller mounted backwards), convert to pulses, then route each
+    position to its output.
     """
     efforts = [-effort if flip else effort
-               for effort, flip in zip(mix_thrusters(*command, mixer), reversed)]
+               for effort, flip in zip(mix_thrusters(*decouple(command, decoupling), mixer),
+                                       reversed)]
     return map_channels([effort_to_pulse(effort) for effort in efforts], channel_map)
 
 

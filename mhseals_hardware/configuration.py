@@ -9,7 +9,7 @@ import re
 import yaml
 
 from mhseals_hardware.thruster_mixer import (
-    validate_channel_map, validate_mixer, validate_reversed,
+    validate_channel_map, validate_decoupling, validate_mixer, validate_reversed,
 )
 
 
@@ -25,6 +25,7 @@ def validate_config(config):
     validate_channel_map(config['channel_map'])
     validate_reversed(config['reversed'])
     validate_mixer(config['thruster_matrix'])
+    validate_decoupling(config['decoupling'])
     # Optional calibration written by mhseals_testing's characterization.
     characterization = config.get('characterization', {})
     if not isinstance(characterization, dict):
@@ -48,11 +49,14 @@ def validate_config(config):
             if any(not isinstance(value, (int, float)) or not math.isfinite(value)
                    for value in row.values()):
                 raise ValueError('characterization.velocity_gain values must be finite')
-    bias = characterization.get('bias')
+    bias = characterization.get('mechanical_bias')
     if bias and (not isinstance(bias, dict) or any(
             axis not in bias or not isinstance(bias[axis], (int, float)) or
             not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
-        raise ValueError('characterization.bias must contain finite surge, sway, yaw values')
+        raise ValueError('characterization.mechanical_bias must contain finite surge, sway, yaw values')
+    fitted_with = characterization.get('fitted_with_decoupling')
+    if fitted_with is not None:
+        validate_decoupling(fitted_with)
     # PWM outputs and the MOSFET enable line.
     if config['output_backend'] not in ('odroid', 'topic'):
         raise ValueError('output_backend must be odroid or topic')

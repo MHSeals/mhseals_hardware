@@ -83,3 +83,21 @@ def test_pulses_flip_reversed_thrusters_and_follow_the_channel_map():
         validate_reversed([True, False, False])
     with pytest.raises(ValueError):
         validate_reversed([1, 0, 0, 0])
+
+
+def test_decoupling_is_applied_before_the_mix():
+    import pytest
+    from mhseals_hardware.thruster_mixer import (
+        IDENTITY, THRUSTER_MIXER, decouple, thruster_pulses, validate_decoupling,
+    )
+    assert decouple((0.3, -0.2, 0.1)) == (0.3, -0.2, 0.1)
+    plain = thruster_pulses((0.25, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4))
+    assert thruster_pulses((0.25, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4), decoupling=IDENTITY) == plain
+    # Surge also asks for a little counter-yaw: FL and RR lose, FR and RL gain.
+    corrected = validate_decoupling([1, 0, 0, 0, 1, 0, -0.2, 0, 1])
+    assert decouple((0.25, 0, 0), corrected) == pytest.approx((0.25, 0, -0.05))
+    assert thruster_pulses((0.25, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4),
+                           decoupling=corrected) == [1380, 1420, 1580, 1620]
+    for bad in ([1] * 8, [float('nan')] + [0] * 8):
+        with pytest.raises(ValueError):
+            validate_decoupling(bad)

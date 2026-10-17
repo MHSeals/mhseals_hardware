@@ -132,7 +132,7 @@ without a calibrated velocity controller.
 It subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`): `linear.x` is forward,
 `linear.y` is port/left, and `angular.z` is counterclockwise. A 500 ms command
 timeout returns every channel to neutral. Relevant parameters are
-`frequency`, `command_timeout`, `channel_map`, `thruster_matrix`,
+`frequency`, `command_timeout`, `channel_map`, `thruster_matrix`, `decoupling`,
 `pwm_chips`, `pwm_channels`, `mosfet_chip`, and `mosfet_line`.
 
 The default mixer rows are FL, FR, RR, RL and columns are surge, sway, yaw:
@@ -144,14 +144,16 @@ RR  +1  -1  +1
 RL  +1  +1  -1
 ```
 
-Results are proportionally desaturated before conversion to 1100--1900 us.
+The mixer is the geometry and stays editable. `decoupling` (3×3, identity by
+default) is applied to the command first and cancels the cross-coupling the
+characterization measured. Results are proportionally desaturated before conversion to 1100--1900 us.
 Use `channel_map` to map canonical positions to physical outputs, for example
 `[2,4,1,3]`.
 
 `reversed` (FL, FR, RR, RL booleans) flips a thruster that is wired or mounted
 backwards; `thruster_identify` and the test suite's thruster set record it.
 When started with `config_file`, the node reloads `channel_map`,
-`thruster_matrix`, `reversed` and `command_timeout` within a second of the YAML
+`thruster_matrix`, `decoupling`, `reversed` and `command_timeout` within a second of the YAML
 changing, without disarming; pin and backend changes need a restart. For bench
 tests it also takes raw pulses per physical output on `~/test_pulses`
 (`std_msgs/msg/UInt16MultiArray`, 1100-1900 us), under the same watchdog.
@@ -186,14 +188,19 @@ ros2 run mhseals_testing thrust_characterize \
   --nav2-overlay ~/.config/mhseals/nav2_calibrated.yaml
 ```
 
-It fits neutral drift, the 3×3 velocity response, acceleration and per-axis
-limits into the hardware YAML, and writes a Nav2 profile to pass explicitly as
-`params_file:=...`. Fit `/cmd_vel_effort` when the bag was recorded with
-`--velocity-control`, else the default `/cmd_vel`. Review the result before
-`--apply-matrix`.
+It fits the 3×3 velocity response, the body-fixed mechanical bias, acceleration
+and per-axis limits into the hardware YAML, reports the day's current (separated
+from the bias when the bag covers enough headings), and writes a Nav2 profile to
+pass explicitly as `params_file:=...`. Fit `/cmd_vel_effort` when the bag was
+recorded with `--velocity-control`, else the default `/cmd_vel`.
+`--apply-decoupling` also writes the fitted `decoupling`, which the driver applies
+ahead of the mixer so each axis drives only itself; it hot-reloads, and the
+identity matrix turns it off.
 
 After a valid characterization, the optional controller closes the velocity
-loop with bounded integral trim for neutral-current drift. It accepts SI body
+loop: feed-forward through the model, a world-frame estimate of current and wind
+(published on `~/drift`) that stays valid as the boat turns, and PI feedback
+with conditional integration. It accepts SI body
 velocity on `/cmd_vel`, publishes normalized effort on `/cmd_vel_effort`, and
 the PWM node is remapped to that effort topic:
 

@@ -1,10 +1,10 @@
 """Mix ROS effort commands into thruster pulses: ODROID PWM pins or a simulator topic.
 
 Two inputs drive the outputs, newest message wins:
-  cmd_vel        Twist effort, through the mixer, reversals and channel map
+  cmd_vel        Twist effort, through the decoupling, mixer, reversals and channel map
   ~/test_pulses  UInt16MultiArray raw pulses per physical output (bench tests)
 Either goes neutral after ``command_timeout`` without a message. With
-``config_file`` set, edits to the YAML's mapping, mixer, reversals and timeout
+``config_file`` set, edits to the YAML's mapping, mixer, decoupling, reversals and timeout
 apply live; pin and backend changes need a restart.
 """
 
@@ -19,11 +19,12 @@ from mhseals_hardware.configuration import load_config, validate_config
 from mhseals_hardware.outputs import make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
-    MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_mixer, validate_reversed,
+    MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
+    validate_reversed,
 )
 
 # Settings that can change while the outputs run; anything else needs a restart.
-LIVE_KEYS = ('channel_map', 'thruster_matrix', 'reversed', 'command_timeout')
+LIVE_KEYS = ('channel_map', 'thruster_matrix', 'decoupling', 'reversed', 'command_timeout')
 RELOAD_PERIOD = 1.0
 
 
@@ -61,6 +62,7 @@ class ThrusterPWMNode(Node):
         self.command_timeout = float(config['command_timeout'])
         self.channel_map = validate_channel_map(config['channel_map'])
         self.mixer = validate_mixer(config['thruster_matrix'])
+        self.decoupling = validate_decoupling(config['decoupling'])
         self.reversed = validate_reversed(config['reversed'])
 
     def mtime(self):
@@ -93,7 +95,7 @@ class ThrusterPWMNode(Node):
     def cmd_vel_callback(self, message):
         # Twist effort -> per-thruster effort -> pulse widths -> physical outputs.
         self.drive(thruster_pulses(twist_values(message), self.mixer, self.channel_map,
-                                   self.reversed))
+                                   self.reversed, self.decoupling))
 
     def pulses_callback(self, message):
         """Raw pulses per physical output, for bench tests; validated by the outputs."""
