@@ -69,16 +69,21 @@ class Plant:
 class VelocityLaw:
     """Feed-forward through the model, a world-frame drift observer, and PI feedback.
 
+    The observer learns only while asked to hold still (station keeping or idle);
+    under way it keeps its estimate and the PI loop covers the rest.
+
     ``observe`` takes odometry (body velocity, heading); ``step`` turns a wanted
     body velocity into effort. Times are seconds on any monotonic clock.
     """
 
-    def __init__(self, plant, kp=(0.1, 0.1, 0.05), ki=(0.1, 0.1, 0.05),
-                 integral_limit=(0.1, 0.1, 0.1), drift_time_constant=5.0, odom_timeout=0.3):
+    def __init__(self, plant, kp=(0.8, 0.8, 0.6), ki=(0.6, 0.6, 0.4),
+                 integral_limit=(0.3, 0.3, 0.3), drift_time_constant=5.0, odom_timeout=0.3,
+                 drift_command_limit=0.1):
         self.plant = plant
         self.kp, self.ki = numpy.array(kp, float), numpy.array(ki, float)
         self.integral_limit = numpy.array(integral_limit, float)
         self.drift_time_constant = float(drift_time_constant)
+        self.drift_command_limit = float(drift_command_limit)
         self.odom_timeout = float(odom_timeout)
         self.drift = numpy.zeros(2)  # world frame (x east, y north in odom), m/s
         self.velocity = None
@@ -89,14 +94,20 @@ class VelocityLaw:
     def reset(self):
         self.integral = numpy.zeros(3)
         self.effort = numpy.zeros(3)
+        self.target = numpy.zeros(3)
         self.last_step = None
 
     def observe(self, velocity, yaw, now):
         """Odometry: update the drift estimate from what the model can't explain."""
         dt = 0.0 if self.odom_time is None else min(0.2, max(0.0, now - self.odom_time))
         self.velocity, self.yaw, self.odom_time = numpy.array(velocity, float), float(yaw), now
+        # Learn while asked to hold still (or idle): the effort holding the boat
+        # then measures the current. Under way the residual is mostly the model's own
+        # error (a straight-line gain on a squared thrust curve), which would be taken
+        # for current and turned with the boat.
+        under_way = numpy.any(numpy.abs(self.target) > self.drift_command_limit)
         saturated = numpy.any(numpy.abs(self.effort) >= 0.999)
-        if self.drift_time_constant <= 0 or dt == 0 or saturated:
+        if self.drift_time_constant <= 0 or dt == 0 or under_way or saturated:
             return
         expected = self.plant.bias + self.plant.gain @ self.effort
         residual = rotate((self.velocity - expected)[:2], self.yaw)
@@ -114,6 +125,7 @@ class VelocityLaw:
         dt = 0.0 if self.last_step is None else min(0.2, max(0.0, now - self.last_step))
         self.last_step = now
         target = numpy.clip(numpy.array(desired, float), -self.plant.limits, self.plant.limits)
+        self.target = target
         drift_body = numpy.array([*rotate(self.drift, -self.yaw), 0.0])
         feedforward = self.plant.gain_inv @ (target - self.plant.bias - drift_body)
         error = target - self.velocity

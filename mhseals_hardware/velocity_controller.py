@@ -35,16 +35,21 @@ class VelocityController(Node):
         self.declare_parameter('odom_topic', '/odom/local')
         self.declare_parameter('command_timeout', 0.5)
         self.declare_parameter('feedback', True)
-        self.declare_parameter('kp', [0.1, 0.1, 0.05])
-        self.declare_parameter('ki', [0.1, 0.1, 0.05])
-        self.declare_parameter('integral_limit', [0.1, 0.1, 0.1])
+        # Effort per m/s (rad/s): about one over the boat's gain, so feedback is felt;
+        # turning while moving needs it, as the steady model has no turning terms.
+        self.declare_parameter('kp', [0.8, 0.8, 0.6])
+        self.declare_parameter('ki', [0.6, 0.6, 0.4])
+        self.declare_parameter('integral_limit', [0.3, 0.3, 0.3])
         # Seconds for the world-frame drift estimate to settle; 0 disables it.
         self.declare_parameter('drift_time_constant', 5.0)
         self.declare_parameter('odom_timeout', 0.3)
+        # Largest commanded speed at which the drift estimate still learns (velocity_law).
+        self.declare_parameter('drift_command_limit', 0.1)
         value = lambda name: self.get_parameter(name).value  # noqa: E731
         config = load_config(value('config_file') or None)
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
-                                value('drift_time_constant'), value('odom_timeout'))
+                                value('drift_time_constant'), value('odom_timeout'),
+                                value('drift_command_limit'))
         self._frame = 'odom'
         self._last_command = time.monotonic()
         self._pub = self.create_publisher(Twist, value('output_topic'), 10)

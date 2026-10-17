@@ -98,3 +98,12 @@ def test_decoupling_cancels_coupling_and_composes_across_refits():
     # The controller's plant through the decoupling is diagonal: no double correction.
     plant = Plant(config(decoupling=c.flatten().tolist()))
     assert plant.gain == pytest.approx(numpy.diag(numpy.diag(raw)))
+
+
+def test_model_error_under_way_is_not_taken_for_current():
+    # The real boat is 15 % weaker than the fit says, and the water is still.
+    boat = Boat(gain=numpy.array(GAIN) * 0.85)
+    law = VelocityLaw(Plant(config()))
+    run(law, boat, (0.4, 0.0, 0.0), 30)
+    assert numpy.hypot(*law.drift) < 0.01
+    assert boat.velocity[0] == pytest.approx(0.4, abs=0.03)  # feedback still gets there
