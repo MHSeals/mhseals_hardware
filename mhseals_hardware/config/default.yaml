@@ -3,7 +3,7 @@
 output_backend: odroid
 pwm_topic: /thrusters/pwm
 # Physical outputs 1..4: ODROID-M2 J2 pins 7, 12, 15, 33.
-# MOSFET enable: J2 pin 11. Keep stable platform paths, not pwmchip numbers.
+# MOSFET enable: J2 pin 13. Keep stable platform paths, not pwmchip numbers.
 pwm_chips:
   - /sys/devices/platform/febd0030.pwm/pwm/pwmchip*
   - /sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*
@@ -12,7 +12,7 @@ pwm_chips:
 pwm_channels: [0, 0, 0, 0]
 frequency: 50.0
 mosfet_chip: gpio3  # Bank label, NOT the dynamically numbered device node.
-mosfet_line: 28
+mosfet_line: 29
 mosfet_active_high: true
 command_timeout: 0.5
 # Canonical FL, FR, RR, RL -> physical output (1-based).

@@ -136,7 +136,7 @@ class SysfsPWMChannel:
 
 
 class MosfetEnable:
-    """Hold the M2 pin-11 MOSFET enable line active while outputs are armed."""
+    """Hold the configured MOSFET enable line active while outputs are armed."""
 
     def __init__(self, chip=DEFAULT_MOSFET_CHIP,
                  line=DEFAULT_MOSFET_LINE, active_high=DEFAULT_MOSFET_ACTIVE_HIGH):
@@ -151,7 +151,7 @@ class MosfetEnable:
             import gpiod
         except ImportError as error:
             raise RuntimeError(
-                'python3-libgpiod is required to control MOSFET enable pin 11') \
+                'python3-libgpiod is required to control MOSFET enable') \
                 from error
         self.gpiod = gpiod
         self.resolved_chip = resolve_gpio_chip(self.chip_path)

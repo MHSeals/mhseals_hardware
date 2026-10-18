@@ -11,7 +11,7 @@ def test_enable_only_always_closes(tmp_path, monkeypatch, interrupt):
 
     class Output:
         def __init__(self, chip, line, active_high):
-            assert (chip, line, active_high) == ('/dev/gpiochip5', 28, True)
+            assert (chip, line, active_high) == ('/dev/gpiochip5', 29, True)
 
         def open(self):
             events.append('open')
