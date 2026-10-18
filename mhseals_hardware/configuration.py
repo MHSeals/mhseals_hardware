@@ -103,26 +103,31 @@ def load_config(path=None):
     ~/.config/mhseals/hardware.yaml. Unknown keys are rejected so typos fail
     loudly instead of being ignored.
     """
-    config = load_defaults()
     selected = config_path(path)
-    if selected.exists():
-        overrides = yaml.safe_load(selected.read_text())
-        if not isinstance(overrides, dict):
-            raise ValueError('hardware YAML must be a mapping')
-        unknown = set(overrides) - set(config)
-        if unknown:
-            raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
-        config.update(overrides)
-    elif path or os.environ.get('MHSEALS_HARDWARE_CONFIG'):
+    if not selected.exists() and (path or os.environ.get('MHSEALS_HARDWARE_CONFIG')):
         raise FileNotFoundError(selected)
-    return validate_config(config)
+    return _merge_overrides(_read_overrides(selected))
+
+
+def _read_overrides(path):
+    overrides = yaml.safe_load(path.read_text()) if path.exists() else {}
+    if not isinstance(overrides, dict):
+        raise ValueError('hardware YAML must be a mapping')
+    return overrides
+
+
+def _merge_overrides(overrides):
+    defaults = load_defaults()
+    unknown = set(overrides) - set(defaults)
+    if unknown:
+        raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
+    return validate_config(dict(defaults, **overrides))
 
 
 def save_config(config, path=None):
     """Atomically persist validated settings; never partially replace a file."""
     validate_config(config)
     target = config_path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
     normalized = {key: list(value) if isinstance(value, tuple) else value
                   for key, value in config.items()}
     return _write_config(normalized, target)
@@ -131,20 +136,14 @@ def save_config(config, path=None):
 def update_config(changes, path=None):
     """Persist only explicit overrides, retaining existing operator settings."""
     target = config_path(path)
-    overrides = yaml.safe_load(target.read_text()) if target.exists() else {}
-    if not isinstance(overrides, dict):
-        raise ValueError('hardware YAML must be a mapping')
+    overrides = _read_overrides(target)
     overrides.update(changes)
-    defaults = load_defaults()
-    unknown = set(overrides) - set(defaults)
-    if unknown:
-        raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
-    validate_config(dict(defaults, **overrides))
-    target.parent.mkdir(parents=True, exist_ok=True)
+    _merge_overrides(overrides)
     return _write_config(overrides, target)
 
 
 def _write_config(normalized, target):
+    target.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix='.hardware-', dir=target.parent)
     try:
         with os.fdopen(fd, 'w') as stream:
