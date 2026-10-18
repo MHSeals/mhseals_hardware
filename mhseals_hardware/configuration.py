@@ -125,6 +125,26 @@ def save_config(config, path=None):
     target.parent.mkdir(parents=True, exist_ok=True)
     normalized = {key: list(value) if isinstance(value, tuple) else value
                   for key, value in config.items()}
+    return _write_config(normalized, target)
+
+
+def update_config(changes, path=None):
+    """Persist only explicit overrides, retaining existing operator settings."""
+    target = config_path(path)
+    overrides = yaml.safe_load(target.read_text()) if target.exists() else {}
+    if not isinstance(overrides, dict):
+        raise ValueError('hardware YAML must be a mapping')
+    overrides.update(changes)
+    defaults = load_defaults()
+    unknown = set(overrides) - set(defaults)
+    if unknown:
+        raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
+    validate_config(dict(defaults, **overrides))
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return _write_config(overrides, target)
+
+
+def _write_config(normalized, target):
     fd, temporary = tempfile.mkstemp(prefix='.hardware-', dir=target.parent)
     try:
         with os.fdopen(fd, 'w') as stream:

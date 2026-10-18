@@ -68,3 +68,17 @@ def test_empty_config_variable_means_default(monkeypatch, tmp_path):
     monkeypatch.setenv('MHSEALS_HARDWARE_CONFIG', '')
     monkeypatch.setenv('HOME', str(tmp_path))
     assert config_path() == tmp_path / '.config/mhseals/hardware.yaml'
+
+
+def test_update_only_persists_explicit_settings(tmp_path):
+    import yaml
+    from mhseals_hardware.configuration import update_config
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('mosfet_line: 12\n')
+    update_config({'channel_map': [2, 1, 3, 4]}, path)
+    assert yaml.safe_load(path.read_text()) == {'mosfet_line': 12, 'channel_map': [2, 1, 3, 4]}
+    assert load_config(path)['command_timeout'] > 0
+    before = path.read_text()
+    with pytest.raises(ValueError):
+        update_config({'channel_map': [1]}, path)
+    assert path.read_text() == before
