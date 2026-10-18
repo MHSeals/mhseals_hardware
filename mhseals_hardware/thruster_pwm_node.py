@@ -13,6 +13,7 @@ import time
 
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from std_msgs.msg import UInt16MultiArray
 
 from mhseals_hardware.configuration import load_config, validate_config
@@ -87,6 +88,7 @@ class ThrusterPWMNode(Node):
         live = {key: config[key] for key in LIVE_KEYS}
         self.config.update(live)
         self.apply(self.config)
+        self.set_parameters([Parameter(name, value=value) for name, value in live.items()])
         self.get_logger().info('config reloaded: ' + ', '.join(
             f'{key}={value}' for key, value in live.items()))
         if restart:
