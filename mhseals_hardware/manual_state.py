@@ -35,7 +35,7 @@ class ManualState:
         kind, _, name = (key or '').partition(':')
         if kind not in ('press', 'repeat', 'release'):
             kind, name = 'legacy', key
-        elif kind in ('press', 'repeat'):
+        elif kind == 'press':
             self.event_mode = True
         if name == 'focus-out':
             self.focused = False
@@ -59,10 +59,14 @@ class ManualState:
             if kind == 'press':
                 self.held.add(name)
                 self.deadline = now + self.initial_timeout
+                self.key = None
             elif name in self.held:
                 self.deadline = now + self.repeat_timeout
-            self.key = None
-        elif name in MANUAL_KEYS and self.focused and not self.event_mode:
+        elif name in MANUAL_KEYS and self.focused:
+            # Some terminals mix event-style arrows with plain WASD. A plain
+            # motion key must remain usable, with no unreleasable held chord.
+            self.event_mode = False
+            self.held.clear()
             timeout = (self.repeat_timeout if name == self.key
                        else self.initial_timeout)
             self.key = name

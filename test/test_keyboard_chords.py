@@ -61,6 +61,27 @@ def test_legacy_remains_single_key_not_phantom_chords():
     assert state.update(None, .76) == (0, 0, 0)
 
 
+@pytest.mark.parametrize('key,expected', [
+    (b'w', (.25, 0, 0)), (b's', (-.25, 0, 0)),
+    (b'a', (0, .25, 0)), (b'd', (0, -.25, 0)),
+])
+def test_plain_wasd_still_drives_after_an_arrow_event(key, expected):
+    state = ManualState()
+    assert state.update(decode_key(b'\x1b[D', True), 0) == (0, 0, .25)
+    assert state.update(decode_key(key, True), .05) == expected
+    assert not state.event_mode  # No releases: use the single-key deadman fallback.
+    assert state.update(None, .71) == (0, 0, 0)
+
+
+def test_late_yaw_repeat_cannot_cancel_new_plain_translation():
+    state = ManualState()
+    state.update('press:left', 0)
+    state.update('w', .05)
+    assert state.update('repeat:left', .1) == (.25, 0, 0)
+    assert state.update('release:left', .15) == (.25, 0, 0)
+    assert state.update(None, .71) == (0, 0, 0)
+
+
 def test_real_pty_fragmented_and_queued_events():
     master, slave = os.openpty()
     import termios

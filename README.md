@@ -222,11 +222,13 @@ ros2 run mhseals_hardware keyboard_control
 ```
 
 W/S or Up/Down commands surge, A/D commands sway, Left/Right commands yaw,
-Space stops, and X exits. `+`/`-` changes thrust speed in 5% steps.
+Space stops, and X exits. `+`/`-` changes thrust speed in 5% steps. In
+`boat_test` manual mode, WASD and the arrows are reserved for motion.
 Release-aware terminals support held combinations: W+D is forward/starboard;
 add Left/Right to rotate. Translation diagonals are normalized. Ordinary
 terminals explicitly remain single-key, with initial-repeat grace followed by
-a short repeat timeout. Test your terminal safely with
+a short repeat timeout; plain WASD after a yaw event clears the held chord and
+returns to this fallback. Test your terminal safely with
 `ros2 run mhseals_hardware keyboard_control --dry-run`.
 See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
 section for the safety limitations and timeout settings.
