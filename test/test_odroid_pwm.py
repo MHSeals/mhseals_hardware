@@ -10,8 +10,10 @@ from mhseals_hardware.odroid_pwm import (
 )
 
 
-def test_gpio_bank_resolves_independently_of_device_number(tmp_path):
+def test_gpio_bank_resolves_independently_of_device_number(tmp_path, monkeypatch):
     from mhseals_hardware.odroid_pwm import resolve_gpio_chip
+    # This fake sysfs bank must not mix with the test machine's real GPIOs.
+    monkeypatch.setitem(sys.modules, 'gpiod', None)
     for number, label in ((3, 'gpio1'), (5, 'gpio3')):
         chip = tmp_path / f'gpiochip{number}'
         chip.mkdir()
