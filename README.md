@@ -190,8 +190,9 @@ ros2 run mhseals_testing thrust_characterize \
 
 It fits the 3×3 velocity response, the body-fixed mechanical bias, acceleration
 and per-axis limits into the hardware YAML, reports the day's current (separated
-from the bias when the bag covers enough headings), and writes a Nav2 profile to
-pass explicitly as `params_file:=...`. Fit `/cmd_vel_effort` when the bag was
+from the bias when the bag covers enough headings), and writes measured Nav2 limits to
+pass as `limits_file:=...` to `navigation.launch.py`. The current base profile
+remains in `params_file`; partial-effort runs do not extrapolate full-throttle limits. Fit `/cmd_vel_effort` when the bag was
 recorded with `--velocity-control`, else the default `/cmd_vel`.
 `--apply-decoupling` also writes the fitted `decoupling`, which the driver applies
 ahead of the mixer so each axis drives only itself; it hot-reloads, and the
