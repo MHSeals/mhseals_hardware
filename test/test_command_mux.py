@@ -97,3 +97,30 @@ def test_rc_switch_hold_is_saved_before_the_command_goes_out(tmp_path):
         node.destroy_node()
     finally:
         rclpy.try_shutdown()
+
+
+def test_steady_input_publishes_no_new_seq_until_something_changes():
+    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_steady'])
+    try:
+        node = command_mux.CommandMux()
+        node.applied.publish = lambda msg: None
+        states = []
+        node.state_pub.publish = states.append
+        frame = RCIn()
+        frame.channels = [1500, 2000, 1500, 1500, 1500, 1800, 1500, 1100]
+        node._rc(frame)
+        first = len(states)
+        for _ in range(10):                      # constant-rate rc, 25 Hz keepalive
+            command_mux.time.sleep(0.01)
+            node._rc(frame)
+            node.forward()
+        assert len(states) == first
+        node.publish_state(force=True)           # the 1 Hz heartbeat still publishes
+        assert len(states) == first + 1
+        node.arbitration.request('hold', 'test', 'tester', command_mux.time.monotonic())
+        node.forward()                           # a hold publishes at once
+        assert len(states) == first + 2
+        assert json.loads(states[-1].data)['hold']['cause'] == 'test'
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()

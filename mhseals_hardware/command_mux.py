@@ -29,6 +29,28 @@ STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
 RELOAD_PERIOD = 1.0
 
 
+# Fields that move on every call (ages, rates, wall conversions, timing).
+VOLATILE_RC = ('age_s', 'rate_hz', 'interval_p95_s')
+
+
+def change_key(state):
+    """The state body without volatile fields, as a comparable string.
+
+    authority.md 2.1 publishes on change plus 1 Hz: ages, rates, pipeline_ms
+    and the jittering ``since_ns`` conversions must not count as a change.
+    """
+    body = {k: v for k, v in state.items()
+            if k not in ('since_ns', 'pipeline_ms', 'seq', 't_ns')}
+    body['rc'] = {k: v for k, v in state['rc'].items() if k not in VOLATILE_RC}
+    body['manual'] = {k: v for k, v in state['manual'].items() if k != 'age_s'}
+    body['auto'] = {k: v for k, v in state['auto'].items() if k != 'age_s'}
+    if state.get('hold'):
+        body['hold'] = {k: v for k, v in state['hold'].items() if k != 'since_ns'}
+    body['holds'] = [{k: v for k, v in h.items() if k != 'since_ns'}
+                     for h in state['holds']]
+    return json.dumps(body, sort_keys=True)
+
+
 class CommandMux(Node):
     """Publish ``/cmd_vel/applied`` and the latched ``~/state``."""
 
@@ -121,10 +143,9 @@ class CommandMux(Node):
         """Publish ``~/state`` when it changed, or always with ``force``."""
         state = self.arbitration.state(time.monotonic(), time.time_ns(),
                                        self._pipeline_ms)
-        text = json.dumps(state, sort_keys=True)
-        # seq and t_ns change every call, so compare the body without them.
-        if force or text != self._last_state:
-            self._last_state = text
+        key = change_key(state)
+        if force or key != self._last_state:
+            self._last_state = key
             self._seq += 1
             state.update(schema='mhseals.mux/1', seq=self._seq, t_ns=time.time_ns())
             text = json.dumps(state, sort_keys=True)
