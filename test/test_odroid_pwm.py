@@ -1,5 +1,7 @@
 """Unit tests for native Linux PWM conversion and output behavior."""
 
+from pathlib import Path
+import shutil
 from types import SimpleNamespace
 import sys
 
@@ -202,3 +204,31 @@ def test_j2_pins_match_overlay_readme_and_defaults():
     pin, pad, bank, line = J2_PINS['mosfet']
     assert (pin, bank, line) == (13, DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE)
     assert f'| MOSFET enable | {pin} | {pad} |' in (root / 'README.md').read_text()
+
+
+def test_failed_open_unexports_channels_it_exported(tmp_path, monkeypatch):
+    chips = []
+    for number in range(4):
+        chip = tmp_path / f'pwmchip{number}'
+        chip.mkdir()
+        chips.append(chip)
+
+    def fake_write(path, value):
+        path = Path(path)
+        if path.name == 'export':
+            channel = path.parent / f'pwm{value}'
+            channel.mkdir()
+            for name in ('enable', 'polarity', 'duty_cycle', 'period'):
+                (channel / name).write_text('0')
+        elif path.name == 'unexport':
+            shutil.rmtree(path.parent / f'pwm{value}')
+        elif path.name == 'enable' and path.parent.parent == chips[2]:
+            raise PermissionError(13, 'Permission denied', str(path))
+        else:
+            path.write_text(str(value))
+
+    monkeypatch.setattr(SysfsPWMChannel, '_write', staticmethod(fake_write))
+    outputs = OdroidPWMOutputs(chips, (1, 1, 1, 1), mosfet_chip=None)
+    with pytest.raises(PermissionError):
+        outputs.open()
+    assert not list(tmp_path.glob('pwmchip*/pwm1'))

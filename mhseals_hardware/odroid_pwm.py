@@ -140,10 +140,14 @@ class SysfsPWMChannel:
                     round(float(pulse_width_us) * 1000))
 
     def close(self, unexport=False):
-        if self.path.exists():
-            self._write(self.path / 'enable', 0)
-        if unexport and self.exported_here:
-            self._write(self.chip / 'unexport', self.channel_number)
+        try:
+            if self.path.exists():
+                self._write(self.path / 'enable', 0)
+        finally:
+            # A fresh export can refuse even the first write (udev has not
+            # yet chgrp'd it); the unexport must still be attempted.
+            if unexport and self.exported_here:
+                self._write(self.chip / 'unexport', self.channel_number)
 
 
 class MosfetEnable:
@@ -247,8 +251,9 @@ class OdroidPWMOutputs:
         opened = []
         try:
             for channel in self.channels:
-                channel.open()
+                # Track before open so a half-exported channel is rolled back too.
                 opened.append(channel)
+                channel.open()
                 channel.configure(self.frequency_hz, self.neutral_us)
             if self.mosfet is not None:
                 self.mosfet.open()
@@ -258,7 +263,7 @@ class OdroidPWMOutputs:
                 self.mosfet.close()
             for channel in opened:
                 try:
-                    channel.close()
+                    channel.close(unexport=True)
                 except Exception:
                     pass
             raise
