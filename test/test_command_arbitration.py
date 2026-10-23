@@ -300,3 +300,27 @@ def test_duplicate_cleared_resumes_through_the_ramp():
     a.update_auto((1, 0, 0), 1.4)
     source, cmd = a.select(1.6)
     assert source == 'auto' and 0 < cmd[0] < 1
+
+
+@pytest.mark.parametrize('cause', ['', 5, None])
+def test_hold_needs_a_named_cause(cause):
+    a = boat()
+    assert a.request('hold', cause, 'tui', 0)[0] is False
+    assert not a.holds
+
+
+def test_config_applies_when_idle_and_pends_during_rc():
+    a = boat()
+    a.update_rc(frame(mode=LOW, sticks=(1500, 1900, 1500, 1500)), 0)
+    assert a.select(0.01)[0] == 'rc'
+    assert a.apply_config({'mode_ch': 7, 'stop_ch': 5}, 0.01) is False
+    assert (a.mode_ch, a.stop_ch) == (8, 6)
+    assert a.select(5)[0] in ('idle', 'hold')      # the frame went stale
+    assert a.apply_config({'mode_ch': 7, 'stop_ch': 5}, 5) is True
+    assert (a.mode_ch, a.stop_ch) == (7, 5)
+
+
+def test_bad_layout_is_rejected():
+    for section in ({'mode_ch': 0}, {'modes': [0, 4]}, {'bogus': 1}):
+        with pytest.raises((ValueError, TypeError)):
+            boat().apply_config(section, 0)

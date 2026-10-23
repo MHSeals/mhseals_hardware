@@ -18,10 +18,14 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
 from std_msgs.msg import String
 
 from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.configuration import ConfigWatcher, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 
 STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+
+
+RELOAD_PERIOD = 1.0
 
 
 class CommandMux(Node):
@@ -32,10 +36,18 @@ class CommandMux(Node):
         self.declare_parameter('rc_scale', [0.5, 0.5, 0.3])
         self.declare_parameter('cmd_timeout', 0.5)
         self.declare_parameter('ramp', 1.0)
+        self.declare_parameter('config_file', '')
         self.arbitration = Arbitration(
             rc_scale=self.get_parameter('rc_scale').value,
             cmd_timeout=self.get_parameter('cmd_timeout').value,
             ramp=self.get_parameter('ramp').value)
+        # The hardware YAML's command_mux section overrides the parameters.
+        config_file = self.get_parameter('config_file').value or None
+        self.pending = None
+        self.arbitration.apply_config(load_config(config_file).get('command_mux', {}),
+                                      time.monotonic())
+        self.watch = ConfigWatcher(config_file)
+        self.create_timer(RELOAD_PERIOD, self.reload_callback)
 
         self.applied = self.create_publisher(Twist, '/cmd_vel/applied', 10)
         self.state_pub = self.create_publisher(String, '~/state', STATE_QOS)
@@ -67,6 +79,23 @@ class CommandMux(Node):
         _, cmd = self.arbitration.select(now)
         self.applied.publish(twist_from(cmd))
         self.publish_state()
+
+    def reload_callback(self):
+        """Pick up an edited ``command_mux`` section; hold it pending while driving."""
+        try:
+            config = self.watch.poll()
+        except (OSError, ValueError, KeyError) as error:
+            self.get_logger().error(f'config reload rejected, keeping the old one: {error}')
+            return
+        if config is not None:
+            self.pending = config.get('command_mux', {})
+        if self.pending is None:
+            return
+        if self.arbitration.apply_config(self.pending, time.monotonic()):
+            self.get_logger().info('command_mux config applied')
+            self.pending = None
+        elif config is not None:
+            self.get_logger().info('command_mux config pending until idle or hold')
 
     def publish_state(self, force=False):
         """Publish ``~/state`` when it changed, or always with ``force``."""

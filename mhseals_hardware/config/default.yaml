@@ -34,5 +34,9 @@ manual_yaw_scale: 0.5
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
+# command_mux overrides (Arbitration arguments): mode_ch, modes (MODE1..6 FCU numbers),
+# stop_ch, rc_scale, cmd_timeout, ramp ... Applied live, but only while idle or holding.
+command_mux: {}
+
 # Optional field characterization written by mhseals_testing (boat_test or thrust_characterize).
 characterization: {}

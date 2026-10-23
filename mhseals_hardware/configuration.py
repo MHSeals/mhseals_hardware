@@ -10,6 +10,7 @@ import re
 
 import yaml
 
+from mhseals_hardware.command_arbitration import Arbitration
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reversed,
 )
@@ -30,6 +31,14 @@ def validate_config(config):
     validate_decoupling(config['decoupling'])
     if config.get('decoupling_negative') is not None:
         validate_decoupling(config['decoupling_negative'])
+    # Transmitter layout and mux timing; the section is built to prove it decodes.
+    mux = config.get('command_mux', {})
+    if not isinstance(mux, dict):
+        raise ValueError('command_mux must be a mapping')
+    try:
+        Arbitration.from_config(mux)
+    except TypeError as error:
+        raise ValueError(f'invalid command_mux: {error}') from error
     # Optional calibration written by mhseals_testing's characterization.
     characterization = config.get('characterization', {})
     if not isinstance(characterization, dict):

@@ -37,6 +37,11 @@ def stick(pwm, center=1500, deadband=100, half_range=500):
     return max(-1.0, min(1.0, offset / half_range))
 
 
+# The tunables a ``command_mux`` section may set (Arbitration.__init__ arguments).
+INIT_KEYS = ('mode_ch', 'modes', 'stop_ch', 'rc_scale', 'rc_max_age', 'cmd_timeout',
+             'stick_takeover', 'stick_time', 'stick_release', 'ramp')
+
+
 class Arbitration:
     """The state machine behind ``command_mux``."""
 
@@ -45,6 +50,7 @@ class Arbitration:
                  stick_takeover=200, stick_time=0.2, stick_release=0.5,
                  ramp=1.0):
         self.mode_ch, self.modes, self.stop_ch = mode_ch, tuple(modes), stop_ch
+        self._check_layout()
         self.rc_scale = tuple(rc_scale)
         self.rc_max_age, self.cmd_timeout = rc_max_age, cmd_timeout
         self.stick_takeover, self.stick_time = stick_takeover, stick_time
@@ -71,6 +77,28 @@ class Arbitration:
     def from_config(cls, config):
         """Build from the ``command_mux`` section of hardware.yaml."""
         return cls(**(config or {}))
+
+    def _check_layout(self):
+        """Reject a transmitter layout that cannot be decoded."""
+        channels = (self.mode_ch, self.stop_ch)
+        if not all(type(ch) is int and ch >= 1 for ch in channels):
+            raise ValueError('mode_ch and stop_ch must be channel numbers >= 1')
+        if len(self.modes) != len(MODE_BANDS) + 1 or not all(
+                type(mode) is int for mode in self.modes):
+            raise ValueError('modes must be %d FCU mode numbers' % (len(MODE_BANDS) + 1))
+
+    def apply_config(self, section, now):
+        """Apply a ``command_mux`` section only while nothing is being driven.
+
+        Returns False (and changes nothing) in rc, manual or auto, so a remap
+        never lands mid-drive; the caller keeps the section pending and retries.
+        """
+        fresh = self.from_config(section)
+        if self.select(now)[0] not in ('idle', 'hold'):
+            return False
+        for key in INIT_KEYS:
+            setattr(self, key, getattr(fresh, key))
+        return True
 
     # Inputs
 
@@ -115,6 +143,8 @@ class Arbitration:
         """Apply a hold or release request; return ``(ok, reason)``."""
         self._advance(now)
         if op == 'hold':
+            if not isinstance(cause, str) or not cause:
+                return False, 'cause must be a non-empty string'
             self._hold(cause, by, now, token)
             return True, ''
         if op != 'release':

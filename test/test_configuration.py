@@ -237,3 +237,13 @@ def test_watcher_turns_a_syntax_or_type_error_into_value_error(text, tmp_path):
     assert watch.poll() is None
     with pytest.raises(ValueError):
         watch.poll()
+
+
+def test_command_mux_section_is_validated(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_mux: {mode_ch: 7}\n')
+    assert load_config(path)['command_mux'] == {'mode_ch': 7}
+    for text in ('command_mux: {bogus: 1}\n', 'command_mux: {modes: [0]}\n', 'command_mux: 3\n'):
+        path.write_text(text)
+        with pytest.raises(ValueError):
+            load_config(path)
