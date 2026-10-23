@@ -48,6 +48,34 @@ def test_live_correction_updates_parameters_and_manual_pulses(tmp_path, monkeypa
         rclpy.shutdown()
 
 
+def test_int_edit_of_a_float_setting_reads_back(tmp_path, monkeypatch):
+    class Outputs:
+        def open(self):
+            return self
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *args, **kwargs: Outputs())
+    config = dict(load_defaults(), command_timeout=0.5)
+    path = tmp_path / 'hardware.yaml'
+    save_config(config, path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=int_edit_test', '-p', f'config_file:={path}'])
+    node = None
+    try:
+        node = thruster_pwm_node.ThrusterPWMNode()
+        save_config(dict(config, command_timeout=1), path)
+        node.watch.mtime = None
+        node.watch.seen = node.watch._stat()
+        node.reload_callback()
+        assert node.command_timeout == 1.0
+        assert node.get_parameter('command_timeout').value == 1.0
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown()
+
+
 class Recorder:
     """Fake outputs that log their lifecycle, and can refuse to open."""
 

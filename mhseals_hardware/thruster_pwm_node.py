@@ -92,10 +92,26 @@ class ThrusterPWMNode(Node):
                     f'{key}={changed[key]}' for key in OUTPUT_KEYS if key in changed))
         self.config = new
         self.apply(new)
-        self.set_parameters([Parameter(key, value=new[key]) for key in changed
-                             if self.has_parameter(key)])
+        self.sync_parameters({key: new[key] for key in changed if self.has_parameter(key)})
         self.get_logger().info('config reloaded: ' + ', '.join(
             f'{key}={value}' for key, value in changed.items()))
+
+    def sync_parameters(self, values):
+        """Mirror applied values into the ROS parameters, matching each one's declared type."""
+        parameters = []
+        for key, value in values.items():
+            declared = self.get_parameter(key).value
+            # A hand-edited `1` for a float setting must not be refused as a type change.
+            if isinstance(declared, float) and isinstance(value, int) and not isinstance(value, bool):
+                value = float(value)
+            elif isinstance(declared, (list, tuple)) and declared and isinstance(declared[0], float):
+                value = [float(item) if isinstance(item, int) and not isinstance(item, bool) else item
+                         for item in value]
+            parameters.append(Parameter(key, value=value))
+        for result, parameter in zip(self.set_parameters(parameters), parameters):
+            if not result.successful:
+                self.get_logger().warning(
+                    f'parameter {parameter.name} not synced: {result.reason}')
 
     def cmd_vel_callback(self, message):
         # Twist effort -> per-thruster effort -> pulse widths -> physical outputs.
