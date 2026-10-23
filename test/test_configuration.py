@@ -119,6 +119,25 @@ def test_watcher_ignores_a_half_written_file(tmp_path):
     assert config['reversed'] == [True, False, False, False]
 
 
+@pytest.mark.parametrize('text', [
+    'reversed: [true, false\n',  # unterminated flow sequence: a half-saved file
+    'channel_map: 5\n',
+    'pwm_channels: 5\n',
+    'characterization: {motion_limits: [\n',
+])
+def test_watcher_reports_yaml_and_type_errors_as_value_error(tmp_path, text):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_timeout: 0.4\n')
+    os.utime(path, ns=(1, 1))
+    watch = ConfigWatcher(path)
+    path.write_text(text)
+    os.utime(path, ns=(2, 2))
+    assert watch.poll() is None
+    with pytest.raises(ValueError):
+        watch.poll()
+    assert watch.poll() is None
+
+
 def test_unset_negative_decoupling_follows_decoupling_and_is_not_frozen_on_save(tmp_path):
     import yaml
     from mhseals_hardware.configuration import single_decoupling
