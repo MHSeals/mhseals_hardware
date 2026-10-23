@@ -15,6 +15,8 @@ import time
 
 from geometry_msgs.msg import Twist, Vector3Stamped
 from nav_msgs.msg import Odometry
+import numpy
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 
 from mhseals_hardware.configuration import ConfigWatcher, load_config
@@ -23,7 +25,10 @@ from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 
 # The config keys Plant reads; an edit to anything else keeps the model and the integrator.
-PLANT_KEYS = ('characterization', 'decoupling', 'decoupling_negative')
+PLANT_KEYS = ('thruster_matrix', 'characterization', 'decoupling', 'decoupling_negative')
+# Controller gains: read from the parameters on every command, so a change is live.
+GAIN_KEYS = ('kp', 'ki', 'integral_limit', 'drift_time_constant', 'odom_timeout',
+             'drift_command_limit')
 
 
 def yaw_of(orientation):
@@ -64,11 +69,31 @@ class VelocityController(Node):
         self._drift = self.create_publisher(Vector3Stamped, '~/drift', 10)
         self.create_subscription(Twist, value('input_topic'), self._command, 10)
         self.create_subscription(Odometry, value('odom_topic'), self._odom, 10)
+        self.add_on_set_parameters_callback(self._validate_gains)
         self.create_timer(0.05, self._watchdog)
         self.create_timer(0.2, self._publish_drift)
         if value('config_file'):
             self._watch = ConfigWatcher(value('config_file'))
             self.create_timer(1.0, self._reload)
+
+    def _validate_gains(self, parameters):
+        """Accept a gain change only if it is finite, and of the right length; apply it live."""
+        values = {}
+        for parameter in parameters:
+            if parameter.name in GAIN_KEYS:
+                try:
+                    value = numpy.array(parameter.value, float)
+                except (TypeError, ValueError):
+                    return SetParametersResult(successful=False, reason='not numeric')
+                shape = () if parameter.name.endswith(('constant', 'timeout', 'limit')) and \
+                    parameter.name != 'integral_limit' else (3,)
+                if value.shape != shape or not numpy.all(numpy.isfinite(value)):
+                    return SetParametersResult(successful=False, reason=f'need finite {shape}')
+                values[parameter.name] = value
+        for name, value in values.items():
+            attribute = getattr(self._law, name)
+            setattr(self._law, name, value if isinstance(attribute, numpy.ndarray) else float(value))
+        return SetParametersResult(successful=True)
 
     @staticmethod
     def _inputs(config):

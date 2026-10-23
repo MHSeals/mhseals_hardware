@@ -277,3 +277,70 @@ def test_test_pulses_only_when_autonomy_holds_the_thrusters(tmp_path, monkeypatc
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+def latest_status(node):
+    """Join late, as the TUI does: a transient-local subscriber gets the last status."""
+    import json
+    import rclpy
+    reader = rclpy.create_node('status_reader')
+    got = []
+    reader.create_subscription(thruster_pwm_node.String, f'/{node.get_name()}/status',
+                               lambda message: got.append(json.loads(message.data)),
+                               thruster_pwm_node.STATUS_QOS)
+    for _ in range(50):
+        rclpy.spin_once(node, timeout_sec=0.02)
+        rclpy.spin_once(reader, timeout_sec=0.02)
+        if got:
+            break
+    reader.destroy_node()
+    return got[-1]
+
+
+def test_outside_set_edit_is_refused_with_a_reason(tmp_path, monkeypatch):
+    node, path, events = start(tmp_path, monkeypatch, load_defaults())
+    try:
+        for name, value in (('frequency', 60.0), ('command_timeout', 1.0)):
+            result = node.set_parameters([thruster_pwm_node.Parameter(name, value=value)])[0]
+            assert not result.successful and 'edit hardware.yaml' in result.reason
+        assert 'not a driver setting' not in result.reason  # command_timeout is a LIVE key
+        assert 'not a driver setting' in node.set_parameters(
+            [thruster_pwm_node.Parameter('frequency', value=60.0)])[0].reason
+        assert node.get_parameter('command_timeout').value == 0.5
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_status_is_latched_and_follows_a_switch(tmp_path, monkeypatch):
+    config = load_defaults()
+    node, path, events = start(tmp_path, monkeypatch, config)
+    try:
+        first = latest_status(node)
+        assert first['outputs']['pwm_channels'] == [0, 0, 0, 0] and first['error'] == ''
+        assert first['mosfet'] == 'none' and len(first['config_sha']) == 12
+        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
+        second = latest_status(node)
+        assert second['outputs']['pwm_channels'] == [1, 0, 0, 0]
+        assert second['session'] == first['session'] and second['config_sha'] != first['config_sha']
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_invalid_edit_is_reported_in_the_status(tmp_path, monkeypatch):
+    config = load_defaults()
+    node, path, events = start(tmp_path, monkeypatch, config)
+    try:
+        sha = latest_status(node)['config_sha']
+        # A syntactically fine edit that validation refuses (save_config would refuse it too).
+        path.write_text(path.read_text().replace('command_timeout: 0.5', 'command_timeout: 9'))
+        node.watch.mtime = None
+        node.watch.seen = node.watch._stat()
+        node.reload_callback()
+        status = latest_status(node)
+        assert status['error'] and status['config_sha'] == sha
+        assert node.config['command_timeout'] == config['command_timeout']
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

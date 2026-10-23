@@ -14,15 +14,18 @@ Either goes neutral after ``command_timeout`` without a message. With
 import json
 import math
 import time
+import uuid
 
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.parameter import Parameter
-from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
-                       QoSHistoryPolicy)
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String, UInt16MultiArray
 
-from mhseals_hardware.configuration import ConfigWatcher, load_config, validate_config
+from mhseals_hardware.configuration import (
+    ConfigWatcher, config_sha, load_config, validate_config,
+)
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs, switch_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
@@ -33,9 +36,12 @@ from mhseals_hardware.thruster_mixer import (
 RELOAD_PERIOD = 1.0
 PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autonomy or nobody
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
-GUARD_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
-                       reliability=QoSReliabilityPolicy.RELIABLE,
-                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+# Settings the driver applies itself: the mixer inputs, and the pins it can move.
+LIVE_KEYS = ('channel_map', 'thruster_matrix', 'decoupling', 'decoupling_negative', 'reversed',
+             'command_timeout')
+STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
 
 
 class ThrusterPWMNode(Node):
@@ -55,11 +61,18 @@ class ThrusterPWMNode(Node):
             self.declare_parameter(key, config[key])
         self.config = validate_config(dict(config, **{key: self.get_parameter(key).value
                                                        for key in keys}))
+        self.declared = set(keys)
+        self.own_write = False  # true only while this node mirrors a reload into parameters
+        self.session = uuid.uuid4().hex[:8]
+        self.error = ''  # the last rejected reload; empty when the last one applied
+        self.status_pub = self.create_publisher(String, '~/status', STATUS_QOS)
         self.apply(self.config)
         # Opening arms the ESCs at neutral; destroy_node disarms them.
         self.outputs = make_outputs(self.config, node=self).open()
         self.last_command_time = time.monotonic()
         self.timed_out = False
+        self.add_on_set_parameters_callback(self.refuse_external)
+        self.publish_status()
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
         self.declare_parameter('pulse_guard_topic', '/command_mux/state')
@@ -82,25 +95,52 @@ class ThrusterPWMNode(Node):
         self.decoupling_negative = validate_decoupling(config['decoupling_negative'])
         self.reversed = validate_reversed(config['reversed'])
 
+    def refuse_external(self, parameters):
+        """The YAML is the one source of truth: settings written over ROS are refused."""
+        if self.own_write:
+            return SetParametersResult(successful=True)
+        for parameter in parameters:
+            if parameter.name in self.declared or parameter.name == 'config_sha':
+                reason = 'edit hardware.yaml'
+                if parameter.name not in LIVE_KEYS + OUTPUT_KEYS:
+                    reason = 'not a driver setting; ' + reason
+                return SetParametersResult(successful=False, reason=reason)
+        return SetParametersResult(successful=True)
+
+    def publish_status(self):
+        """Latched ~/status: what the driver runs, for the TUI's owner and sync checks."""
+        mosfet = getattr(self.outputs, 'mosfet', None)
+        state = 'none' if mosfet is None else 'on' if mosfet.request is not None else 'off'
+        self.status_pub.publish(String(data=json.dumps({
+            'session': self.session, 'mosfet': state, 'config_sha': config_sha(self.file_config),
+            'outputs': {key: self.config[key] for key in OUTPUT_KEYS}, 'error': self.error})))
+
     def reload_callback(self):
         """Apply the YAML's edits; keep running on a bad one."""
         try:
-            config = self.watch.poll()
-        except (OSError, ValueError, KeyError) as error:
+            self.reload()
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            self.error = str(error)
             self.get_logger().error(f'config reload rejected, keeping the old one: {error}')
-            return
+            self.publish_status()
+
+    def reload(self):
+        config = self.watch.poll()
         if config is None:
             return
         # Diff against the previous file, not self.config, so launch overrides stay.
         changed = {key: value for key, value in config.items()
                    if not isinstance(value, dict) and value != self.file_config.get(key)}
-        self.file_config = config
+        new = validate_config(dict(self.config, **changed))  # may raise: nothing is applied
+        self.file_config, self.error = config, ''
         if not changed:
+            self.publish_status()
             return
-        new = validate_config(dict(self.config, **changed))
         if any(key in changed for key in OUTPUT_KEYS):
             self.outputs, error = switch_outputs(self.outputs, self.config, new, node=self)
             self.timed_out = True  # hold neutral until the next command
+            if error:
+                self.error = f'outputs not moved: {error}'
             if error:
                 self.get_logger().error(f'outputs not moved, kept the old ones: {error}')
                 new.update({key: self.config[key] for key in OUTPUT_KEYS})
@@ -118,6 +158,7 @@ class ThrusterPWMNode(Node):
         if changed:
             self.get_logger().info('config reloaded: ' + ', '.join(
                 f'{key}={value}' for key, value in changed.items()))
+        self.publish_status()
 
     def sync_parameters(self, values):
         """Mirror applied values into the ROS parameters, matching each one's declared type."""
@@ -131,7 +172,12 @@ class ThrusterPWMNode(Node):
                 value = [float(item) if isinstance(item, int) and not isinstance(item, bool) else item
                          for item in value]
             parameters.append(Parameter(key, value=value))
-        for result, parameter in zip(self.set_parameters(parameters), parameters):
+        self.own_write = True
+        try:
+            results = self.set_parameters(parameters)
+        finally:
+            self.own_write = False
+        for result, parameter in zip(results, parameters):
             if not result.successful:
                 self.get_logger().warning(
                     f'parameter {parameter.name} not synced: {result.reason}')

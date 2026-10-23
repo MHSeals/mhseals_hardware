@@ -74,3 +74,29 @@ def test_unrelated_edit_keeps_the_integrator(tmp_path):
         if node is not None:
             node.destroy_node()
         rclpy.shutdown()
+
+
+def test_pin_edit_keeps_the_drift_and_gains_apply_live(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    save_config(config(), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=velocity_pin_test',
+                     '-p', f'config_file:={path}'])
+    node = None
+    try:
+        node = VelocityController()
+        node._law.drift[:] = (0.1, -0.2)
+        node._law.integral[:] = 0.2
+        save_config(dict(config(), pwm_channels=[1, 0, 0, 0]), path)
+        node._watch.mtime = None
+        node._watch.seen = node._watch._stat()
+        node._reload()
+        assert list(node._law.drift) == [0.1, -0.2] and node._law.integral[0] == 0.2
+        from rclpy.parameter import Parameter
+        assert node.set_parameters([Parameter('kp', value=[1., 1., 1.])])[0].successful
+        assert list(node._law.kp) == [1., 1., 1.]
+        assert not node.set_parameters([Parameter('kp', value=[1., 2.])])[0].successful
+        assert list(node._law.kp) == [1., 1., 1.]
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown()

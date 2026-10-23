@@ -2,6 +2,8 @@
 
 import contextlib
 import fcntl
+import hashlib
+import json
 import math
 import os
 from pathlib import Path
@@ -133,6 +135,11 @@ def load_config(path=None):
     if not selected.exists() and (path or os.environ.get('MHSEALS_HARDWARE_CONFIG')):
         raise FileNotFoundError(selected)
     return _merge_overrides(_read_overrides(selected))
+
+
+def config_sha(config):
+    """Short hash of a loaded config, so the TUI can tell which file a node applied."""
+    return hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
 class ConfigWatcher:
