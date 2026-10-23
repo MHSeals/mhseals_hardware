@@ -11,6 +11,10 @@ MANUAL_KEYS = {
 # A bare arrow is a Kitty press or a plain key (tmux forwards no events), so
 # only a later repeat or release proves the terminal reports releases.
 ARROWS = ('up', 'down', 'left', 'right')
+# A terminal repeats only the newest key, so a held chord key goes quiet while
+# another is down or after it is released. After a release, the keys still
+# held are trusted for this long without a repeat; their release stops them.
+CHORD_HOLD = 2.0
 
 
 class ManualState:
@@ -73,7 +77,9 @@ class ManualState:
             if name == self.single:
                 self.single = None
             # The OS may restart its initial repeat delay for the remaining key.
-            if self.held or self.single:
+            if self.held:
+                self.deadline = now + CHORD_HOLD
+            elif self.single:
                 self.deadline = now + self.initial_timeout
         elif name in ('+', '=', '-', '_'):
             self.amplitude = round(max(0.0, min(1.0, self.amplitude +

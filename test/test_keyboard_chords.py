@@ -278,3 +278,16 @@ def test_arrow_presses_join_held_chords_so_the_boat_can_turn_while_moving():
     assert command[0] > 0 and command[2] > 0  # forward and turning left together
     assert state.update(decode_key(b'\x1b[1;1:3D', report_events=True), 0.3)[2] == 0
     assert decode_key(b'\x1b[D') == 'left'  # plain terminals keep plain names
+
+
+def test_held_key_survives_another_keys_release_because_it_gets_no_more_repeats():
+    state = ManualState()
+    state.update('press:w', 0)
+    for tick in range(50, 100, 10):
+        state.update('repeat:w', tick / 100)
+    state.update('press:d', 1.0)  # from here only d repeats
+    for tick in range(110, 200, 10):
+        state.update('repeat:d', tick / 100)
+    state.update('release:d', 2.0)
+    assert state.update(None, 3.0) == (.25, 0, 0)  # w is still held
+    assert state.update('release:w', 3.1) == (0, 0, 0)
