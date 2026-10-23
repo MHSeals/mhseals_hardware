@@ -187,6 +187,13 @@ def test_matrices_are_normalized_to_floats(key, values, tmp_path):
     assert all(type(v) is float for v in loaded)
 
 
+@pytest.mark.parametrize('key', ['command_timeout', 'manual_amplitude', 'manual_yaw_scale'])
+def test_integer_scalars_keep_the_float_default_type(key, tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'{key}: 1\n')
+    assert type(load_config(path)[key]) is float
+
+
 def _update_many(path, key, value, count):
     from mhseals_hardware.configuration import update_config
     for _ in range(count):

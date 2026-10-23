@@ -179,6 +179,11 @@ def _merge_overrides(overrides):
     for key in ('thruster_matrix', 'decoupling', 'decoupling_negative'):
         if config.get(key) is not None:
             config[key] = [float(v) for v in config[key]]
+    # A scalar written as 1 where the default is 1.0 would declare an integer parameter that
+    # a later float edit cannot change; keep the default's float type.
+    for key, default in defaults.items():
+        if type(default) is float and type(config[key]) is int:
+            config[key] = float(config[key])
     # Unset means "the same as decoupling". Filled in here so the driver always has a
     # concrete, declared parameter; written back out as null while it still matches.
     if config.get('decoupling_negative') is None:
