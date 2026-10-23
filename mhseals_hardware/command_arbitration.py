@@ -12,6 +12,7 @@ forwards ``select(now)``; all the rules live here.
 * auto: ``/cmd_vel`` newer than ``cmd_timeout``, ramped in over ``ramp``.
 """
 
+import hashlib
 import math
 
 MANUAL, HOLD, GUIDED, OTHER = 'MANUAL', 'HOLD', 'GUIDED', 'OTHER'
@@ -21,6 +22,13 @@ MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
 MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
 
 RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
+
+
+def token_hash(token):
+    """The stored form of a hold token: its hash, or None for no token."""
+    if token is None:
+        return None
+    return hashlib.sha256(str(token).encode()).hexdigest()
 
 
 def mode_from_pwm(pwm, modes=(0, 0, 0, 4, 0, 15)):
@@ -69,14 +77,23 @@ class Arbitration:
         self._prev_mode = None
         self._rc_active = False       # was rc driving at the last advance
         self._manual_fresh = False
-        self._ramp_pending = False    # a human or hold held the output
+        # Start pending: the first auto after a (re)start always ramps in.
+        self._ramp_pending = True
         self._ramp_start = None
         self._since = None            # when the duplicate was first seen
 
     @classmethod
     def from_config(cls, config):
         """Build from the ``command_mux`` section of hardware.yaml."""
-        return cls(**(config or {}))
+        # ``state_file`` belongs to the node (hold persistence), not the state machine.
+        return cls(**{k: v for k, v in (config or {}).items() if k != 'state_file'})
+
+    def adopt_holds(self, holds, now):
+        """Re-adopt holds saved by a previous mux process (see ``hold_store``)."""
+        for cause, held in holds.items():
+            self.holds[cause] = {**held, 'since': min(held['since'], now)}
+        if self.holds:
+            self._ramp_pending = True
 
     def _check_layout(self):
         """Reject a transmitter layout that cannot be decoded."""
@@ -151,7 +168,7 @@ class Arbitration:
             return False, 'unknown op'
         if token is not None:
             held = self.holds.get(cause)
-            if held is None or held['token'] != token:
+            if held is None or held['token'] != token_hash(token):
                 return False, 'no hold with that token'
             del self.holds[cause]
             self._released(by, cause, False, 1)
@@ -203,7 +220,7 @@ class Arbitration:
         held = self.holds.get(cause)
         since = held['since'] if held else now
         self.holds[cause] = {'cause': cause, 'by': by, 'since': since,
-                             'token': token}
+                             'token': token_hash(token)}
         self._ramp_pending = True     # auto resumes through the ramp
 
     def _advance(self, now):
@@ -211,8 +228,9 @@ class Arbitration:
         valid = self.valid(now)
         mode = self.mode if valid else None
         if valid and mode != self._prev_mode:
-            if mode == GUIDED:
-                # Moving the switch to GUIDED releases only the RC causes.
+            if mode == GUIDED and self._prev_mode is not None:
+                # Moving the switch to GUIDED releases only the RC causes; the
+                # first frame after a restart is not a move, so adopted holds stay.
                 for cause in RC_CAUSES:
                     self.holds.pop(cause, None)
             self._prev_mode = mode

@@ -17,6 +17,7 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
                        qos_profile_sensor_data)
 from std_msgs.msg import String
 
+from mhseals_hardware import hold_store
 from mhseals_hardware.command_arbitration import Arbitration
 from mhseals_hardware.configuration import ConfigWatcher, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
@@ -44,8 +45,12 @@ class CommandMux(Node):
         # The hardware YAML's command_mux section overrides the parameters.
         config_file = self.get_parameter('config_file').value or None
         self.pending = None
-        self.arbitration.apply_config(load_config(config_file).get('command_mux', {}),
-                                      time.monotonic())
+        section = load_config(config_file).get('command_mux', {})
+        self.arbitration.apply_config(section, time.monotonic())
+        # Holds survive a restart: re-adopt the saved set (invariant 4).
+        self.state_file = section.get('state_file') or hold_store.default_path()
+        self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
+        self._saved = None
         self.watch = ConfigWatcher(config_file)
         self.create_timer(RELOAD_PERIOD, self.reload_callback)
 
@@ -77,8 +82,21 @@ class CommandMux(Node):
         """Publish the winning command now; also the 25 Hz keepalive."""
         now = time.monotonic()
         _, cmd = self.arbitration.select(now)
+        self.persist_holds()
         self.applied.publish(twist_from(cmd))
         self.publish_state()
+
+    def persist_holds(self):
+        """Write the hold set when it changed, before the command goes out."""
+        holds = self.arbitration.holds
+        text = json.dumps(holds, sort_keys=True)
+        if text == self._saved:
+            return
+        try:
+            hold_store.save(self.state_file, holds)
+            self._saved = text
+        except OSError as error:
+            self.get_logger().error(f'cannot save holds to {self.state_file}: {error}')
 
     def reload_callback(self):
         """Pick up an edited ``command_mux`` section; hold it pending while driving."""

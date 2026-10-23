@@ -12,7 +12,10 @@ def frame(mode=HIGH, sticks=(1500, 1500, 1500, 1500), arm=1900):
 
 
 def boat():
-    return Arbitration()
+    """A mux that has been running a while (no start-up ramp pending)."""
+    a = Arbitration()
+    a._ramp_pending = False
+    return a
 
 
 def latch(a):
@@ -324,3 +327,20 @@ def test_bad_layout_is_rejected():
     for section in ({'mode_ch': 0}, {'modes': [0, 4]}, {'bogus': 1}):
         with pytest.raises((ValueError, TypeError)):
             boat().apply_config(section, 0)
+
+
+def test_first_auto_after_start_ramps_in():
+    a = Arbitration(ramp=1.0)
+    a.update_auto((1.0, 0.0, 0.0), 100.0)
+    assert a.select(100.0) == ('auto', (0.0, 0.0, 0.0))
+    assert a.select(100.5)[1][0] == pytest.approx(0.5)
+
+
+def test_adopted_hold_blocks_auto_and_keeps_its_token():
+    a = Arbitration()
+    a.request('hold', 'apply', 'config', 0, token='t1')
+    b = Arbitration()
+    b.adopt_holds(a.holds, 5.0)
+    b.update_auto((1.0, 0.0, 0.0), 5.0)
+    assert b.select(5.0)[0] == 'hold'
+    assert b.request('release', 'apply', 'x', 6.0, token='t1')[0]

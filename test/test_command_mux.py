@@ -53,3 +53,21 @@ def test_reload_during_rc_pends_until_idle(tmp_path):
         node.destroy_node()
     finally:
         rclpy.try_shutdown()
+
+
+def test_node_restart_keeps_a_hold(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'command_mux: {{state_file: {tmp_path / "mux.json"}}}\n')
+    args = ['--ros-args', '-r', '__node:=command_mux_restart', '-p', f'config_file:={path}']
+    rclpy.init(args=args)
+    try:
+        node = command_mux.CommandMux()
+        node.applied.publish = lambda message: None
+        node.arbitration.request('hold', 'keys', 'keys', command_mux.time.monotonic())
+        node.forward()
+        node.destroy_node()
+        node = command_mux.CommandMux()
+        assert 'keys' in node.arbitration.holds
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()
