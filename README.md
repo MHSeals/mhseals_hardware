@@ -6,26 +6,29 @@ or serial transport.
 
 ## Hardware
 
-Thrusters use canonical order `FL, FR, RR, RL`:
+Physical outputs 1-4 are fixed J2 pins; `channel_map` (canonical FL, FR, RR, RL ->
+output) decides which thruster each drives. The boat uses `[1, 3, 2, 4]`.
 
-```text
-pin 7  (FL) ---- pin 12 (FR)
-      |             |
-pin 33 (RL) ---- pin 15 (RR)
-```
+| Output | J2 pin | Pad | PWM | `pwm_chips` entry (stable platform path) |
+| --- | --- | --- | --- | --- |
+| 1 | 7  | GPIO0_D0 | PWM7  | `/sys/devices/platform/febd0030.pwm/pwm/pwmchip*` |
+| 2 | 12 | GPIO3_B2 | PWM3  | `/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*` |
+| 3 | 15 | GPIO4_B3 | PWM15 | `/sys/devices/platform/febf0030.pwm/pwm/pwmchip*` |
+| 4 | 33 | GPIO3_D0 | PWM8  | `/sys/devices/platform/febe0000.pwm/pwm/pwmchip*` |
+| MOSFET enable | 13 | GPIO3_D5 | - | `mosfet_chip: gpio3`, `mosfet_line: 29` (active high) |
+| Signal ground | 6 | | | |
 
-The stable PWM controller paths, in canonical order, are:
+`pwmchipN` numbers are allocated at boot; the platform glob is stable. `gpio3` is a
+bank label resolved to `/dev/gpiochipN` at runtime (line = 8*bank-letter + index, D5 = 29).
+The MOSFET enable moved from pin 11 (GPIO3_D4, line 28) to pin 13 (GPIO3_D5) when the
+harness was rewired.
 
-```text
-/sys/devices/platform/febd0030.pwm/pwm/pwmchip*
-/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*
-/sys/devices/platform/febf0030.pwm/pwm/pwmchip*
-/sys/devices/platform/febe0000.pwm/pwm/pwmchip*
-```
+`install_odroid_access.sh` grants access to channel 0 of these four controllers and to
+the `mosfet_chip` bank of the *shipped* defaults. Run it again after moving to another
+channel or bank.
 
-Physical header J2 pin 13 (`GPIO3_D5`, bank label `gpio3`, line 29) is the
-active-high MOSFET enable. Every hardware entry point configures neutral PWM
-before enabling it, and disables the MOSFET before PWM during shutdown.
+The MOSFET is the active-high enable. Every hardware entry point configures
+neutral PWM before enabling it, and disables the MOSFET before PWM during shutdown.
 The GPIO device number is resolved at runtime, not assumed to equal the bank.
 `boat_test` uses these same YAML settings: arming enables the MOSFET at neutral;
 Space or disarming turns it off.
