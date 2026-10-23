@@ -80,9 +80,6 @@ def validate_config(config):
             axis not in bias or not isinstance(bias[axis], (int, float)) or
             not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
         raise ValueError('characterization.mechanical_bias must contain finite surge, sway, yaw values')
-    for key in ('fitted_with_decoupling', 'fitted_with_decoupling_negative'):
-        if characterization.get(key) is not None:
-            validate_decoupling(characterization[key])
     # PWM outputs and the MOSFET enable line.
     if config['output_backend'] not in ('odroid', 'topic'):
         raise ValueError('output_backend must be odroid or topic')
@@ -213,18 +210,6 @@ def _merge_overrides(overrides):
 def _follows(negative, decoupling):
     """True when ``negative`` is unset or equal to ``decoupling``: no real sign-split."""
     return negative is None or [float(v) for v in negative] == [float(v) for v in decoupling]
-
-
-def single_decoupling(config):
-    """The one linear C, for code that models C (fits, the velocity law).
-
-    Refuses a sign-split decoupling: inverting only the positive columns would
-    silently mislabel a direction-dependent correction as one linear gain.
-    """
-    if not _follows(config.get('decoupling_negative'), config['decoupling']):
-        raise ValueError('sign-split decoupling is active (decoupling_negative differs); linear fits '
-                         'and the velocity law model one C. Clear it before characterizing.')
-    return config['decoupling']
 
 
 def save_config(config, path=None):

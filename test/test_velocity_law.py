@@ -6,7 +6,7 @@ import pytest
 
 from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.velocity_law import (
-    CURVE_KEYS, Plant, VelocityLaw, decoupling_for, raw_gain, rotate,
+    CURVE_KEYS, Plant, VelocityLaw, rotate,
 )
 
 GAIN = ((0.6, 0.0, 0.0), (0.0, 0.4, 0.0), (0.05, 0.0, 0.3))
@@ -17,11 +17,9 @@ def mapping(matrix):
     return {row: dict(zip(axes, values)) for row, values in zip(axes, matrix)}
 
 
-def config(gain=GAIN, decoupling=None, fitted_with=None):
+def config(gain=GAIN, decoupling=None):
     characterization = dict(velocity_gain=mapping(gain),
                             motion_limits={'velocity': dict(surge=0.6, sway=0.4, yaw=0.3)})
-    if fitted_with is not None:
-        characterization['fitted_with_decoupling'] = fitted_with
     result = dict(load_defaults(), characterization=characterization)
     if decoupling is not None:
         result['decoupling'] = decoupling
@@ -113,16 +111,11 @@ def test_non_finite_command_is_neutralised_and_does_not_latch_the_integral():
     assert law.step((0.3, 0, 0), 0.15)[0] > 0
 
 
-def test_decoupling_cancels_coupling_and_composes_across_refits():
-    raw = numpy.array(GAIN)
-    c = decoupling_for(raw)
-    assert raw @ c == pytest.approx(numpy.diag(numpy.diag(raw)))
-    # A refit with that decoupling active measures G_raw C; dividing C out recovers G_raw.
-    refit = dict(velocity_gain=mapping(raw @ c), fitted_with_decoupling=c.flatten().tolist())
-    assert raw_gain(refit) == pytest.approx(raw)
-    # The controller's plant through the decoupling is diagonal: no double correction.
-    plant = Plant(config(decoupling=c.flatten().tolist()))
-    assert [plant.speed(axis, 1, 1.0) for axis in range(3)] == pytest.approx(numpy.diag(raw))
+def test_linear_fallback_uses_the_diagonal_of_the_fitted_gain():
+    # Cross terms in the fit are ignored; each axis keeps its own gain.
+    plant = Plant(config())
+    assert [plant.speed(axis, 1, 1.0) for axis in range(3)] == pytest.approx(
+        [GAIN[0][0], GAIN[1][1], GAIN[2][2]])
 
 
 def test_model_error_under_way_is_not_taken_for_current():
@@ -132,21 +125,6 @@ def test_model_error_under_way_is_not_taken_for_current():
     run(law, boat, (0.4, 0.0, 0.0), 30)
     assert numpy.hypot(*law.drift) < 0.01
     assert boat.velocity[0] == pytest.approx(0.4, abs=0.03)  # feedback still gets there
-
-
-def test_sign_split_decoupling_uses_a_fit_made_with_it_and_refuses_a_stale_one():
-    split = [1, 0, 0, 0, 1, 0, -.04, .1, 1]
-    identity = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-    gain = {a: {b: (2.0 if a == b else 0.0) for b in ('surge', 'sway', 'yaw')}
-            for a in ('surge', 'sway', 'yaw')}
-    characterization = dict(velocity_gain=gain, fitted_with_decoupling=split,
-                            fitted_with_decoupling_negative=identity,
-                            motion_limits=dict(velocity=dict(surge=2, sway=1.5, yaw=1)))
-    config = dict(decoupling=split, decoupling_negative=identity,
-                  characterization=characterization)
-    assert Plant(config).speed(0, 1, 1.0) == pytest.approx(2.0)  # the fit is the plant, nothing divided out
-    with pytest.raises(ValueError, match='refit'):
-        Plant(dict(config, decoupling=identity))
 
 
 def curved(**overrides):

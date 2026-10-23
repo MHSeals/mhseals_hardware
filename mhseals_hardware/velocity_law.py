@@ -7,8 +7,8 @@ The characterization (mhseals_testing) fits the body velocity as
 with ``b_m`` a body-fixed mechanical bias (ESC trim), ``d_w`` the world-fixed
 drift of current and wind, ``G`` the gain and ``e`` the effort. Mechanical
 cross-coupling is cancelled ahead of the mixer by the ``decoupling`` matrix C,
-so the plant this law sees is ``G_eff = G_raw C``. Only its diagonal is kept, as
-the linear fallback for the per-direction speed curves. The drift changes from day
+so the fitted ``G`` is already the plant this law sees. Only its diagonal is kept,
+as the linear fallback for the per-direction speed curves. The drift changes from day
 to day, so it is not stored: it is estimated here, in the world frame, and
 rotated into the body every cycle so the estimate survives turns.
 """
@@ -16,8 +16,7 @@ import math
 
 import numpy
 
-from mhseals_hardware.configuration import _follows
-from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
+from mhseals_hardware.thruster_mixer import AXES
 
 
 CURVE_KEYS = tuple(axis + sign for axis in AXES for sign in '+-')
@@ -26,22 +25,6 @@ CURVE_KEYS = tuple(axis + sign for axis in AXES for sign in '+-')
 def gain_matrix(mapping):
     """Turn a saved {axis: {axis: gain}} mapping into a 3x3 array."""
     return numpy.array([[float(mapping[row][name]) for name in AXES] for row in AXES])
-
-
-def raw_gain(characterization):
-    """The boat's own gain, with the decoupling active during the fit divided out.
-
-    A fit measures G_fit = G_raw C_fit, so G_raw = G_fit C_fit^-1.
-    """
-    fitted = gain_matrix(characterization['velocity_gain'])
-    used = numpy.array(validate_decoupling(
-        characterization.get('fitted_with_decoupling', sum(IDENTITY, ()))))
-    return fitted @ numpy.linalg.inv(used)
-
-
-def decoupling_for(raw):
-    """C = G_raw^-1 diag(G_raw): each axis keeps its strength, cross terms cancel."""
-    return numpy.linalg.inv(raw) @ numpy.diag(numpy.diag(raw))
 
 
 def rotate(vector, yaw):
@@ -68,7 +51,7 @@ class Plant:
         missing = [key for key in CURVE_KEYS if key not in curves]
         if missing and not characterization.get('velocity_gain'):
             raise ValueError('characterization.speed_curves or velocity_gain is required')
-        diagonal = numpy.diag(self._linear_gain(config)) if missing else ()
+        diagonal = self._diagonal(characterization) if missing else ()
         bias = characterization.get('mechanical_bias', {})
         self.bias = numpy.array([float(bias.get(axis, 0.0)) for axis in AXES])
         limits = characterization.get('motion_limits', {}).get('velocity', {})
@@ -92,26 +75,10 @@ class Plant:
                 self.curves[key] = (d1, d2)
 
     @staticmethod
-    def _linear_gain(config):
-        """The velocity_gain matrix this boat's decoupling leaves, as the old law used it."""
-        characterization = config['characterization']
-        identity = sum(IDENTITY, ())
-        current = config.get('decoupling', identity)
-        negative = config.get('decoupling_negative')
-        fitted = characterization.get('fitted_with_decoupling', identity)
-        fitted_negative = characterization.get('fitted_with_decoupling_negative')
-        try:
-            if not _follows(negative, current) or not _follows(fitted_negative, fitted):
-                # A sign-split C can't be divided out of the fit, but a fit made
-                # with the same matrices already is the plant this law drives.
-                if not (_follows(fitted, current) and
-                        _follows(fitted_negative or fitted, negative or current)):
-                    raise ValueError('the sign-split decoupling differs from the one the '
-                                     'characterization was fitted with; refit')
-                return gain_matrix(characterization['velocity_gain'])
-            return raw_gain(characterization) @ numpy.array(validate_decoupling(current))
-        except numpy.linalg.LinAlgError as error:
-            raise ValueError('velocity_gain is singular') from error
+    def _diagonal(characterization):
+        """The per-axis gains of ``velocity_gain``, the linear fallback for missing curves."""
+        gain = gain_matrix(characterization['velocity_gain'])
+        return numpy.diag(gain)
 
     def effort(self, axis, speed):
         """The effort that holds ``speed`` (m/s or rad/s) on ``axis`` (0 surge, 1 sway, 2 yaw)."""

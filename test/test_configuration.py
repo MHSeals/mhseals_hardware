@@ -150,17 +150,12 @@ def test_watcher_reports_yaml_and_type_errors_as_value_error(tmp_path, text):
 
 def test_unset_negative_decoupling_follows_decoupling_and_is_not_frozen_on_save(tmp_path):
     import yaml
-    from mhseals_hardware.configuration import single_decoupling
     path = tmp_path / 'hardware.yaml'
     path.write_text(yaml.safe_dump({'decoupling': [1, 0, 0, 0, 1, 0, .1, 0, 1]}))
     config = load_config(path)
     assert config['decoupling_negative'] == [1, 0, 0, 0, 1, 0, .1, 0, 1]
     save_config(config, path)
     assert yaml.safe_load(path.read_text())['decoupling_negative'] is None
-    assert single_decoupling(config) == config['decoupling']
-    config['decoupling_negative'] = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-    with pytest.raises(ValueError, match='sign-split'):
-        single_decoupling(config)
 
 
 def test_update_keeps_a_following_negative_following_and_a_real_split(tmp_path):
