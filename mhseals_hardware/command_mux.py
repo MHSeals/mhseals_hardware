@@ -44,8 +44,22 @@ class CommandMux(Node):
         self.create_subscription(Twist, '/cmd_vel', self._auto, 10)
         self.create_subscription(String, '~/request', self._request, 10)
         self.create_timer(0.04, self.forward)
+        self.create_timer(0.5, self.check_duplicate)
         self.create_timer(1.0, lambda: self.publish_state(force=True))
         self._last_state = None
+
+    def check_duplicate(self):
+        """Hold at zero while another node also publishes ``/cmd_vel/applied``.
+
+        Two publishers interleave frames and the driver obeys the newest, so
+        a hold on one is defeated by the other.  Our own publisher counts one.
+        """
+        other = self.count_publishers('/cmd_vel/applied') > 1
+        if other != self.arbitration.duplicate:
+            self.get_logger().error(
+                'another publisher on /cmd_vel/applied: holding at zero' if other
+                else 'duplicate publisher gone: resuming')
+            self.arbitration.set_duplicate(other, time.monotonic())
 
     def forward(self):
         """Publish the winning command now; also the 25 Hz keepalive."""
@@ -83,6 +97,12 @@ class CommandMux(Node):
             ok, reason = False, str(error)
         if not ok:
             self.get_logger().warning(f'mux request rejected: {reason}')
+        elif request.get('op') == 'release':
+            # Journal event; a tokenless release is the U semantics (clears all).
+            self.get_logger().info(
+                f"hold_release by={request.get('by', '')!r} "
+                f"cause={request.get('cause', '')!r} "
+                f"tokenless={request.get('token') is None}")
         self.forward()
 
 

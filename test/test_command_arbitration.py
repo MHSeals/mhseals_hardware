@@ -251,3 +251,52 @@ def test_non_finite_commands_never_reach_select(bad):
     assert b.select(0.2)[1] == (0.2, 0, 0)
     assert b.select(0.7)[0] == 'idle'
     assert a.rejected == b.rejected == 1
+
+
+def test_state_never_publishes_a_hold_token():
+    a = Arbitration()
+    a.request('hold', 'apply', 'config_revert', 0, token='s3cret')
+    state = a.state(0.1)
+    assert 's3cret' not in repr(state)
+    assert state['holds'][0]['has_token'] is True
+    assert 'token' not in state['holds'][0]
+
+
+def test_releases_record_who_and_whether_tokenless():
+    a = Arbitration()
+    a.request('hold', 'apply', 'config', 0, token='t1')
+    a.request('release', 'apply', 'config', 0.1, token='t1')
+    assert a.state(0.2)['last_release'] == {
+        'by': 'config', 'cause': 'apply', 'tokenless': False, 'cleared': 1}
+    a.request('hold', 'keys', 'tui', 0.3)
+    a.request('release', '', 'tui', 0.4)
+    assert a.state(0.5)['last_release']['tokenless'] is True
+    assert a.state(0.5)['last_release']['by'] == 'tui'
+
+
+def test_duplicate_mux_never_forwards_a_nonzero_frame():
+    held, other = boat(), boat()
+    held.request('hold', 'space', 'tui', 0)
+    held.set_duplicate(True, 0)
+    other.set_duplicate(True, 0)
+    for i in range(1, 60):
+        t = i * 0.04
+        held.update_auto((0.5, 0, 0), t)
+        other.update_auto((0.5, 0, 0), t)
+        other.update_manual((0.3, 0, 0), t)
+        for a in (held, other):
+            assert a.select(t)[1] == (0.0, 0.0, 0.0)
+    assert held.request('release', '', 'tui', 3.0)[0]
+    assert held.select(3.0)[1] == (0.0, 0.0, 0.0)
+    assert 'duplicate' in [h['cause'] for h in held.state(3.0)['holds']]
+
+
+def test_duplicate_cleared_resumes_through_the_ramp():
+    a = boat()
+    a.set_duplicate(True, 0)
+    a.update_auto((1, 0, 0), 1.0)
+    a.set_duplicate(False, 1.0)
+    assert a.select(1.1)[1][0] == 0.0     # the ramp starts from zero
+    a.update_auto((1, 0, 0), 1.4)
+    source, cmd = a.select(1.6)
+    assert source == 'auto' and 0 < cmd[0] < 1

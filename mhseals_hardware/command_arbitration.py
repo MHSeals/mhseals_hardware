@@ -7,6 +7,8 @@ forwards ``select(now)``; all the rules live here.
 * rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
 * manual: ``/cmd_vel/manual`` (TUI keys) newer than ``cmd_timeout``.
 * hold: any hold cause is set.  Output is zero until it is released.
+* duplicate: another publisher drives the same output, so this one sends
+  only zeros (``set_duplicate``) and cannot be released.
 * auto: ``/cmd_vel`` newer than ``cmd_timeout``, ramped in over ``ramp``.
 """
 
@@ -53,6 +55,8 @@ class Arbitration:
         self.auto, self.auto_time = (0.0, 0.0, 0.0), None
         self.rejected = 0             # non-finite commands dropped
         self.holds = {}               # cause -> {cause, by, since, token}
+        self.last_release = None      # {by, cause, tokenless, cleared} of the newest
+        self.duplicate = False        # a second mux publishes the same output
         self.latched = False          # stick takeover while in GUIDED
         self._deflected = None        # since when a stick is past the takeover
         self._centered = None         # since when all sticks are centered
@@ -61,6 +65,7 @@ class Arbitration:
         self._manual_fresh = False
         self._ramp_pending = False    # a human or hold held the output
         self._ramp_start = None
+        self._since = None            # when the duplicate was first seen
 
     @classmethod
     def from_config(cls, config):
@@ -92,6 +97,13 @@ class Arbitration:
             return
         self.auto, self.auto_time = tuple(cmd), now
 
+    def set_duplicate(self, duplicate, now):
+        """Mark another publisher on the output; output stays zero while set."""
+        if duplicate and not self.duplicate:
+            self._ramp_pending = True
+        self.duplicate = duplicate
+        self._since = now if duplicate else None
+
     def _finite(self, cmd):
         """True for a finite command; otherwise count it (the stamp stays old)."""
         if all(math.isfinite(v) for v in cmd):
@@ -112,11 +124,18 @@ class Arbitration:
             if held is None or held['token'] != token:
                 return False, 'no hold with that token'
             del self.holds[cause]
+            self._released(by, cause, False, 1)
             return True, ''
         if self.valid(now) and self.mode in (MANUAL, HOLD, OTHER):
             return False, 'mode switch is at %s' % self.mode
+        self._released(by, cause, True, len(self.holds))
         self.holds.clear()
         return True, ''
+
+    def _released(self, by, cause, tokenless, cleared):
+        """Record who released, so ``~/state`` and the journal can name them."""
+        self.last_release = {'by': by, 'cause': cause, 'tokenless': tokenless,
+                             'cleared': cleared}
 
     # Decoding
 
@@ -212,6 +231,9 @@ class Arbitration:
         """Return ``(source, (surge, sway, yaw))`` for this instant."""
         rc, manual = self._advance(now)
         zero = (0.0, 0.0, 0.0)
+        if self.duplicate:
+            self._ramp_pending = True
+            return 'hold', zero
         if rc:
             cmd = tuple(v * s for v, s in zip(self._sticks(), self.rc_scale))
             source = 'rc'
@@ -237,8 +259,16 @@ class Arbitration:
     def state(self, now):
         """What ``~/state`` publishes: input, rc decode and the hold set."""
         source, _ = self.select(now)
+        holds = sorted(self.holds.values(), key=lambda h: h['since'])
+        if self.duplicate:
+            holds.append({'cause': 'duplicate', 'by': 'mux', 'since': self._since,
+                          'token': None})
         return {'input': source,
                 'rc': {'valid': self.valid(now),
                        'mode': self.mode if self.valid(now) else None,
                        'latched': self.latched},
-                'holds': sorted(self.holds.values(), key=lambda h: h['since'])}
+                # The token is a secret of the holder: only its presence shows.
+                'holds': [{**{k: v for k, v in h.items() if k != 'token'},
+                           'has_token': h['token'] is not None}
+                          for h in holds],
+                'last_release': self.last_release}
