@@ -146,12 +146,19 @@ class ConfigWatcher:
         return st.st_mtime_ns, st.st_size, st.st_ino
 
     def poll(self):
-        """The new config after a settled edit, else None; raises OSError/ValueError/KeyError on a bad one."""
+        """The new config after a settled edit, else None; raises OSError/ValueError/KeyError on a bad one.
+
+        YAML syntax errors and wrong-typed values surface as ValueError, so a typo in a
+        live edit is rejected by the callers instead of killing the node.
+        """
         key, previous, self.seen = self._stat(), self.seen, self._stat()
         if key is None or key == self.mtime or key != previous:
             return None
         self.mtime = key
-        return load_config(self.path)
+        try:
+            return load_config(self.path)
+        except (yaml.YAMLError, TypeError) as error:
+            raise ValueError(f'invalid hardware YAML: {error}') from error
 
 
 def _read_overrides(path):

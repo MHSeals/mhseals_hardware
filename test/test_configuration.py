@@ -188,3 +188,16 @@ def test_concurrent_updates_do_not_lose_edits(tmp_path):
         job.join()
     config = load_config(path)
     assert config['decoupling'][6] == 0.3 and config['manual_amplitude'] == 0.4
+
+
+@pytest.mark.parametrize('text', ['reversed: [true, false', 'manual_amplitude: "x"\n'])
+def test_watcher_turns_a_syntax_or_type_error_into_value_error(text, tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_timeout: 0.4\n')
+    os.utime(path, ns=(1, 1))
+    watch = ConfigWatcher(path)
+    path.write_text(text)
+    os.utime(path, ns=(2, 2))
+    assert watch.poll() is None
+    with pytest.raises(ValueError):
+        watch.poll()
