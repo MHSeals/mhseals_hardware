@@ -4,6 +4,9 @@ from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.signals import SignalHandlerOptions
 
+# Longest wait before a pending SIGINT is noticed.
+SPIN_SLICE_S = 0.1
+
 
 def twist_from(command):
     """Build a Twist from a (surge, sway, yaw) command."""
@@ -24,12 +27,15 @@ def run_node(node_factory, args=None):
     must run even when construction or spinning fails. rclpy's own SIGINT
     handler would shut the context down first, leaving ``destroy_node`` unable
     to publish a final neutral; with it disabled, Ctrl+C is a KeyboardInterrupt.
+    Python only sees it between waits, and on sim time with a stalled /clock a
+    plain spin never wakes, so spin in short wall-clock slices.
     """
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = None
     try:
         node = node_factory()
-        rclpy.spin(node)
+        while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=SPIN_SLICE_S)
     except KeyboardInterrupt:
         pass
     except RuntimeError:
