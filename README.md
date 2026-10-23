@@ -239,7 +239,8 @@ Space stops, and X exits. `+`/`-` changes thrust speed in 5% steps. In
 `boat_test` manual mode, WASD and the arrows are reserved for motion.
 Keys combine when the terminal reports key releases (Kitty protocol, also over
 SSH): hold W+D for a diagonal and add ←/→ to rotate; each key stops on its own
-release. Otherwise (tmux, plain terminals) the newest key drives alone and stops
+release, but a key still held stops about 2 s after another key's release (terminals
+do not resume repeating it), so press it again. Otherwise (tmux, plain terminals) the newest key drives alone and stops
 when its repeats stop, after an initial-repeat grace. The display shows which mode
 is active. Diagonals are normalized, yaw runs at `manual_yaw_scale` (0.5), and the
 mixer scales all thrusters together near full effort. Space always stops at once.

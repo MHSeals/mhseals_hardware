@@ -28,7 +28,7 @@ def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False):
         '[bold]Space[/] stop    [bold]X[/] return\n\n'
         f'Command: [yellow]{active}[/]    Speed: {amplitude:.0%} '
         '([bold]+/-[/] adjust by 5%)\n' +
-        ('[dim]Chords: hold W+D, add ←/→. Each key stops on its own release.[/]'
+        ('[dim]Chords: hold W+D, add ←/→. Keys stop on release; re-press a held key ~2 s after another is released.[/]'
          if chords else
          '[yellow]Single key: this terminal (or tmux) reports no releases; '
          'newest key drives.[/]') +

@@ -291,3 +291,20 @@ def test_held_key_survives_another_keys_release_because_it_gets_no_more_repeats(
     state.update('release:d', 2.0)
     assert state.update(None, 3.0) == (.25, 0, 0)  # w is still held
     assert state.update('release:w', 3.1) == (0, 0, 0)
+
+
+def test_chord_docs_state_the_held_key_deadman():
+    root = Path(__file__).parent.parent
+    assert 'another key' in (root / 'README.md').read_text().replace('\n', ' ')
+    assert 're-press' in (root / 'mhseals_hardware/keyboard_control.py').read_text()
+
+
+def test_held_key_stops_two_seconds_after_other_release():
+    state = ManualState()
+    state.update('press:w', 0)
+    state.update('press:d', .1)
+    for tick in range(60, 200, 5):
+        state.update('repeat:d', tick / 100)
+    state.update('release:d', 2.0)
+    assert state.update(None, 3.9) != (0, 0, 0)
+    assert state.update(None, 4.1) == (0, 0, 0)
