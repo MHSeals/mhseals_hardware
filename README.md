@@ -201,7 +201,7 @@ ros2 run mhseals_testing thrust_characterize \
   --nav2-overlay ~/.config/mhseals/nav2_calibrated.yaml
 ```
 
-It fits the 3×3 velocity response, the body-fixed mechanical bias, acceleration
+It fits a speed curve per axis and sign, the body-fixed mechanical bias, acceleration
 and per-axis limits into the hardware YAML, reports the day's current (separated
 from the bias when the bag covers enough headings), and writes measured Nav2 limits to
 pass as `limits_file:=...` to `navigation.launch.py`. The current base profile
@@ -210,6 +210,13 @@ recorded with `--velocity-control`, else the default `/cmd_vel`.
 `--apply-decoupling` also writes the fitted `decoupling`, which the driver applies
 ahead of the mixer so each axis drives only itself; it hot-reloads, and the
 identity matrix turns it off.
+
+The velocity model reads `characterization.speed_curves`, one curve per axis and
+sign (`surge+` ... `yaw-`) in wrench units: the effort `e` that holds speed `v`
+satisfies `e|e| = d1 v + d2 v|v|`, because T200 thrust goes with `e|e|`. Each
+curve must rise up to that axis's velocity limit. A direction without a curve
+falls back to the straight line of the older `velocity_gain` diagonal, so a boat
+characterized before the curves keeps working until it is characterized again.
 
 After a valid characterization, the optional controller closes the velocity
 loop: feed-forward through the model, a world-frame estimate of current and wind
