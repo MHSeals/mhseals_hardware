@@ -32,6 +32,11 @@ def run_node(node_factory, args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    except RuntimeError:
+        # A shutdown racing the executor surfaces as a pybind conversion error
+        # from spin; it is only benign once the context is already gone.
+        if rclpy.ok():
+            raise
     finally:
         if node is not None:
             node.destroy_node()

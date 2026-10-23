@@ -1,5 +1,7 @@
 """Config reload must agree with telemetry and the manual Twist output path."""
 
+import types
+
 import pytest
 
 rclpy = pytest.importorskip('rclpy')
@@ -156,6 +158,27 @@ def test_failed_switch_is_not_logged_as_applied_and_is_retried(tmp_path, monkeyp
         events.clear()
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))  # unchanged file, retried
         assert [event[0] for event in events][:2] == ['neutral', 'close']  # a second attempt
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_failed_switch_does_not_log_the_rolled_back_value_as_reloaded(tmp_path, monkeypatch):
+    config = load_defaults()
+    node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
+    try:
+        lines = []
+        logger = types.SimpleNamespace(
+            **{level: (lambda text, **kw: lines.append(text)) for level in
+               ('info', 'warning', 'error')})
+        monkeypatch.setattr(node, 'get_logger', lambda: logger)
+        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
+        assert any('kept the old ones' in line for line in lines)
+        assert not any('pwm_channels=' in line for line in lines)  # nothing applied, no 'reloaded'
+        lines.clear()
+        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0], reversed=[True] * 4))
+        reloaded = [line for line in lines if line.startswith('config reloaded')]
+        assert len(reloaded) == 1 and 'reversed=' in reloaded[0] and 'pwm_channels' not in reloaded[0]
     finally:
         node.destroy_node()
         rclpy.shutdown()

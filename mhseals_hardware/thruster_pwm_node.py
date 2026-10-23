@@ -99,8 +99,9 @@ class ThrusterPWMNode(Node):
         self.config = new
         self.apply(new)
         self.sync_parameters({key: new[key] for key in changed if self.has_parameter(key)})
-        self.get_logger().info('config reloaded: ' + ', '.join(
-            f'{key}={value}' for key, value in changed.items()))
+        if changed:
+            self.get_logger().info('config reloaded: ' + ', '.join(
+                f'{key}={value}' for key, value in changed.items()))
 
     def sync_parameters(self, values):
         """Mirror applied values into the ROS parameters, matching each one's declared type."""
