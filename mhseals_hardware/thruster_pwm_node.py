@@ -62,6 +62,7 @@ class ThrusterPWMNode(Node):
         self.channel_map = validate_channel_map(config['channel_map'])
         self.mixer = validate_mixer(config['thruster_matrix'])
         self.decoupling = validate_decoupling(config['decoupling'])
+        self.decoupling_negative = validate_decoupling(config['decoupling_negative'])
         self.reversed = validate_reversed(config['reversed'])
 
     def reload_callback(self):
@@ -99,7 +100,7 @@ class ThrusterPWMNode(Node):
     def cmd_vel_callback(self, message):
         # Twist effort -> per-thruster effort -> pulse widths -> physical outputs.
         self.drive(thruster_pulses(twist_values(message), self.mixer, self.channel_map,
-                                   self.reversed, self.decoupling))
+                                   self.reversed, self.decoupling, self.decoupling_negative))
 
     def pulses_callback(self, message):
         """Raw pulses per physical output, for bench tests; validated by the outputs."""

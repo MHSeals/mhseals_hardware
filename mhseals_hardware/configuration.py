@@ -26,6 +26,8 @@ def validate_config(config):
     validate_reversed(config['reversed'])
     validate_mixer(config['thruster_matrix'])
     validate_decoupling(config['decoupling'])
+    if config.get('decoupling_negative') is not None:
+        validate_decoupling(config['decoupling_negative'])
     # Optional calibration written by mhseals_testing's characterization.
     characterization = config.get('characterization', {})
     if not isinstance(characterization, dict):
@@ -54,9 +56,9 @@ def validate_config(config):
             axis not in bias or not isinstance(bias[axis], (int, float)) or
             not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
         raise ValueError('characterization.mechanical_bias must contain finite surge, sway, yaw values')
-    fitted_with = characterization.get('fitted_with_decoupling')
-    if fitted_with is not None:
-        validate_decoupling(fitted_with)
+    for key in ('fitted_with_decoupling', 'fitted_with_decoupling_negative'):
+        if characterization.get(key) is not None:
+            validate_decoupling(characterization[key])
     # PWM outputs and the MOSFET enable line.
     if config['output_backend'] not in ('odroid', 'topic'):
         raise ValueError('output_backend must be odroid or topic')
@@ -145,7 +147,29 @@ def _merge_overrides(overrides):
     unknown = set(overrides) - set(defaults)
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
-    return validate_config(dict(defaults, **overrides))
+    config = validate_config(dict(defaults, **overrides))
+    # Unset means "the same as decoupling". Filled in here so the driver always has a
+    # concrete, declared parameter; written back out as null while it still matches.
+    if config.get('decoupling_negative') is None:
+        config['decoupling_negative'] = list(config['decoupling'])
+    return config
+
+
+def _follows(negative, decoupling):
+    """True when ``negative`` is unset or equal to ``decoupling``: no real sign-split."""
+    return negative is None or [float(v) for v in negative] == [float(v) for v in decoupling]
+
+
+def single_decoupling(config):
+    """The one linear C, for code that models C (fits, the velocity law).
+
+    Refuses a sign-split decoupling: inverting only the positive columns would
+    silently mislabel a direction-dependent correction as one linear gain.
+    """
+    if not _follows(config.get('decoupling_negative'), config['decoupling']):
+        raise ValueError('sign-split decoupling is active (decoupling_negative differs); linear fits '
+                         'and the velocity law model one C. Clear it before characterizing.')
+    return config['decoupling']
 
 
 def save_config(config, path=None):
@@ -154,6 +178,8 @@ def save_config(config, path=None):
     target = config_path(path)
     normalized = {key: list(value) if isinstance(value, tuple) else value
                   for key, value in config.items()}
+    if _follows(normalized.get('decoupling_negative'), normalized['decoupling']):
+        normalized['decoupling_negative'] = None  # same as decoupling; don't freeze a copy
     return _write_config(normalized, target)
 
 
@@ -161,7 +187,12 @@ def update_config(changes, path=None):
     """Persist only explicit overrides, retaining existing operator settings."""
     target = config_path(path)
     overrides = _read_overrides(target)
+    # A negative C equal to decoupling was following it: keep following, not split.
+    if _follows(overrides.get('decoupling_negative'), _merge_overrides(overrides)['decoupling']):
+        overrides.pop('decoupling_negative', None)
     overrides.update(changes)
+    if _follows(overrides.get('decoupling_negative'), _merge_overrides(overrides)['decoupling']):
+        overrides.pop('decoupling_negative', None)
     _merge_overrides(overrides)
     return _write_config(overrides, target)
 

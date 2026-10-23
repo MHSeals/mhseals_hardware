@@ -24,6 +24,10 @@ thruster_matrix: [-1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1
 # Rows and columns surge, sway, yaw, applied before the mixer: cancels the
 # cross-coupling the characterization measured. Identity means none.
 decoupling: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+# Optional: the columns to use for an axis commanded below zero, when the
+# coupling differs by direction (yaw only when moving forward, say). null
+# means the same as decoupling.
+decoupling_negative: null
 manual_amplitude: 0.25
 # Manual yaw as a fraction of the linear amplitude: turning is far more aggressive.
 manual_yaw_scale: 0.5

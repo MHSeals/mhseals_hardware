@@ -36,6 +36,7 @@ def test_live_correction_updates_parameters_and_manual_pulses(tmp_path, monkeypa
         node.watch.mtime = None
         node.reload_callback()
         assert list(node.get_parameter('decoupling').value) == correction
+        assert list(node.get_parameter('decoupling_negative').value) == correction
         message = Twist()
         message.linear.x = .5
         node.cmd_vel_callback(message)

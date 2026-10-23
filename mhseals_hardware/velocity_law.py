@@ -15,6 +15,7 @@ import math
 
 import numpy
 
+from mhseals_hardware.configuration import _follows
 from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
 
 
@@ -52,9 +53,22 @@ class Plant:
         characterization = config.get('characterization', {})
         if not characterization.get('velocity_gain'):
             raise ValueError('characterization.velocity_gain is required')
-        decoupling = numpy.array(validate_decoupling(config.get('decoupling', sum(IDENTITY, ()))))
+        identity = sum(IDENTITY, ())
+        current = config.get('decoupling', identity)
+        negative = config.get('decoupling_negative')
+        fitted = characterization.get('fitted_with_decoupling', identity)
+        fitted_negative = characterization.get('fitted_with_decoupling_negative')
         try:
-            self.gain = raw_gain(characterization) @ decoupling
+            if not _follows(negative, current) or not _follows(fitted_negative, fitted):
+                # A sign-split C can't be divided out of the fit, but a fit made
+                # with the same matrices already is the plant this law drives.
+                if not (_follows(fitted, current) and
+                        _follows(fitted_negative or fitted, negative or current)):
+                    raise ValueError('the sign-split decoupling differs from the one the '
+                                     'characterization was fitted with; refit')
+                self.gain = gain_matrix(characterization['velocity_gain'])
+            else:
+                self.gain = raw_gain(characterization) @ numpy.array(validate_decoupling(current))
             self.gain_inv = numpy.linalg.inv(self.gain)
         except numpy.linalg.LinAlgError as error:
             raise ValueError('velocity_gain is singular') from error

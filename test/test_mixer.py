@@ -101,3 +101,15 @@ def test_decoupling_is_applied_before_the_mix():
     for bad in ([1] * 8, [float('nan')] + [0] * 8):
         with pytest.raises(ValueError):
             validate_decoupling(bad)
+
+
+def test_negative_decoupling_takes_the_column_of_an_axis_commanded_below_zero():
+    from mhseals_hardware.thruster_mixer import decouple
+    # Yaw trim only while moving forward or left: positive surge/sway columns carry it.
+    positive = ((1, 0, 0), (0, 1, 0), (-.1, .2, 1))
+    negative = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+    assert decouple((.8, 0, 0), positive, negative) == pytest.approx((.8, 0, -.08))
+    assert decouple((-.8, 0, 0), positive, negative) == pytest.approx((-.8, 0, 0))
+    assert decouple((0, .5, 0), positive, negative) == pytest.approx((0, .5, .1))
+    assert decouple((0, -.5, .3), positive, negative) == pytest.approx((0, -.5, .3))
+    assert decouple((.8, -.5, 0), positive, None) == decouple((.8, -.5, 0), positive)

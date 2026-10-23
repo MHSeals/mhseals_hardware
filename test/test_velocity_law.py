@@ -107,3 +107,18 @@ def test_model_error_under_way_is_not_taken_for_current():
     run(law, boat, (0.4, 0.0, 0.0), 30)
     assert numpy.hypot(*law.drift) < 0.01
     assert boat.velocity[0] == pytest.approx(0.4, abs=0.03)  # feedback still gets there
+
+
+def test_sign_split_decoupling_uses_a_fit_made_with_it_and_refuses_a_stale_one():
+    split = [1, 0, 0, 0, 1, 0, -.04, .1, 1]
+    identity = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    gain = {a: {b: (2.0 if a == b else 0.0) for b in ('surge', 'sway', 'yaw')}
+            for a in ('surge', 'sway', 'yaw')}
+    characterization = dict(velocity_gain=gain, fitted_with_decoupling=split,
+                            fitted_with_decoupling_negative=identity,
+                            motion_limits=dict(velocity=dict(surge=2, sway=1.5, yaw=1)))
+    config = dict(decoupling=split, decoupling_negative=identity,
+                  characterization=characterization)
+    assert Plant(config).gain[0][0] == 2.0  # the fit is the plant, nothing divided out
+    with pytest.raises(ValueError, match='refit'):
+        Plant(dict(config, decoupling=identity))

@@ -152,9 +152,11 @@ RL  +1  +1  -1
 
 The mixer is the geometry and stays editable. `decoupling` (3×3, identity by
 default) is applied to the command first and cancels the cross-coupling the
-characterization measured. Results are proportionally desaturated before conversion to 1100--1900 us.
-Use `channel_map` to map canonical positions to physical outputs, for example
-`[2,4,1,3]`.
+characterization measured. `decoupling_negative` (default unset, same as
+`decoupling`) supplies the columns for an axis commanded below zero when the
+coupling is one-sided. Results are proportionally desaturated before conversion
+to 1100--1900 us. Use `channel_map` to map canonical positions to physical
+outputs, for example `[2,4,1,3]`.
 
 `reversed` (FL, FR, RR, RL booleans) flips a thruster that is wired or mounted
 backwards; `thruster_identify` and the test suite's thruster set record it.

@@ -76,9 +76,17 @@ def validate_decoupling(values):
     return tuple(tuple(values[index:index + 3]) for index in range(0, 9, 3))
 
 
-def decouple(command, decoupling=IDENTITY):
-    """Apply the decoupling: e' = C e, so asking for one axis yields only that axis."""
-    return tuple(sum(row[j] * command[j] for j in range(3)) for row in decoupling)
+def decouple(command, decoupling=IDENTITY, negative=None):
+    """Apply the decoupling: e' = C e, so asking for one axis yields only that axis.
+
+    With ``negative``, an axis commanded below zero takes its column from that
+    matrix instead. Coupling that acts in one direction only (drag at the leading
+    corner of the hull, say) needs a different column for each sign; a single
+    linear C would fix one direction and worsen the other.
+    """
+    negative = decoupling if negative is None else negative
+    return tuple(sum((row if command[j] >= 0 else below)[j] * command[j] for j in range(3))
+                 for row, below in zip(decoupling, negative))
 
 
 def validate_channel_map(values):
@@ -96,16 +104,17 @@ def validate_reversed(values):
     return tuple(values)
 
 
-def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4, decoupling=IDENTITY):
+def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4, decoupling=IDENTITY,
+                    decoupling_negative=None):
     """Effort command -> ESC pulse per physical output (outputs 1-4 in order).
 
     Decouple the axes, mix and desaturate, flip reversed thrusters (a motor
     wired or a propeller mounted backwards), convert to pulses, then route each
     position to its output.
     """
+    decoupled = decouple(command, decoupling, decoupling_negative)
     efforts = [-effort if flip else effort
-               for effort, flip in zip(mix_thrusters(*decouple(command, decoupling), mixer),
-                                       reversed)]
+               for effort, flip in zip(mix_thrusters(*decoupled, mixer), reversed)]
     return map_channels([effort_to_pulse(effort) for effort in efforts], channel_map)
 
 

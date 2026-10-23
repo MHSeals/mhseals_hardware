@@ -102,3 +102,31 @@ def test_watcher_reports_an_edit_once_and_rejects_a_bad_one(tmp_path):
     with pytest.raises(ValueError):
         watch.poll()
     assert watch.poll() is None  # a bad edit is reported once, not every tick
+
+
+def test_unset_negative_decoupling_follows_decoupling_and_is_not_frozen_on_save(tmp_path):
+    import yaml
+    from mhseals_hardware.configuration import single_decoupling
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(yaml.safe_dump({'decoupling': [1, 0, 0, 0, 1, 0, .1, 0, 1]}))
+    config = load_config(path)
+    assert config['decoupling_negative'] == [1, 0, 0, 0, 1, 0, .1, 0, 1]
+    save_config(config, path)
+    assert yaml.safe_load(path.read_text())['decoupling_negative'] is None
+    assert single_decoupling(config) == config['decoupling']
+    config['decoupling_negative'] = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    with pytest.raises(ValueError, match='sign-split'):
+        single_decoupling(config)
+
+
+def test_update_keeps_a_following_negative_following_and_a_real_split(tmp_path):
+    import yaml
+    path = tmp_path / 'hardware.yaml'
+    first, second, split = ([1, 0, 0, 0, 1, 0, x, 0, 1] for x in (.1, .2, 0))
+    path.write_text(yaml.safe_dump({'decoupling': first, 'decoupling_negative': first}))
+    update_config({'decoupling': second}, path)
+    assert 'decoupling_negative' not in yaml.safe_load(path.read_text())
+    assert load_config(path)['decoupling_negative'] == second
+    path.write_text(yaml.safe_dump({'decoupling': first, 'decoupling_negative': split}))
+    update_config({'decoupling': second}, path)
+    assert yaml.safe_load(path.read_text())['decoupling_negative'] == split
