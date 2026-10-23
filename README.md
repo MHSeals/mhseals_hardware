@@ -221,6 +221,8 @@ ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effo
 
 `ros2 run mhseals_testing boat_test --velocity-control` arms both. The integral
 trim is bounded and the watchdog always returns the outputs to neutral.
+With `config_file` it rebuilds its model within a second of the YAML changing, and
+holds neutral effort while the new model is invalid.
 
 For deadman keyboard control from any machine on the same ROS domain:
 

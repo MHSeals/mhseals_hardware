@@ -4,7 +4,9 @@ The native PWM node consumes normalized effort, despite its historical
 ``cmd_vel`` topic name. This node is the explicit boundary that accepts SI
 body velocity commands from Nav2 and emits ``cmd_vel_effort`` for that node.
 The control law lives in ``velocity_law``; this node only wires it to ROS and
-publishes its live drift estimate on ``~/drift`` (odom frame, m/s).
+publishes its live drift estimate on ``~/drift`` (odom frame, m/s). With
+``config_file`` set it rebuilds the model when the YAML changes, and holds neutral
+effort while the new model is invalid.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from geometry_msgs.msg import Twist, Vector3Stamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 
-from mhseals_hardware.configuration import load_config
+from mhseals_hardware.configuration import ConfigWatcher, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
@@ -50,6 +52,7 @@ class VelocityController(Node):
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'))
+        self._fault = ''  # why the model is invalid; neutral effort until it is fixed
         self._frame = 'odom'
         self._last_command = time.monotonic()
         self._pub = self.create_publisher(Twist, value('output_topic'), 10)
@@ -58,6 +61,29 @@ class VelocityController(Node):
         self.create_subscription(Odometry, value('odom_topic'), self._odom, 10)
         self.create_timer(0.05, self._watchdog)
         self.create_timer(0.2, self._publish_drift)
+        if value('config_file'):
+            self._watch = ConfigWatcher(value('config_file'))
+            self.create_timer(1.0, self._reload)
+
+    def _reload(self):
+        """Rebuild the model after a YAML edit. The driver applies the same file."""
+        try:
+            config = self._watch.poll()
+        except (OSError, ValueError, KeyError) as error:
+            self.get_logger().error(f'config reload rejected, keeping the old model: {error}')
+            return
+        if config is None:
+            return
+        self._law.reset()
+        try:
+            self._law.plant = Plant(config)
+        except ValueError as error:
+            # The driver already applied this file, so the old model is wrong too.
+            self._fault = str(error)
+            self.get_logger().error(f'velocity model invalid, holding neutral: {error}')
+            return
+        self._fault = ''
+        self.get_logger().info('velocity model rebuilt')
 
     def _odom(self, message):
         self._frame = message.header.frame_id or self._frame
@@ -66,6 +92,10 @@ class VelocityController(Node):
 
     def _command(self, message):
         now = time.monotonic()
+        if self._fault:
+            self._pub.publish(Twist())
+            self._last_command = now
+            return
         effort = self._law.step(twist_values(message), now,
                                 feedback=bool(self.get_parameter('feedback').value))
         self._pub.publish(twist_from(effort))
