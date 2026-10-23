@@ -110,8 +110,10 @@ def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4, decoupli
 
     Decouple the axes, mix and desaturate, flip reversed thrusters (a motor
     wired or a propeller mounted backwards), convert to pulses, then route each
-    position to its output.
+    position to its output. Efforts are normalised, so the command is clamped
+    to [-1, 1] first: a huge finite value must not overflow the mixer into NaN.
     """
+    command = tuple(max(-1.0, min(1.0, component)) for component in command)
     decoupled = decouple(command, decoupling, decoupling_negative)
     efforts = [-effort if flip else effort
                for effort, flip in zip(mix_thrusters(*decoupled, mixer), reversed)]

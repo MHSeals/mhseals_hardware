@@ -113,3 +113,12 @@ def test_negative_decoupling_takes_the_column_of_an_axis_commanded_below_zero():
     assert decouple((0, .5, 0), positive, negative) == pytest.approx((0, .5, .1))
     assert decouple((0, -.5, .3), positive, negative) == pytest.approx((0, -.5, .3))
     assert decouple((.8, -.5, 0), positive, None) == decouple((.8, -.5, 0), positive)
+
+
+def test_huge_finite_commands_saturate_instead_of_overflowing_to_nan():
+    from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, thruster_pulses
+    for command in ((1e308, 0, 1e308), (1e308, -1e308, 0), (0, 0, -1e308)):
+        pulses = thruster_pulses(command, THRUSTER_MIXER, (1, 2, 3, 4))
+        assert all(isinstance(p, int) and 1100 <= p <= 1900 for p in pulses)
+    assert thruster_pulses((1e308, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4)) == \
+        thruster_pulses((1, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4))
