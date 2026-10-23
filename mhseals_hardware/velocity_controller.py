@@ -26,9 +26,10 @@ from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 # The config keys Plant reads; an edit to anything else keeps the model and the integrator.
 PLANT_KEYS = ('thruster_matrix', 'characterization', 'decoupling', 'decoupling_negative')
-# Controller gains: read from the parameters on every command, so a change is live.
-GAIN_KEYS = ('kp', 'ki', 'integral_limit', 'drift_time_constant', 'odom_timeout',
-             'drift_command_limit')
+# Controller gains: _validate_gains writes an accepted change into VelocityLaw, so it is live.
+VECTOR_GAINS = ('kp', 'ki', 'integral_limit')  # one value per axis, shape (3,)
+SCALAR_GAINS = ('drift_time_constant', 'odom_timeout', 'drift_command_limit')
+GAIN_KEYS = VECTOR_GAINS + SCALAR_GAINS
 
 
 def yaw_of(orientation):
@@ -85,8 +86,7 @@ class VelocityController(Node):
                     value = numpy.array(parameter.value, float)
                 except (TypeError, ValueError):
                     return SetParametersResult(successful=False, reason='not numeric')
-                shape = () if parameter.name.endswith(('constant', 'timeout', 'limit')) and \
-                    parameter.name != 'integral_limit' else (3,)
+                shape = (3,) if parameter.name in VECTOR_GAINS else ()
                 if value.shape != shape or not numpy.all(numpy.isfinite(value)):
                     return SetParametersResult(successful=False, reason=f'need finite {shape}')
                 values[parameter.name] = value

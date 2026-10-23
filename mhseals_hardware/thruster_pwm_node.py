@@ -100,7 +100,7 @@ class ThrusterPWMNode(Node):
         if self.own_write:
             return SetParametersResult(successful=True)
         for parameter in parameters:
-            if parameter.name in self.declared or parameter.name == 'config_sha':
+            if parameter.name in self.declared:
                 reason = 'edit hardware.yaml'
                 if parameter.name not in LIVE_KEYS + OUTPUT_KEYS:
                     reason = 'not a driver setting; ' + reason
@@ -141,7 +141,6 @@ class ThrusterPWMNode(Node):
             self.timed_out = True  # hold neutral until the next command
             if error:
                 self.error = f'outputs not moved: {error}'
-            if error:
                 self.get_logger().error(f'outputs not moved, kept the old ones: {error}')
                 new.update({key: self.config[key] for key in OUTPUT_KEYS})
                 # Not applied: leave them out of the log and let the next edit retry them.
