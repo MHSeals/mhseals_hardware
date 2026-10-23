@@ -1,6 +1,9 @@
+import pytest
+
 from mhseals_hardware.command_arbitration import Arbitration, mode_from_pwm
 
 LOW, MID, HIGH = 1100, 1550, 1900   # MANUAL, HOLD, GUIDED on the mode channel
+PUSH = (1500, 1800, 1500, 1500)     # sway stick past the takeover
 
 
 def frame(mode=HIGH, sticks=(1500, 1500, 1500, 1500), arm=1900):
@@ -10,6 +13,14 @@ def frame(mode=HIGH, sticks=(1500, 1500, 1500, 1500), arm=1900):
 
 def boat():
     return Arbitration()
+
+
+def latch(a):
+    """Take over from GUIDED with a held stick; return the time after it."""
+    a.update_rc(frame(sticks=PUSH), 0)
+    a.update_rc(frame(sticks=PUSH), 0.25)
+    assert a.select(0.26)[0] == 'rc'
+    return 0.26
 
 
 def test_mode_bands_match_the_fcu():
@@ -99,6 +110,39 @@ def test_stop_switch_falling_edge_holds():
     assert not a.holds
 
 
+def test_stick_latch_takes_over_then_holds_on_release():
+    a = boat()
+    a.update_rc(frame(sticks=PUSH), 0)
+    assert a.select(0.1)[0] != 'rc'                  # not held long enough
+    latch(a)
+    for t in (0.3, 0.5, 0.7, 0.9):                   # sticks centered
+        a.update_rc(frame(), t)
+    assert a.select(0.9)[0] == 'hold' and 'rc_stick' in a.holds
+
+
+def test_latched_takeover_survives_a_gentle_offset():
+    a = boat()
+    latch(a)
+    for t in (0.3, 0.5, 0.7, 0.9, 1.1):              # 150 us: inside takeover band
+        a.update_rc(frame(sticks=(1650, 1500, 1500, 1500)), t)
+    assert a.select(1.1)[0] == 'rc' and a.latched
+
+
+def test_small_stick_movement_does_not_latch():
+    a = boat()
+    for t in (0, 0.1, 0.2, 0.3):
+        a.update_rc(frame(sticks=(1600, 1500, 1500, 1500)), t)
+    assert a.select(0.3)[0] != 'rc'
+
+
+def test_rc_loss_drops_the_latch_until_a_new_takeover():
+    a = boat()
+    latch(a)
+    assert a.select(1.0)[0] == 'hold' and not a.latched
+    a.update_rc(frame(), 2.0)
+    assert a.select(2.0)[0] == 'hold'
+
+
 def test_release_refused_at_hold_or_manual_switch():
     a = boat()
     a.update_rc(frame(mode=MID), 0)
@@ -126,9 +170,57 @@ def test_token_release_clears_only_its_cause():
     assert list(a.holds) == ['keys']
 
 
+def test_release_ramps_auto_from_zero_over_one_second():
+    a = boat()
+    a.request('hold', 'space', 'tui', 0)
+    a.update_auto((1.0, 0, 0), 0)
+    assert a.select(0.1)[0] == 'hold'
+    a.request('release', None, 'tui', 1.0)
+    a.update_auto((1.0, 0, 0), 1.0)
+    assert a.select(1.0) == ('auto', (0.0, 0, 0))
+    a.update_auto((1.0, 0, 0), 1.5)
+    assert a.select(1.5)[1][0] == pytest.approx(0.5)
+    a.update_auto((1.0, 0, 0), 2.1)
+    assert a.select(2.1)[1][0] == 1.0
+
+
+def test_hold_between_selects_still_ramps():
+    a = boat()
+    a.update_auto((1, 0, 0), 0)
+    assert a.select(0)[0] == 'auto'
+    a.request('hold', 'space', 'tui', 0.01)
+    a.request('release', None, 'tui', 0.1)
+    a.update_auto((1, 0, 0), 0.1)
+    assert a.select(0.1) == ('auto', (0.0, 0, 0))
+
+
+def test_idle_to_auto_is_not_ramped():
+    a = boat()
+    a.update_auto((1.0, 0, 0), 0)
+    assert a.select(0) == ('auto', (1.0, 0, 0))
+
+
 def test_state_reports_holds_and_decode():
     a = boat()
     a.update_rc(frame(mode=MID), 0)
     state = a.state(0.01)
     assert state['input'] == 'hold' and state['rc']['mode'] == 'HOLD'
     assert state['holds'][0]['cause'] == 'rc_switch'
+
+
+@pytest.mark.parametrize('bad', [0, 65535, 2500])
+def test_out_of_range_stick_neither_latches_nor_drives(bad):
+    a = boat()
+    for t in (0, 0.25):
+        a.update_rc(frame(sticks=(1500, bad, 1500, 1500)), t)
+    assert a.select(0.26)[1] == (0.0, 0.0, 0.0) and not a.latched
+
+
+def test_zero_ramp_means_no_ramp():
+    a = Arbitration(ramp=0)
+    a.update_rc(frame(mode=MID), 0)
+    a.update_auto((0.4, 0.0, 0.0), 0.1)
+    a.select(0.1)
+    a.update_rc(frame(mode=HIGH), 0.2)
+    a.update_auto((0.4, 0.0, 0.0), 0.3)
+    assert a.select(0.31)[1] == (0.4, 0.0, 0.0)

@@ -4,10 +4,10 @@ ROS-free and clock-injected: every call takes ``now`` in seconds, so a node
 feeds it monotonic time and a test feeds it a fake clock.  The mux node only
 forwards ``select(now)``; all the rules live here.
 
-* rc: a valid RC frame and the mode switch at MANUAL.
+* rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
 * manual: ``/cmd_vel/manual`` (TUI keys) newer than ``cmd_timeout``.
 * hold: any hold cause is set.  Output is zero until it is released.
-* auto: ``/cmd_vel`` newer than ``cmd_timeout``.
+* auto: ``/cmd_vel`` newer than ``cmd_timeout``, ramped in over ``ramp``.
 """
 
 MANUAL, HOLD, GUIDED, OTHER = 'MANUAL', 'HOLD', 'GUIDED', 'OTHER'
@@ -16,7 +16,7 @@ MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
 # Upper edges (microseconds) of MODE1..5; MODE6 is everything above.
 MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
 
-RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop')
+RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
 
 
 def mode_from_pwm(pwm, modes=(0, 0, 0, 4, 0, 15)):
@@ -37,18 +37,27 @@ class Arbitration:
     """The state machine behind ``command_mux``."""
 
     def __init__(self, mode_ch=8, modes=(0, 0, 0, 4, 0, 15), stop_ch=6,
-                 rc_scale=(0.5, 0.5, 0.3), rc_max_age=0.3, cmd_timeout=0.5):
+                 rc_scale=(0.5, 0.5, 0.3), rc_max_age=0.3, cmd_timeout=0.5,
+                 stick_takeover=200, stick_time=0.2, stick_release=0.5,
+                 ramp=1.0):
         self.mode_ch, self.modes, self.stop_ch = mode_ch, tuple(modes), stop_ch
         self.rc_scale = tuple(rc_scale)
         self.rc_max_age, self.cmd_timeout = rc_max_age, cmd_timeout
+        self.stick_takeover, self.stick_time = stick_takeover, stick_time
+        self.stick_release, self.ramp = stick_release, ramp
 
         self.channels, self.rc_time = (), None
         self.manual, self.manual_time = (0.0, 0.0, 0.0), None
         self.auto, self.auto_time = (0.0, 0.0, 0.0), None
         self.holds = {}               # cause -> {cause, by, since, token}
+        self.latched = False          # stick takeover while in GUIDED
+        self._deflected = None        # since when a stick is past the takeover
+        self._centered = None         # since when all sticks are centered
         self._prev_mode = None
         self._rc_active = False       # was rc driving at the last advance
         self._manual_fresh = False
+        self._ramp_pending = False    # a human or hold held the output
+        self._ramp_start = None
 
     @classmethod
     def from_config(cls, config):
@@ -119,6 +128,10 @@ class Arbitration:
         ch = self.channels
         return (stick(ch[1]), -stick(ch[0]), -stick(ch[3]))
 
+    def _past_takeover(self):
+        return any(abs(self.channels[i] - 1500) > self.stick_takeover
+                   for i in (0, 1, 3))
+
     # State machine
 
     def _hold(self, cause, by, now, token=None):
@@ -126,6 +139,7 @@ class Arbitration:
         since = held['since'] if held else now
         self.holds[cause] = {'cause': cause, 'by': by, 'since': since,
                              'token': token}
+        self._ramp_pending = True     # auto resumes through the ramp
 
     def _advance(self, now):
         """Fold elapsed time and the newest inputs into the hold set."""
@@ -139,8 +153,13 @@ class Arbitration:
             elif mode != MANUAL:
                 self._hold('rc_switch', 'rc', now)
             self._prev_mode = mode
+        if not valid or mode != GUIDED:
+            self.latched = False
+            self._deflected = self._centered = None
+        if valid and mode == GUIDED:
+            self._track_sticks(now)
 
-        rc = valid and mode == MANUAL
+        rc = valid and (mode == MANUAL or self.latched)
         if self._rc_active and not valid:
             self._hold('rc_lost', 'rc', now)
         self._rc_active = rc
@@ -150,6 +169,23 @@ class Arbitration:
             self._hold('keys', 'keys', now)
         self._manual_fresh = fresh
         return rc, fresh
+
+    def _track_sticks(self, now):
+        if self._past_takeover():
+            self._centered = None
+            self._deflected = now if self._deflected is None else self._deflected
+            if now - self._deflected >= self.stick_time:
+                self.latched = True
+            return
+        self._deflected = None
+        if self.latched and any(self._sticks()):
+            self._centered = None     # still steering inside the takeover band
+        elif self.latched:
+            self._centered = now if self._centered is None else self._centered
+            if now - self._centered >= self.stick_release:
+                # Sticks let go: stay put until the human releases the hold.
+                self.latched, self._centered = False, None
+                self._hold('rc_stick', 'rc', now)
 
     def _fresh(self, stamp, now):
         return stamp is not None and now - stamp <= self.cmd_timeout
@@ -169,6 +205,15 @@ class Arbitration:
             cmd, source = self.auto, 'auto'
         else:
             cmd, source = zero, 'idle'
+
+        if source in ('rc', 'manual'):
+            self._ramp_pending = True
+        if source == 'auto':
+            if self._ramp_pending:
+                self._ramp_start, self._ramp_pending = now, False
+            if self._ramp_start is not None and self.ramp > 0:   # ramp <= 0: no ramp
+                scale = min(1.0, (now - self._ramp_start) / self.ramp)
+                cmd = tuple(v * scale for v in cmd)
         return source, cmd
 
     def state(self, now):
@@ -176,5 +221,6 @@ class Arbitration:
         source, _ = self.select(now)
         return {'input': source,
                 'rc': {'valid': self.valid(now),
-                       'mode': self.mode if self.valid(now) else None},
+                       'mode': self.mode if self.valid(now) else None,
+                       'latched': self.latched},
                 'holds': sorted(self.holds.values(), key=lambda h: h['since'])}
