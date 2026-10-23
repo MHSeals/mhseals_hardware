@@ -53,8 +53,9 @@ def rotate(vector, yaw):
 class Plant:
     """What the controller knows about the boat, read from the hardware config.
 
-    Each axis and sign has a speed curve: the effort that holds speed ``v`` is
-    ``d1 v + d2 v |v|`` (normalized wrench). ``characterization.speed_curves``
+    Each axis and sign has a speed curve in wrench units: the effort ``e`` that
+    holds speed ``v`` satisfies ``e |e| = d1 v + d2 v |v|`` (thrust goes with
+    e|e|, so the drag fits it without a negative term). ``characterization.speed_curves``
     holds them as ``{'surge+': {'d1': .., 'd2': ..}, ..., 'yaw-': ..}``; a
     direction without one falls back to the straight line of the
     ``velocity_gain`` diagonal, so a boat characterized before the curves
@@ -80,7 +81,7 @@ class Plant:
                 if key in curves:
                     d1, d2 = float(curves[key]['d1']), float(curves[key]['d2'])
                 elif diagonal[index] != 0:
-                    d1, d2 = 1.0 / diagonal[index], 0.0
+                    d1, d2 = 0.0, 1.0 / diagonal[index] ** 2  # e = v / gain
                 else:
                     raise ValueError('velocity_gain is singular')
                 # Effort must rise with speed up to the axis limit, else it can't be inverted.
@@ -115,7 +116,8 @@ class Plant:
     def effort(self, axis, speed):
         """The effort that holds ``speed`` (m/s or rad/s) on ``axis`` (0 surge, 1 sway, 2 yaw)."""
         d1, d2 = self.curves[CURVE_KEYS[2 * axis + (speed < 0)]]
-        return d1 * speed + d2 * speed * abs(speed)
+        wrench = d1 * speed + d2 * speed * abs(speed)
+        return math.copysign(math.sqrt(abs(wrench)), wrench)
 
     def speed(self, axis, sign, effort):
         """The steady speed ``effort`` gives on ``axis``, signed.
@@ -125,10 +127,10 @@ class Plant:
         """
         sign = 1 if effort > 0 else -1 if effort < 0 else sign
         d1, d2 = self.curves[CURVE_KEYS[2 * axis + (sign < 0)]]
-        magnitude = abs(effort)
+        magnitude = effort * effort
         if magnitude == 0:
             return 0.0
-        # The positive root of d2 v^2 + d1 v = |e|, in the form that survives d2 -> 0.
+        # The positive root of d2 v^2 + d1 v = e^2, in the form that survives d2 -> 0.
         root = math.sqrt(max(0.0, d1 * d1 + 4 * d2 * magnitude))
         return sign * 2 * magnitude / (d1 + root)
 

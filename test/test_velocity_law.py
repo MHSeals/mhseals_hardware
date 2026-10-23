@@ -75,7 +75,7 @@ def test_integral_does_not_wind_up_against_saturation():
     now = 0.0
     for _ in range(100):  # the boat never moves: effort pins at +1 on surge
         law.observe((0, 0, 0), 0.0, now)
-        assert law.step((0.6, 0.0, 0.0), now)[0] == 1.0
+        assert law.step((0.6, 0.0, 0.0), now)[0] == pytest.approx(1.0)
         now += 0.05
     assert law.integral[0] < 0.1
 
@@ -151,7 +151,7 @@ def test_sign_split_decoupling_uses_a_fit_made_with_it_and_refuses_a_stale_one()
 
 def curved(**overrides):
     """A config whose surge+ is a squared-drag curve and the other directions are linear."""
-    curves = {key: dict(d1=1.0 / 0.4, d2=0.0) for key in CURVE_KEYS}
+    curves = {key: dict(d1=0.0, d2=1.0 / 0.4 ** 2) for key in CURVE_KEYS}
     curves['surge+'] = dict(d1=1.2, d2=1.5)
     curves['surge-'] = dict(d1=1.0, d2=2.0)
     curves.update(overrides)
@@ -168,15 +168,15 @@ def test_speed_curves_invert_and_round_trip_in_both_signs():
                 assert plant.speed(axis, sign, plant.effort(axis, sign * speed)) == pytest.approx(
                     sign * speed)
     # The two surge directions differ: 0.3 m/s forward costs less than backward.
-    assert plant.effort(0, 0.3) == pytest.approx(1.2 * 0.3 + 1.5 * 0.09)
-    assert plant.effort(0, -0.3) == pytest.approx(-(1.0 * 0.3 + 2.0 * 0.09))
+    assert plant.effort(0, 0.3) == pytest.approx(math.sqrt(1.2 * 0.3 + 1.5 * 0.09))
+    assert plant.effort(0, -0.3) == pytest.approx(-math.sqrt(1.0 * 0.3 + 2.0 * 0.09))
     assert plant.speed(0, -1, 0.0) == 0.0
 
 
 def test_feedforward_follows_the_curve():
     law = VelocityLaw(Plant(curved()), kp=(0, 0, 0), ki=(0, 0, 0), drift_time_constant=0)
     law.observe((0, 0, 0), 0.0, 0.0)
-    assert law.step((0.3, 0.0, 0.0), 0.0)[0] == pytest.approx(1.2 * 0.3 + 1.5 * 0.09)
+    assert law.step((0.3, 0.0, 0.0), 0.0)[0] == pytest.approx(math.sqrt(1.2 * 0.3 + 1.5 * 0.09))
 
 
 def test_missing_curves_fall_back_to_the_velocity_gain_diagonal():
@@ -187,7 +187,7 @@ def test_missing_curves_fall_back_to_the_velocity_gain_diagonal():
             assert plant.effort(axis, sign * 0.1) == pytest.approx(sign * 0.1 / gain)
     # One curve given, the rest still linear.
     mixed = config()
-    mixed['characterization']['speed_curves'] = {'sway-': dict(d1=3.0, d2=0.0)}
+    mixed['characterization']['speed_curves'] = {'sway-': dict(d1=0.0, d2=9.0)}
     assert Plant(mixed).effort(1, -0.1) == pytest.approx(-0.3)
     assert Plant(mixed).effort(1, 0.1) == pytest.approx(0.1 / 0.4)
 
@@ -198,9 +198,9 @@ def test_non_monotone_curves_are_refused():
         Plant(curved(**{'surge+': dict(d1=1.0, d2=-1.0)}))
     with pytest.raises(ValueError, match='sway-.*monotone'):
         Plant(curved(**{'sway-': dict(d1=-0.1, d2=1.0)}))
-    # A pure-quadratic curve is monotone and inverts as sqrt(|e| / d2).
+    # A pure-quadratic curve is monotone and inverts as |e| / sqrt(d2).
     plant = Plant(curved(**{'surge+': dict(d1=0.0, d2=2.0)}))
-    assert plant.speed(0, 1, 0.5) == pytest.approx(0.5)
+    assert plant.speed(0, 1, 0.5) == pytest.approx(0.5 / math.sqrt(2.0))
     assert plant.speed(0, 1, 0.0) == 0.0
     with pytest.raises(ValueError, match='monotone'):
         Plant(curved(**{'surge+': dict(d1=0.0, d2=0.0)}))
