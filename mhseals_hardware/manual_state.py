@@ -73,13 +73,16 @@ class ManualState:
             self.held.clear()
             self.single = None
         elif kind == 'release':
+            was_held = name in self.held
             self.held.discard(name)
             if name == self.single:
                 self.single = None
             # The OS may restart its initial repeat delay for the remaining key.
-            if self.held:
+            # Only a held motion key's release counts: other releases (+/-,
+            # never-held keys) must not keep a key whose release was lost alive.
+            if was_held and self.held:
                 self.deadline = now + CHORD_HOLD
-            elif self.single:
+            elif was_held and self.single:
                 self.deadline = now + self.initial_timeout
         elif name in ('+', '=', '-', '_'):
             self.amplitude = round(max(0.0, min(1.0, self.amplitude +
