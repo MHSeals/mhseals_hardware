@@ -22,6 +22,10 @@ from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 
+# The config keys Plant reads; an edit to anything else keeps the model and the integrator.
+PLANT_KEYS = ('characterization', 'decoupling', 'decoupling_negative')
+
+
 def yaw_of(orientation):
     """Heading of a quaternion about +z."""
     q = orientation
@@ -52,6 +56,7 @@ class VelocityController(Node):
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'))
+        self._plant_inputs = self._inputs(config)
         self._fault = ''  # why the model is invalid; neutral effort until it is fixed
         self._frame = 'odom'
         self._last_command = time.monotonic()
@@ -65,6 +70,10 @@ class VelocityController(Node):
             self._watch = ConfigWatcher(value('config_file'))
             self.create_timer(1.0, self._reload)
 
+    @staticmethod
+    def _inputs(config):
+        return {key: config.get(key) for key in PLANT_KEYS}
+
     def _reload(self):
         """Rebuild the model after a YAML edit. The driver applies the same file."""
         try:
@@ -74,6 +83,10 @@ class VelocityController(Node):
             return
         if config is None:
             return
+        inputs = self._inputs(config)
+        if inputs == self._plant_inputs and not self._fault:
+            return  # a pin, timeout or manual_* edit: keep the integral
+        self._plant_inputs = inputs
         self._law.reset()
         try:
             self._law.plant = Plant(config)

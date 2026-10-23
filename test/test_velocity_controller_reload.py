@@ -53,3 +53,24 @@ def test_reload_rebuilds_the_model_and_holds_neutral_while_invalid(tmp_path):
         if node is not None:
             node.destroy_node()
         rclpy.shutdown()
+
+
+def test_unrelated_edit_keeps_the_integrator(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    save_config(config(), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=velocity_keep_test',
+                     '-p', f'config_file:={path}'])
+    node = None
+    try:
+        node = VelocityController()
+        plant = node._law.plant
+        node._law.integral[:] = 0.2
+        save_config(dict(config(), manual_amplitude=0.31), path)
+        node._watch.mtime = None
+        node._watch.seen = node._watch._stat()
+        node._reload()
+        assert node._law.plant is plant and node._law.integral[0] == 0.2
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown()
