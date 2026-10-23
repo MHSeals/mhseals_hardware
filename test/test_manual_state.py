@@ -35,3 +35,11 @@ def test_unrelated_release_does_not_stop_current_direction():
     state.update('w', 0)
     state.update('s', .1)
     assert state.update('release:w', .11) == (-.25, 0, 0)
+
+
+def test_yaw_scale_is_validated_and_applied():
+    import pytest
+    assert ManualState(yaw_scale=1.0).update('left', 0) == (0, 0, .25)
+    for bad in (0, 1.5, float('nan')):
+        with pytest.raises(ValueError):
+            ManualState(yaw_scale=bad)

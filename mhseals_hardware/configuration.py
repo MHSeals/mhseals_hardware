@@ -87,6 +87,8 @@ def validate_config(config):
             raise ValueError(f'{key} must be finite and within (0, 2] seconds')
     if not math.isfinite(config['manual_amplitude']) or not 0 <= config['manual_amplitude'] <= 1:
         raise ValueError('manual_amplitude must be within [0, 1]')
+    if not math.isfinite(config['manual_yaw_scale']) or not 0 < config['manual_yaw_scale'] <= 1:
+        raise ValueError('manual_yaw_scale must be within (0, 1]')
     return config
 
 

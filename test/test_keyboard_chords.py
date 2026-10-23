@@ -37,9 +37,10 @@ def test_opposites_aliases_yaw_speed_and_releases():
     assert state.update('release:w', .02) == (.25, 0, 0)
     assert state.update('press:s', .03) == (0, 0, 0)
     assert state.update('release:s', .04) == (.25, 0, 0)
-    assert state.update('press:left', .05) == (.25, 0, .25)
-    assert state.update('press:+', .06) == (.3, 0, .3)
-    assert state.update('release:+', .07) == (.3, 0, .3)
+    # Yaw runs at half the linear amplitude: it is the more aggressive axis.
+    assert state.update('press:left', .05) == (.25, 0, .125)
+    assert state.update('press:+', .06) == (.3, 0, .15)
+    assert state.update('release:+', .07) == (.3, 0, .15)
 
 
 @pytest.mark.parametrize('stop', ['press:space', 'focus-out', None])
@@ -67,7 +68,7 @@ def test_legacy_remains_single_key_not_phantom_chords():
 ])
 def test_plain_wasd_still_drives_after_an_arrow_event(key, expected):
     state = ManualState()
-    assert state.update(decode_key(b'\x1b[D', True), 0) == (0, 0, .25)
+    assert state.update(decode_key(b'\x1b[D', True), 0) == (0, 0, .125)
     assert state.update(decode_key(key, True), .05) == expected
     assert not state.event_mode  # No releases: use the single-key deadman fallback.
     assert state.update(None, .71) == (0, 0, 0)

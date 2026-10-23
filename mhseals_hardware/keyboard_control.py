@@ -45,10 +45,10 @@ def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
 
 
 def run_manual(message_publisher, console=None, amplitude=0.25,
-               deadman_timeout=0.15, initial_timeout=0.65, status_panel=None):
+               deadman_timeout=0.15, initial_timeout=0.65, status_panel=None, yaw_scale=0.5):
     """Run manual control until X, always finishing with a neutral command."""
     console = console or Console()
-    state = ManualState(amplitude, deadman_timeout, initial_timeout)
+    state = ManualState(amplitude, deadman_timeout, initial_timeout, yaw_scale)
     try:
         with KeyReader(report_events=True) as keys, Live(
                 manual_panel(amplitude=amplitude), console=console,
@@ -98,7 +98,8 @@ def main(args=None):
             run_manual(SimpleNamespace(publish=lambda message: None), console,
                        amplitude=config['manual_amplitude'],
                        deadman_timeout=config['manual_repeat_timeout'],
-                       initial_timeout=config['manual_initial_timeout'])
+                       initial_timeout=config['manual_initial_timeout'],
+                       yaw_scale=config['manual_yaw_scale'])
         except (KeyboardInterrupt, EOFError):
             pass
         return
@@ -116,7 +117,8 @@ def main(args=None):
     try:
         run_manual(publisher, amplitude=config['manual_amplitude'],
                    deadman_timeout=config['manual_repeat_timeout'],
-                   initial_timeout=config['manual_initial_timeout'])
+                   initial_timeout=config['manual_initial_timeout'],
+                   yaw_scale=config['manual_yaw_scale'])
     except (KeyboardInterrupt, EOFError):
         pass
     finally:

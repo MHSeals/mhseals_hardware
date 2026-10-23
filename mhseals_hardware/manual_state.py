@@ -11,15 +11,20 @@ MANUAL_KEYS = {
 
 
 class ManualState:
-    def __init__(self, amplitude=0.25, repeat_timeout=0.15, initial_timeout=0.65):
+    def __init__(self, amplitude=0.25, repeat_timeout=0.15, initial_timeout=0.65,
+                 yaw_scale=0.5):
         if not math.isfinite(amplitude) or not 0 <= amplitude <= 1:
             raise ValueError('amplitude must be within [0, 1]')
         if not all(math.isfinite(v) and 0 < v <= 2
                    for v in (repeat_timeout, initial_timeout)):
             raise ValueError('deadman timeouts must be within (0, 2] seconds')
+        if not math.isfinite(yaw_scale) or not 0 < yaw_scale <= 1:
+            raise ValueError('yaw_scale must be within (0, 1]')
         self.amplitude = amplitude
         self.repeat_timeout = repeat_timeout
         self.initial_timeout = initial_timeout
+        # Yaw is far more aggressive than translation at the same effort.
+        self.yaw_scale = yaw_scale
         self.key = None
         self.deadline = 0.0
         self.held = set()
@@ -80,4 +85,4 @@ class ManualState:
         x, y, yaw = (sum(axes[axis]) for axis in ('surge', 'sway', 'yaw'))
         scale = max(1.0, math.hypot(x, y))
         return (x / scale * self.amplitude, y / scale * self.amplitude,
-                yaw * self.amplitude)
+                yaw * self.amplitude * self.yaw_scale)
