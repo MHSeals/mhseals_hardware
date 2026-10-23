@@ -60,6 +60,8 @@ class ManualState:
         kind, _, name = (key or '').partition(':')
         if kind not in ('press', 'repeat', 'release'):
             kind, name = 'plain', key
+        if name and len(name) == 1:
+            name = name.lower()  # caps lock or shift must not stop WASD
         if kind in ('repeat', 'release') or (kind == 'press' and name not in ARROWS):
             self.chords = True
             if name == self.single and kind != 'release':

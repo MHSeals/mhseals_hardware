@@ -79,6 +79,15 @@ def test_a_backwards_thruster_is_recorded_as_reversed():
         True, False, False, True]
 
 
+@pytest.mark.parametrize('key', ['Q', 'SPACE'])
+def test_caps_lock_still_aborts(key):
+    run, _ = harness([], keys=[None, None, key])
+    outputs = FakeOutputs()
+    with pytest.raises(Cancelled):
+        run(outputs)
+    assert outputs.writes[-1] == [NEUTRAL_PWM] * 4
+
+
 def test_space_during_a_pulse_cancels_at_neutral():
     # The first hold is the arming period; Space arrives during it.
     run, _ = harness([], keys=[None, None, 'space'])

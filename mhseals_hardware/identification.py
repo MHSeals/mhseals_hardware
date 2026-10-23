@@ -38,7 +38,8 @@ def hold(outputs, pulses, seconds, keys, clock=time.monotonic):
         remaining = deadline - clock()
         if remaining <= 0:
             return
-        if keys.read(timeout=min(0.05, remaining)) in ABORT_KEYS:
+        key = keys.read(timeout=min(0.05, remaining))
+        if key and key.lower() in ABORT_KEYS:
             outputs.neutral()
             raise Cancelled('identification cancelled; outputs neutral')
 

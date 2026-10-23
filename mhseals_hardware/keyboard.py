@@ -16,6 +16,9 @@ ARROW_SEQUENCES = {
     # Ctrl+arrows (modifier 5).
     b'\x1b[1;5A': 'ctrl-up', b'\x1b[1;5B': 'ctrl-down',
     b'\x1b[1;5C': 'ctrl-right', b'\x1b[1;5D': 'ctrl-left',
+    # Shift+arrows (modifier 2).
+    b'\x1b[1;2A': 'shift-up', b'\x1b[1;2B': 'shift-down',
+    b'\x1b[1;2C': 'shift-right', b'\x1b[1;2D': 'shift-left',
 }
 # Ctrl+H/J/K/L arrive as the control bytes BS, LF, VT, FF. Enter is CR, because
 # KeyReader turns off the terminal's CR-to-LF translation to keep the two apart.
@@ -25,11 +28,12 @@ CONTROL_KEYS = {b'\x08': 'ctrl-h', b'\n': 'ctrl-j', b'\x0b': 'ctrl-k', b'\x0c': 
 def decode_key(value, report_events=False):
     """Normalize a complete terminal byte sequence into a key name.
 
-    Plain terminals send one byte per key, or a short escape sequence for
-    arrows. Terminals that speak the Kitty keyboard protocol (enabled by
-    KeyReader when ``report_events`` is set) send ``ESC [ code ; mods : event u``
-    instead, which also reports key release (event 3) and auto-repeat (event 2).
-    That is what lets manual control hold two keys at once. With
+    Key case is kept (``P`` is not ``p``). Plain terminals send one byte per
+    key, or a short escape sequence for arrows. Terminals that speak the Kitty
+    keyboard protocol (enabled by KeyReader when ``report_events`` is set) send
+    ``ESC [ code ; mods : event u`` instead, which also reports key release
+    (event 3) and auto-repeat (event 2). That is what lets manual control hold
+    two keys at once. With
     ``report_events`` the result is prefixed ``press:``, ``repeat:`` or
     ``release:``.
     """
@@ -37,7 +41,7 @@ def decode_key(value, report_events=False):
     if re.fullmatch(rb'\x1b\[(?:99|67);[56](?::[12])?u', value):
         raise KeyboardInterrupt
     # Kitty key event: unicode code point, optional modifiers and event type.
-    event = re.fullmatch(rb'\x1b\[(\d+)(?::[\d:]*)?(?:;\d+(?::([123]))?)?(?:;[\d:]*)?u', value)
+    event = re.fullmatch(rb'\x1b\[(\d+)(?::[\d:]*)?(?:;(\d+)(?::([123]))?)?(?:;[\d:]*)?u', value)
     # Kitty arrow keys keep the legacy letters but add the event type.
     arrow = re.fullmatch(rb'\x1b\[1;\d+:([123])([ABCD])', value)
     if event:
@@ -47,12 +51,16 @@ def decode_key(value, report_events=False):
         # 573xx are Kitty's private-use code points for the arrow keys.
         key = {13: 'enter', 27: 'escape', 32: 'space',
                57352: 'up', 57353: 'down',
-               57350: 'left', 57351: 'right'}.get(code, chr(code).lower())
+               57350: 'left', 57351: 'right'}.get(code, chr(code))
+        # Kitty reports the unshifted code point; the shift modifier (bit 0 of
+        # modifiers - 1) makes it the upper-case key. Caps lock alone does not.
+        if len(key) == 1 and event[2] and (int(event[2]) - 1) & 1:
+            key = key.upper()
         if key == '\x03':
             raise KeyboardInterrupt
         if report_events:
-            return {b'2': 'repeat:', b'3': 'release:'}.get(event[2], 'press:') + key
-        return f'release:{key}' if event[2] == b'3' else key
+            return {b'2': 'repeat:', b'3': 'release:'}.get(event[3], 'press:') + key
+        return f'release:{key}' if event[3] == b'3' else key
     if arrow:
         key = {b'A': 'up', b'B': 'down', b'C': 'right', b'D': 'left'}[arrow[2]]
         if report_events:
@@ -71,13 +79,13 @@ def decode_key(value, report_events=False):
     if value in ARROW_SEQUENCES:
         # With event reporting on, a terminal sends an arrow press as the plain
         # sequence (only repeats and releases carry an event type), so it is a press.
-        plain = not ARROW_SEQUENCES[value].startswith('ctrl-')
+        plain = not ARROW_SEQUENCES[value].startswith(('ctrl-', 'shift-'))
         return ('press:' if report_events and plain else '') + ARROW_SEQUENCES[value]
     if value == b'\x1b[Z':  # Shift+Tab
         return 'backtab'
     if value == b'\x1b':
         return 'escape'
-    return value.decode('utf-8', errors='ignore').lower()
+    return value.decode('utf-8', errors='ignore')
 
 
 def terminal_write(sequence):

@@ -28,6 +28,7 @@ def select_option(console, title, options, shortcuts=None, open_keys=KeyReader, 
     with open_keys() as keys, live(render(), console=console, refresh_per_second=10) as view:
         while True:
             key = keys.read(timeout=0.1)
+            key = key.lower() if key and len(key) == 1 else key
             if key == 'up':
                 selected = (selected - 1) % len(options)
             elif key == 'down':

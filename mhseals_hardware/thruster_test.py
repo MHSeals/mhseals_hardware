@@ -84,6 +84,7 @@ class ThrusterTestTUI:
                     refresh_per_second=10, screen=False) as live:
                 while True:
                     key = keys.read(timeout=0.1)
+                    key = key.lower() if key and len(key) == 1 else key
                     if key in ('q', 'escape'):
                         return
                     if key == 'up':

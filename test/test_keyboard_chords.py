@@ -16,6 +16,9 @@ def test_event_type_survives_decode():
     assert decode_key(b'\x1b[119;1:1u', True) == 'press:w'
     assert decode_key(b'\x1b[119;1:2u', True) == 'repeat:w'
     assert decode_key(b'\x1b[119;1:3u', True) == 'release:w'
+    # Shift upper-cases characters only; named keys keep their names.
+    assert decode_key(b'\x1b[32;2u') == 'space'
+    assert decode_key(b'\x1b[27;2u', True) == 'press:escape'
 
 
 def test_diagonal_survives_initial_gap_and_one_key_repeating():
@@ -308,3 +311,20 @@ def test_held_key_stops_two_seconds_after_other_release():
     state.update('release:d', 2.0)
     assert state.update(None, 3.9) != (0, 0, 0)
     assert state.update(None, 4.1) == (0, 0, 0)
+
+
+def test_key_case_and_shift_decode():
+    assert decode_key(b'P') == 'P' and decode_key(b'p') == 'p'
+    assert decode_key(b'\x1b[112;2u') == 'P'   # Kitty shift
+    assert decode_key(b'\x1b[112;1u') == 'p'
+    assert decode_key(b'\x1b[112;65u') == 'p'  # caps lock alone is not shift
+    assert decode_key(b'\x1b[112;2:3u', True) == 'release:P'
+    assert [decode_key(b'\x1b[1;2' + c) for c in (b'A', b'B', b'C', b'D')] == [
+        'shift-up', 'shift-down', 'shift-right', 'shift-left']
+    assert decode_key(b'\x1b[1;2C', True) == 'shift-right'
+
+
+def test_manual_drives_with_caps_lock():
+    state = ManualState()
+    assert state.update(decode_key(b'W'), 0) == (.25, 0, 0)
+    assert state.update(decode_key(b'\x1b[119;2:1u', True), 0.1)[0] == .25

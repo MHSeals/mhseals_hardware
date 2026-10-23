@@ -58,7 +58,9 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 # Consume already queued events before publishing one coherent
                 # command; never publish an intermediate neutral between events.
                 for index in range(64):
-                    if key in ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape'):
+                    if key and key.lower() in (
+                            'x', 'm', 'escape',
+                            'press:x', 'press:m', 'press:escape'):
                         return
                     command = state.update(key, time.monotonic())
                     if key in ('space', 'press:space', 'focus-out'):
