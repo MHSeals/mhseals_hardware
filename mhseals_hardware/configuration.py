@@ -1,5 +1,7 @@
 """Shared, validated hardware configuration; loading never opens GPIO/PWM."""
 
+import contextlib
+import fcntl
 import math
 import os
 from pathlib import Path
@@ -159,6 +161,11 @@ def _merge_overrides(overrides):
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
     config = validate_config(dict(defaults, **overrides))
+    # ROS array parameters are typed by their elements: ints or a mix would declare the
+    # wrong type (or crash), so every matrix is a plain list of floats.
+    for key in ('thruster_matrix', 'decoupling', 'decoupling_negative'):
+        if config.get(key) is not None:
+            config[key] = [float(v) for v in config[key]]
     # Unset means "the same as decoupling". Filled in here so the driver always has a
     # concrete, declared parameter; written back out as null while it still matches.
     if config.get('decoupling_negative') is None:
@@ -194,9 +201,27 @@ def save_config(config, path=None):
     return _write_config(normalized, target)
 
 
+@contextlib.contextmanager
+def _locked(target):
+    """Serialize read-modify-write across processes.
+
+    The lock is a sidecar file: the config itself is replaced atomically, so
+    locking it would lock a stale inode.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target.parent / f'.{target.name}.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 def update_config(changes, path=None):
     """Persist only explicit overrides, retaining existing operator settings."""
     target = config_path(path)
+    with _locked(target):
+        return _update_locked(changes, target)
+
+
+def _update_locked(changes, target):
     overrides = _read_overrides(target)
     # A negative C equal to decoupling was following it: keep following, not split.
     if _follows(overrides.get('decoupling_negative'), _merge_overrides(overrides)['decoupling']):

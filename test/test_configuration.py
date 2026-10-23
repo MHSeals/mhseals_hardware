@@ -138,3 +138,38 @@ def test_malformed_speed_curves_fail(curves):
     from mhseals_hardware.configuration import load_defaults, validate_config
     with pytest.raises(ValueError, match='speed_curves'):
         validate_config(dict(load_defaults(), characterization={'speed_curves': curves}))
+
+
+@pytest.mark.parametrize('key,values', [
+    ('decoupling', [1, 0, 0, 0, 1, 0, 0.05, 0, 1]),
+    ('decoupling_negative', [1, 0, 0, 0, 1, 0, 0, 0, 1]),
+    ('thruster_matrix', [-1, 1, 1, -1, -1, -1, 1, -1, 1, 1, 1, -1]),
+])
+def test_matrices_are_normalized_to_floats(key, values, tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'{key}: {values}\n')
+    loaded = load_config(path)[key]
+    assert loaded == [float(v) for v in values]
+    assert all(type(v) is float for v in loaded)
+
+
+def _update_many(path, key, value, count):
+    from mhseals_hardware.configuration import update_config
+    for _ in range(count):
+        update_config({key: value}, path)
+
+
+def test_concurrent_updates_do_not_lose_edits(tmp_path):
+    import multiprocessing
+    from mhseals_hardware.configuration import update_config
+    path = tmp_path / 'hardware.yaml'
+    update_config({'manual_amplitude': 0.1}, path)
+    decoupling = [1.0, 0, 0, 0, 1.0, 0, 0.3, 0, 1.0]
+    jobs = [multiprocessing.Process(target=_update_many, args=(path, 'decoupling', decoupling, 60)),
+            multiprocessing.Process(target=_update_many, args=(path, 'manual_amplitude', 0.4, 60))]
+    for job in jobs:
+        job.start()
+    for job in jobs:
+        job.join()
+    config = load_config(path)
+    assert config['decoupling'][6] == 0.3 and config['manual_amplitude'] == 0.4
