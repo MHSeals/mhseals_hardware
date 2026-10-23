@@ -14,12 +14,17 @@ forwards ``select(now)``; all the rules live here.
 
 import hashlib
 import math
+from collections import deque
 
 MANUAL, HOLD, GUIDED, OTHER = 'MANUAL', 'HOLD', 'GUIDED', 'OTHER'
 # ArduRover mode numbers: the FCU's MODE1..6 values.
 MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
 # Upper edges (microseconds) of MODE1..5; MODE6 is everything above.
 MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
+
+# Hold causes renamed for the ``~/state`` ``cause`` field (authority.md 2.3).
+STATE_CAUSES = {'rc_stop': 'stop_channel', 'keys': 'manual_end'}
+RC_WINDOW = 50                    # frame intervals kept for rate and p95
 
 RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
 
@@ -81,6 +86,10 @@ class Arbitration:
         self._ramp_pending = True
         self._ramp_start = None
         self._since = None            # when the duplicate was first seen
+        self._intervals = deque(maxlen=RC_WINDOW)   # seconds between rc frames
+        self._input = None            # last selected source
+        self._input_since = None      # when it became the source
+        self._cause = 'idle'          # why it became the source
 
     @classmethod
     def from_config(cls, config):
@@ -122,6 +131,8 @@ class Arbitration:
     def update_rc(self, channels, now):
         """Store an RC frame (empty channels mean no receiver)."""
         was = self._channel(self.channels, self.stop_ch)
+        if self.rc_time is not None and now > self.rc_time:
+            self._intervals.append(now - self.rc_time)
         self.channels, self.rc_time = tuple(channels), now
         stop = self._channel(self.channels, self.stop_ch)
         if (self.valid(now) and was is not None and stop is not None
@@ -281,6 +292,7 @@ class Arbitration:
         zero = (0.0, 0.0, 0.0)
         if self.duplicate:
             self._ramp_pending = True
+            self._track_input('hold', now)
             return 'hold', zero
         if rc:
             cmd = tuple(v * s for v, s in zip(self._sticks(), self.rc_scale))
@@ -294,6 +306,7 @@ class Arbitration:
         else:
             cmd, source = zero, 'idle'
 
+        self._track_input(source, now)
         if source in ('rc', 'manual'):
             self._ramp_pending = True
         if source == 'auto':
@@ -304,19 +317,73 @@ class Arbitration:
                 cmd = tuple(v * scale for v in cmd)
         return source, cmd
 
-    def state(self, now):
-        """What ``~/state`` publishes: input, rc decode and the hold set."""
+    def _track_input(self, source, now):
+        """Remember when and why the source changed (for ``~/state``)."""
+        if source == self._input:
+            return
+        previous, self._input, self._input_since = self._input, source, now
+        if source == 'rc':
+            self._cause = 'rc_stick' if self.latched else 'rc_switch'
+        elif source == 'hold':
+            first = min(self.holds.values(), key=lambda h: h['since'], default=None)
+            cause = first['cause'] if first else 'duplicate'
+            self._cause = STATE_CAUSES.get(cause, cause)
+        elif source == 'auto' and previous == 'hold':
+            self._cause = 'release'
+        else:
+            self._cause = source if source in ('manual', 'auto') else 'idle'
+
+    def _rc_rate(self):
+        """``(rate_hz, interval_p95_s)`` over the last frames, or Nones."""
+        if not self._intervals:
+            return None, None
+        ordered = sorted(self._intervals)
+        p95 = ordered[min(len(ordered) - 1, int(0.95 * len(ordered)))]
+        return len(ordered) / sum(ordered), p95
+
+    @staticmethod
+    def _age(stamp, now):
+        return None if stamp is None else round(now - stamp, 3)
+
+    def state(self, now, wall_ns=None, pipeline_ms=None):
+        """What ``~/state`` publishes (authority.md 2.3), minus schema/seq/t_ns.
+
+        Times here are the node's monotonic seconds, which no other host can
+        read; given ``wall_ns`` (wall clock at ``now``) each ``since`` is also
+        published as ``since_ns`` on the wall clock.
+        """
         source, _ = self.select(now)
+
+        def wall(stamp):
+            return None if wall_ns is None or stamp is None else int(
+                wall_ns - (now - stamp) * 1e9)
+
         holds = sorted(self.holds.values(), key=lambda h: h['since'])
         if self.duplicate:
             holds.append({'cause': 'duplicate', 'by': 'mux', 'since': self._since,
                           'token': None})
-        return {'input': source,
-                'rc': {'valid': self.valid(now),
-                       'mode': self.mode if self.valid(now) else None,
-                       'latched': self.latched},
+        valid = self.valid(now)
+        rate, p95 = self._rc_rate()
+        pwm = self._channel(self.channels, self.mode_ch)
+        hold = None
+        if holds:
+            hold = {k: holds[0][k] for k in ('by', 'cause')}
+            hold['since_ns'] = wall(holds[0]['since'])
+        return {'input': source, 'since_ns': wall(self._input_since),
+                'cause': self._cause, 'hold': hold,
+                'rc': {'valid': valid, 'mode': self.mode if valid else None,
+                       'latched': self.latched, 'stick': self.latched,
+                       'pwm_mode': pwm, 'rate_hz': rate and round(rate, 1),
+                       'interval_p95_s': p95 and round(p95, 3),
+                       'age_s': self._age(self.rc_time, now),
+                       'stop_edge': 'rc_stop' in self.holds},
+                'manual': {'age_s': self._age(self.manual_time, now), 'node': None},
+                'auto': {'age_s': self._age(self.auto_time, now),
+                         'active': self._fresh(self.auto_time, now)},
+                'rejected': self.rejected, 'pipeline_ms': pipeline_ms,
                 # The token is a secret of the holder: only its presence shows.
                 'holds': [{**{k: v for k, v in h.items() if k != 'token'},
+                           'since_ns': wall(h['since']),
                            'has_token': h['token'] is not None}
                           for h in holds],
                 'last_release': self.last_release}

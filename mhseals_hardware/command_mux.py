@@ -64,6 +64,8 @@ class CommandMux(Node):
         self.create_timer(0.5, self.check_duplicate)
         self.create_timer(1.0, lambda: self.publish_state(force=True))
         self._last_state = None
+        self._seq = 0
+        self._pipeline_ms = None
 
     def check_duplicate(self):
         """Hold at zero while another node also publishes ``/cmd_vel/applied``.
@@ -117,15 +119,26 @@ class CommandMux(Node):
 
     def publish_state(self, force=False):
         """Publish ``~/state`` when it changed, or always with ``force``."""
-        state = self.arbitration.state(time.monotonic())
+        state = self.arbitration.state(time.monotonic(), time.time_ns(),
+                                       self._pipeline_ms)
         text = json.dumps(state, sort_keys=True)
+        # seq and t_ns change every call, so compare the body without them.
         if force or text != self._last_state:
             self._last_state = text
+            self._seq += 1
+            state.update(schema='mhseals.mux/1', seq=self._seq, t_ns=time.time_ns())
+            text = json.dumps(state, sort_keys=True)
             self.state_pub.publish(String(data=text))
 
     def _rc(self, message):
+        start = time.perf_counter()
         self.arbitration.update_rc(list(message.channels), time.monotonic())
-        self.forward()
+        _, cmd = self.arbitration.select(time.monotonic())
+        self.persist_holds()
+        self.applied.publish(twist_from(cmd))
+        # Receipt to applied publish, measured here; reported with the next state.
+        self._pipeline_ms = round((time.perf_counter() - start) * 1e3, 3)
+        self.publish_state()
 
     def _manual(self, message):
         self.arbitration.update_manual(twist_values(message), time.monotonic())

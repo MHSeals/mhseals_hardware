@@ -344,3 +344,37 @@ def test_adopted_hold_blocks_auto_and_keeps_its_token():
     b.update_auto((1.0, 0.0, 0.0), 5.0)
     assert b.select(5.0)[0] == 'hold'
     assert b.request('release', 'apply', 'x', 6.0, token='t1')[0]
+
+
+STATE_FIELDS = {'input', 'since_ns', 'cause', 'hold', 'rc', 'manual', 'auto',
+                'rejected', 'pipeline_ms', 'holds', 'last_release'}
+RC_FIELDS = {'valid', 'mode', 'latched', 'stick', 'pwm_mode', 'rate_hz',
+             'interval_p95_s', 'age_s', 'stop_edge'}
+
+
+def test_state_has_the_authority_fields_and_wall_clock_times():
+    a = Arbitration()
+    for i in range(5):
+        a.update_rc([1500, 1500, 1500, 1500, 1500, 1800, 1500, 1100], i * 0.04)
+        a.select(i * 0.04)            # the node selects on every frame
+    state = a.state(0.2, wall_ns=10**18, pipeline_ms=0.8)
+    assert STATE_FIELDS <= set(state) and RC_FIELDS <= set(state['rc'])
+    assert state['input'] == 'rc' and state['cause'] == 'rc_switch'
+    assert state['rc']['pwm_mode'] == 1100 and state['rc']['rate_hz'] == 25.0
+    assert state['pipeline_ms'] == 0.8 and state['auto'] == {'age_s': None, 'active': False}
+    assert state['since_ns'] == 10**18 - int(0.2e9)
+
+
+def test_state_cause_names_the_hold_and_the_release():
+    a = Arbitration()
+    a.update_rc([1500, 1500, 1500, 1500, 1500, 1800, 1500, 1500], 0.0)   # HOLD switch
+    state = a.state(0.01, wall_ns=10**18)
+    assert state['cause'] == 'rc_switch' and state['hold']['by'] == 'rc'
+    assert state['holds'][0]['since_ns'] == 10**18 - int(0.01e9)
+    b = Arbitration()
+    b.request('hold', 'tui', 'tui', 0.0)
+    b.update_auto((0.1, 0, 0), 0.1)
+    assert b.state(0.1)['cause'] == 'tui'
+    b.request('release', 'tui', 'tui', 0.2)
+    b.update_auto((0.1, 0, 0), 0.2)
+    assert b.state(0.2)['cause'] == 'release'

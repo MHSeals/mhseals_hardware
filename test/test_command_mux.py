@@ -1,5 +1,6 @@
 """command_mux forwards a human input in the callback that receives it."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,13 @@ def test_rc_frame_reaches_applied_in_the_same_callback():
         node._rc(frame)
         assert sent and sent[-1].linear.x == pytest.approx(0.5)
         assert node.arbitration.select(command_mux.time.monotonic())[0] == 'rc'
+        assert node._pipeline_ms < 5          # hw04: receipt to applied publish
+        states = []
+        node.state_pub.publish = states.append
+        node.publish_state(force=True)
+        state = json.loads(states[-1].data)
+        assert state['schema'] == 'mhseals.mux/1' and state['seq'] >= 1
+        assert state['pipeline_ms'] < 5 and state['t_ns'] > 0 and state['cause'] == 'rc_switch'
         node.destroy_node()
     finally:
         rclpy.try_shutdown()
@@ -68,6 +76,24 @@ def test_node_restart_keeps_a_hold(tmp_path):
         node.destroy_node()
         node = command_mux.CommandMux()
         assert 'keys' in node.arbitration.holds
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()
+
+
+def test_rc_switch_hold_is_saved_before_the_command_goes_out(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'command_mux: {{state_file: {tmp_path / "mux.json"}}}\n')
+    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_rc_hold',
+                     '-p', f'config_file:={path}'])
+    try:
+        node = command_mux.CommandMux()
+        node.applied.publish = lambda message: None
+        frame = RCIn()
+        frame.channels = [1500, 1500, 1500, 1500, 1500, 1800, 1500, 1500]   # HOLD
+        node._rc(frame)
+        saved = json.loads((tmp_path / 'mux.json').read_text())
+        assert [row['cause'] for row in saved] == ['rc_switch']
         node.destroy_node()
     finally:
         rclpy.try_shutdown()
