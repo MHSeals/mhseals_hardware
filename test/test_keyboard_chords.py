@@ -54,33 +54,68 @@ def test_stop_and_timeout_cannot_rearm_from_repeat(stop):
     assert state.update('press:w', 1.03) == (.25, 0, 0)
 
 
-def test_legacy_remains_single_key_not_phantom_chords():
+def test_plain_keys_replace_each_other_because_only_the_newest_repeats():
     state = ManualState()
     state.update('w', 0)
     assert state.update('d', .1) == (0, -.25, 0)
-    assert state.update(None, .5) == (0, -.25, 0)
-    assert state.update(None, .76) == (0, 0, 0)
+    assert state.update('d', .5) == (0, -.25, 0)
+    assert state.update('left', .6) == (0, 0, .125)
+    assert state.update('s', .65) == (-.25, 0, 0)
+    assert state.update(None, 1.31) == (0, 0, 0)  # repeats stopped
+    assert not state.chords
+
+
+def test_tmux_yaw_stops_when_another_key_takes_over():
+    # tmux forwards no Kitty events: arrows arrive bare, so every repeat
+    # decodes as a press, letters arrive plain, and no release ever comes.
+    state = ManualState()
+    left = decode_key(b'\x1b[D', True)
+    for tick in range(0, 50, 5):
+        assert state.update(left, tick / 100) == (0, 0, .125)
+    assert state.update(decode_key(b'w', True), .5) == (.25, 0, 0)
+    for tick in range(55, 150, 5):  # the left arrow was let go; only w repeats
+        assert state.update(decode_key(b'w', True), tick / 100) == (.25, 0, 0)
+    assert not state.chords
 
 
 @pytest.mark.parametrize('key,expected', [
     (b'w', (.25, 0, 0)), (b's', (-.25, 0, 0)),
     (b'a', (0, .25, 0)), (b'd', (0, -.25, 0)),
 ])
-def test_plain_wasd_still_drives_after_an_arrow_event(key, expected):
+def test_plain_wasd_replaces_an_unconfirmed_arrow(key, expected):
+    # Before any event, a bare arrow may be tmux's plain key with no release.
     state = ManualState()
     assert state.update(decode_key(b'\x1b[D', True), 0) == (0, 0, .125)
     assert state.update(decode_key(key, True), .05) == expected
-    assert not state.event_mode  # No releases: use the single-key deadman fallback.
-    assert state.update(None, .71) == (0, 0, 0)
+    assert state.update('release:left', .1) == expected
+    assert state.update(None, .76) == (0, 0, 0)
 
 
-def test_late_yaw_repeat_cannot_cancel_new_plain_translation():
+def test_yaw_and_plain_translation_combine_and_release_separately():
     state = ManualState()
     state.update('press:left', 0)
-    state.update('w', .05)
-    assert state.update('repeat:left', .1) == (.25, 0, 0)
+    state.update('repeat:left', .05)  # events confirmed: the arrow will report its release
+    assert state.update('w', .1) == (.25, 0, .125)
     assert state.update('release:left', .15) == (.25, 0, 0)
-    assert state.update(None, .71) == (0, 0, 0)
+    assert state.update(None, .81) == (0, 0, 0)
+
+
+def test_kitty_letter_press_chords_from_the_first_key():
+    state = ManualState()
+    state.update(decode_key(b'\x1b[119u', True), 0)
+    assert state.chords
+    diagonal = (.25 / math.sqrt(2), -.25 / math.sqrt(2), 0)
+    assert state.update(decode_key(b'\x1b[100u', True), .05) == diagonal
+    assert state.command == state.update(None, .1)
+
+
+def test_bare_arrow_is_promoted_once_its_repeat_proves_events():
+    state = ManualState()
+    state.update('press:left', 0)
+    state.update('repeat:left', .3)
+    state.update('press:w', .35)
+    assert state.command == (.25, 0, .125)
+    assert state.update('release:w', .4) == (0, 0, .125)
 
 
 def test_real_pty_fragmented_and_queued_events():

@@ -19,7 +19,7 @@ from mhseals_hardware.configuration import load_config
 from mhseals_hardware.manual_state import ManualState
 
 
-def manual_panel(active='NEUTRAL', amplitude=0.25, event_mode=False):
+def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False):
     """Render controls and the currently commanded direction."""
     return Panel(
         '[bold]W/S or ↑/↓[/] forward/reverse    '
@@ -28,10 +28,10 @@ def manual_panel(active='NEUTRAL', amplitude=0.25, event_mode=False):
         '[bold]Space[/] stop    [bold]X[/] return\n\n'
         f'Command: [yellow]{active}[/]    Speed: {amplitude:.0%} '
         '([bold]+/-[/] adjust by 5%)\n' +
-        ('[dim]Multi-key mode: W+D diagonal; arrows add yaw. Release stops each key.[/]'
-         if event_mode else
-         '[yellow]Single-key fallback: terminal has not sent key events. '
-         'Use a Kitty-protocol terminal for held-key combinations.[/]') +
+        ('[dim]Chords: hold W+D, add ←/→. Each key stops on its own release.[/]'
+         if chords else
+         '[yellow]Single key: this terminal (or tmux) reports no releases; '
+         'newest key drives.[/]') +
         '\n[dim]Space clears all motion. Input timeout clears held keys; '
         'release and press again to re-arm.[/]',
         title='Manual control', border_style='yellow')
@@ -72,7 +72,7 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                                  zip(('SURGE', 'SWAY', 'YAW'), command) if value)
                 publish_manual(message_publisher, command)
                 render = status_panel or manual_panel
-                live.update(render(label or 'NEUTRAL', state.amplitude, state.event_mode))
+                live.update(render(label or 'NEUTRAL', state.amplitude, state.chords))
     finally:
         publish_manual(message_publisher)
 

@@ -8,9 +8,23 @@ MANUAL_KEYS = {
     'a': ('sway', 1.0), 'd': ('sway', -1.0),
     'left': ('yaw', 1.0), 'right': ('yaw', -1.0),
 }
+# A bare arrow is a Kitty press or a plain key (tmux forwards no events), so
+# only a later repeat or release proves the terminal reports releases.
+ARROWS = ('up', 'down', 'left', 'right')
 
 
 class ManualState:
+    """Held motion keys -> one (surge, sway, yaw) effort command.
+
+    Once the terminal reports releases (Kitty protocol, also over SSH), held
+    keys chord and each stops on its own release. Until then (tmux, plain
+    terminals) one key drives: the newest replaces it, and it stops when its
+    repeats do. One watchdog covers every key, because a terminal repeats
+    only the newest: expiring keys separately would break diagonals.
+
+    ``chords`` and ``command`` are what a display shows.
+    """
+
     def __init__(self, amplitude=0.25, repeat_timeout=0.15, initial_timeout=0.65,
                  yaw_scale=0.5):
         if not math.isfinite(amplitude) or not 0 <= amplitude <= 1:
@@ -23,66 +37,63 @@ class ManualState:
         self.amplitude = amplitude
         self.repeat_timeout = repeat_timeout
         self.initial_timeout = initial_timeout
-        # Yaw is far more aggressive than translation at the same effort.
-        self.yaw_scale = yaw_scale
-        self.key = None
+        self.yaw_scale = yaw_scale  # yaw is far more aggressive at the same effort
         self.deadline = 0.0
-        self.held = set()
-        self.event_mode = False
+        self.held = set()   # keys that will report their release
+        self.single = None  # the one key that won't: held while it repeats
+        self.chords = False
         self.focused = True
+        self.command = (0.0, 0.0, 0.0)
+
+    @property
+    def event_mode(self):  # TODO drop once mhseals_testing reads ``chords``
+        return self.chords
 
     def update(self, key, now):
-        # A shared watchdog is intentional: terminals usually repeat only the
-        # newest held key. Expiring each key separately breaks diagonal holds.
         if now >= self.deadline:
-            self.key = None
             self.held.clear()
+            self.single = None
         kind, _, name = (key or '').partition(':')
         if kind not in ('press', 'repeat', 'release'):
-            kind, name = 'legacy', key
-        elif kind == 'press':
-            self.event_mode = True
+            kind, name = 'plain', key
+        if kind in ('repeat', 'release') or (kind == 'press' and name not in ARROWS):
+            self.chords = True
+            if name == self.single and kind != 'release':
+                self.held.add(name)  # a bare arrow that turned out to report events
+                self.single = None
         if name == 'focus-out':
             self.focused = False
         elif name == 'focus-in':
             self.focused = True
         if name in ('space', 'focus-out', 'focus-in') and kind != 'release':
-            self.key = None
             self.held.clear()
+            self.single = None
         elif kind == 'release':
             self.held.discard(name)
-            if name == self.key:
-                self.key = None
+            if name == self.single:
+                self.single = None
             # The OS may restart its initial repeat delay for the remaining key.
-            if self.held:
+            if self.held or self.single:
                 self.deadline = now + self.initial_timeout
         elif name in ('+', '=', '-', '_'):
             self.amplitude = round(max(0.0, min(1.0, self.amplitude +
                                    (0.05 if name in ('+', '=') else -0.05))), 2)
-        elif name in MANUAL_KEYS and self.focused and kind in ('press', 'repeat'):
-            # Never re-arm a timed-out/stopped chord from repeat events alone.
-            if kind == 'press':
-                self.held.add(name)
-                self.deadline = now + self.initial_timeout
-                self.key = None
-            elif name in self.held:
-                self.deadline = now + self.repeat_timeout
         elif name in MANUAL_KEYS and self.focused:
-            # Some terminals mix event-style arrows with plain WASD. A plain
-            # motion key must remain usable, with no unreleasable held chord.
-            self.event_mode = False
-            self.held.clear()
-            timeout = (self.repeat_timeout if name == self.key
-                       else self.initial_timeout)
-            self.key = name
-            self.deadline = now + timeout
-        keys = self.held if self.event_mode else ({self.key} if self.key else set())
-        # Aliases do not double an axis, opposing directions cancel.
+            if name in self.held or name == self.single:
+                self.deadline = now + self.repeat_timeout
+            elif kind != 'repeat':  # never re-arm a stopped key from repeats alone
+                if self.chords and kind == 'press':
+                    self.held.add(name)
+                else:
+                    self.single = name
+                self.deadline = now + self.initial_timeout
+        # Aliases do not double an axis; opposites cancel.
         axes = {axis: set() for axis in ('surge', 'sway', 'yaw')}
-        for active in keys:
+        for active in self.held | ({self.single} if self.single else set()):
             axis, direction = MANUAL_KEYS[active]
             axes[axis].add(direction)
         x, y, yaw = (sum(axes[axis]) for axis in ('surge', 'sway', 'yaw'))
         scale = max(1.0, math.hypot(x, y))
-        return (x / scale * self.amplitude, y / scale * self.amplitude,
-                yaw * self.amplitude * self.yaw_scale)
+        self.command = (x / scale * self.amplitude, y / scale * self.amplitude,
+                        yaw * self.amplitude * self.yaw_scale)
+        return self.command
