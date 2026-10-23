@@ -72,7 +72,7 @@ class TopicPWMOutputs:
     def neutral(self):
         self.set_pulse_widths([self.neutral_us] * 4)
 
-    def close(self):
+    def close(self, unexport=False):
         if self.publisher is None:
             return
         self.node.destroy_timer(self.timer)
@@ -86,6 +86,25 @@ class TopicPWMOutputs:
             if self.started_rclpy:
                 import rclpy
                 rclpy.try_shutdown()
+
+
+OUTPUT_KEYS = ('output_backend', 'pwm_topic', 'pwm_chips', 'pwm_channels', 'mosfet_chip',
+               'mosfet_line', 'mosfet_active_high')
+
+
+def switch_outputs(outputs, old, new, node=None, make=None):
+    """Move live outputs to new pins or backend; returns (outputs, error).
+
+    Neutral, ESC power off, release the old channels, open the new ones at
+    neutral, power on. If the new outputs fail to open, the old ones reopen.
+    """
+    make = make or make_outputs
+    outputs.neutral()
+    outputs.close(unexport=True)
+    try:
+        return make(new, node=node).open(), None
+    except Exception as error:
+        return make(old, node=node).open(), error
 
 
 def make_outputs(config, node=None):

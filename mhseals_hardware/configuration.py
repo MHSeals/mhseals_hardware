@@ -111,6 +111,28 @@ def load_config(path=None):
     return _merge_overrides(_read_overrides(selected))
 
 
+class ConfigWatcher:
+    """Reload the hardware YAML when its mtime changes."""
+
+    def __init__(self, path):
+        self.path = path
+        self.mtime = self._stat()
+
+    def _stat(self):
+        try:
+            return os.stat(config_path(self.path)).st_mtime_ns
+        except OSError:
+            return None
+
+    def poll(self):
+        """The new config after an edit, else None; raises OSError/ValueError/KeyError on a bad one."""
+        mtime = self._stat()
+        if mtime is None or mtime == self.mtime:
+            return None
+        self.mtime = mtime
+        return load_config(self.path)
+
+
 def _read_overrides(path):
     overrides = yaml.safe_load(path.read_text()) if path.exists() else {}
     if not isinstance(overrides, dict):

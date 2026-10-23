@@ -221,6 +221,7 @@ class OdroidPWMOutputs:
         self.mosfet = (MosfetEnable(mosfet_chip, mosfet_line,
                                     mosfet_active_high)
                         if mosfet_chip else None)
+        self.opened = False
 
     @classmethod
     def from_config(cls, config):
@@ -250,6 +251,7 @@ class OdroidPWMOutputs:
                 except Exception:
                     pass
             raise
+        self.opened = True
         return self
 
     def set_pulse_widths(self, values):
@@ -264,9 +266,12 @@ class OdroidPWMOutputs:
     def neutral(self):
         self.set_pulse_widths([self.neutral_us] * 4)
 
-    def close(self):
+    def close(self, unexport=False):
         # Cut ESC power first, then neutralize and disable each channel. Keep
         # going after errors so one bad channel cannot leave another running.
+        if not self.opened:
+            return
+        self.opened = False
         first_error = None
         if self.mosfet is not None:
             try:
@@ -279,7 +284,7 @@ class OdroidPWMOutputs:
             except Exception as error:
                 first_error = first_error or error
             try:
-                channel.close()
+                channel.close(unexport)
             except Exception as error:
                 first_error = first_error or error
         if first_error is not None:

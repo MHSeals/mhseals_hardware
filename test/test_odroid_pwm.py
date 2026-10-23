@@ -152,3 +152,28 @@ def test_close_disables_every_channel_after_one_neutral_failure(tmp_path,
         outputs.close()
     for channel in outputs.channels:
         assert (channel.path / 'enable').read_text() == '0'
+
+
+def test_close_unexports_only_channels_exported_here(tmp_path, monkeypatch):
+    chips = [fake_chip(tmp_path, 0)]  # pwm0 already exported, as by the boot service
+    for number in range(1, 4):
+        chips.append(tmp_path / f'pwmchip{number}')
+        chips[-1].mkdir()
+    for chip in chips:
+        (chip / 'unexport').write_text('')
+    write = SysfsPWMChannel._write
+
+    def export_creates_pwm(path, value):
+        if path.name == 'export':  # the kernel makes the channel directory
+            fake_chip(path.parent.parent, int(path.parent.name[-1]))
+        else:
+            write(path, value)
+
+    monkeypatch.setattr(SysfsPWMChannel, '_write', staticmethod(export_creates_pwm))
+    outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
+    outputs.close(unexport=True)
+    assert (chips[0] / 'unexport').read_text() == ''
+    assert all((chip / 'unexport').read_text() == '0' for chip in chips[1:])
+    (chips[1] / 'unexport').write_text('')
+    outputs.close(unexport=True)  # idempotent: nothing is released twice
+    assert (chips[1] / 'unexport').read_text() == ''

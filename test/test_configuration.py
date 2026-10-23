@@ -1,9 +1,10 @@
 import argparse
+import os
 
 import pytest
 
 from mhseals_hardware.configuration import (
-    configure_args, load_config, save_config, validate_config,
+    ConfigWatcher, configure_args, load_config, save_config, update_config, validate_config,
 )
 from mhseals_hardware.keyboard import decode_key
 
@@ -82,3 +83,22 @@ def test_update_only_persists_explicit_settings(tmp_path):
     with pytest.raises(ValueError):
         update_config({'channel_map': [1]}, path)
     assert path.read_text() == before
+
+
+def test_watcher_reports_an_edit_once_and_rejects_a_bad_one(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+
+    def edit(text, tick):
+        path.write_text(text)
+        os.utime(path, ns=(tick, tick))  # a coarse filesystem clock could repeat an mtime
+
+    edit('command_timeout: 0.4\n', 1)
+    watch = ConfigWatcher(path)
+    assert watch.poll() is None
+    edit('command_timeout: 0.3\n', 2)
+    assert watch.poll()['command_timeout'] == 0.3
+    assert watch.poll() is None
+    edit('command_timeout: -1\n', 3)
+    with pytest.raises(ValueError):
+        watch.poll()
+    assert watch.poll() is None  # a bad edit is reported once, not every tick

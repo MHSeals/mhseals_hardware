@@ -137,8 +137,9 @@ without a calibrated velocity controller.
 It subscribes to `cmd_vel` (`geometry_msgs/msg/Twist`): `linear.x` is forward,
 `linear.y` is port/left, and `angular.z` is counterclockwise. A 500 ms command
 timeout returns every channel to neutral. Relevant parameters are
-`frequency`, `command_timeout`, `channel_map`, `thruster_matrix`, `decoupling`,
-`pwm_chips`, `pwm_channels`, `mosfet_chip`, and `mosfet_line`.
+`command_timeout`, `channel_map`, `thruster_matrix`, `decoupling`, `reversed`,
+`output_backend`, `pwm_topic`, `pwm_chips`, `pwm_channels`, `mosfet_chip`,
+`mosfet_line` and `mosfet_active_high`.
 
 The default mixer rows are FL, FR, RR, RL and columns are surge, sway, yaw:
 
@@ -157,10 +158,13 @@ Use `channel_map` to map canonical positions to physical outputs, for example
 
 `reversed` (FL, FR, RR, RL booleans) flips a thruster that is wired or mounted
 backwards; `thruster_identify` and the test suite's thruster set record it.
-When started with `config_file`, the node reloads `channel_map`,
-`thruster_matrix`, `decoupling`, `reversed` and `command_timeout` within a second of the YAML
-changing, without disarming; pin and backend changes need a restart. For bench
-tests it also takes raw pulses per physical output on `~/test_pulses`
+When started with `config_file`, the node applies edits to the YAML within a
+second, without disarming; only the keys the file changed, so a launch override
+survives an unrelated edit. A pin, MOSFET or backend edit moves the outputs:
+neutral, ESC power off, old channels released, new ones opened at neutral, power
+on. If the new outputs fail to open, the old ones reopen and the error is
+logged. The node then holds neutral until the next command. For bench tests it
+also takes raw pulses per physical output on `~/test_pulses`
 (`std_msgs/msg/UInt16MultiArray`, 1100-1900 us), under the same watchdog.
 
 ### Simulator outputs
