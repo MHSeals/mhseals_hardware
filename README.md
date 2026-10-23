@@ -262,8 +262,9 @@ Shared YAML configuration, pin persistence, and keyboard behavior are documented
 in this README. The operator commands are
 `keyboard_control` (cmd_vel keyboard publisher), `thruster_pwm_node` (real
 outputs), `thruster_test` (direct PWM test), `thruster_identify` (output mapping),
-`calibrated_velocity_controller` (m/s to effort), and `remote_controller` (MAVROS
-RC input). Run only one cmd_vel controller.
+`calibrated_velocity_controller` (m/s to effort), and `command_mux` (MAVROS RC input,
+`/cmd_vel/manual` and `/cmd_vel` arbitrated into `/cmd_vel/applied`; the ch6 stop
+switch holds, it is not a kill). Run only one cmd_vel controller.
 
 Run the ROS-independent tests with:
 

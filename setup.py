@@ -27,7 +27,7 @@ setup(
             'thruster_identify = mhseals_hardware.identification:main',
             'calibrated_velocity_controller = mhseals_hardware.velocity_controller:main',
             'keyboard_control = mhseals_hardware.keyboard_control:main',
-            'remote_controller = mhseals_hardware.remote_controller:main',
+            'command_mux = mhseals_hardware.command_mux:main',
         ],
     },
 )
