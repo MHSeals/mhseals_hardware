@@ -88,6 +88,22 @@ def decode_key(value, report_events=False):
     return value.decode('utf-8', errors='ignore')
 
 
+# Terminal capability probe, sent once by KeyReader: a 1x1 kitty graphics query,
+# XTVERSION, the cell size in pixels (CSI 16 t) and DA1 last. Every terminal answers
+# DA1, so its reply closes the probe: a graphics "OK" reply that comes later (or
+# never, as under tmux) does not count.
+GRAPHICS_ID = 31
+PROBE = (f'\x1b_Gi={GRAPHICS_ID},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\'
+         '\x1b[>0q\x1b[16t\x1b[c')
+# Strings end at ST (ESC \); OSC may also end at BEL.
+STRING_INTRODUCERS = (b'_', b'P', b']', b'^', b'X')
+
+
+def string_complete(buffer):
+    """True once an APC/DCS/OSC/PM/SOS string in ``buffer`` has its terminator."""
+    return buffer.endswith(b'\x1b\\') or (buffer[1:2] == b']' and buffer.endswith(b'\x07'))
+
+
 def terminal_write(sequence):
     """Send a control sequence to the real terminal.
 
@@ -108,6 +124,38 @@ class KeyReader:
         self.report_events = report_events
         self.buffer = bytearray()
         self.escape_started = None
+        self.graphics = False  # kitty graphics answered before DA1
+        self.cell_px = None  # (width, height) of one cell in pixels, if reported
+        self.xtversion = None
+        self.probed = False  # DA1 seen: the probe replies are all in
+        self.probe = report_events
+
+    def absorb(self, value):
+        """Consume a terminal reply to the probe; True when ``value`` was one.
+
+        Replies are never keys: the APC graphics answer, the DCS XTVERSION
+        answer, ``CSI 6 ; h ; w t`` (cell size) and the DA1 ``CSI ? ... c``.
+        """
+        if value[:2] == b'\x1b_':
+            if not self.probed and value.startswith(b'\x1b_Gi=%d;OK' % GRAPHICS_ID):
+                self.graphics = True
+            return True
+        if value[:2] == b'\x1bP':
+            if value.startswith(b'\x1bP>|'):
+                self.xtversion = value[4:-2].decode('utf-8', errors='replace')
+            return True
+        if value[:2] in (b'\x1b]', b'\x1b^', b'\x1bX'):
+            return True
+        size = re.fullmatch(rb'\x1b\[6;(\d+);(\d+)t', value)
+        if size:
+            height, width = int(size[1]), int(size[2])
+            if height > 0 and width > 0:
+                self.cell_px = (width, height)
+            return True
+        if re.fullmatch(rb'\x1b\[\?[\d;]*c', value):
+            self.probed = True
+            return True
+        return False
 
     def __enter__(self):
         if not sys.stdin.isatty():
@@ -127,6 +175,8 @@ class KeyReader:
             # Kitty keyboard protocol: disambiguate, event types, all keys.
             # Unsupported terminals ignore this request and retain the fallback.
             terminal_write('\x1b[>11u\x1b[?1004h')
+        if self.probe and not (os.environ.get('NO_COLOR') or os.environ.get('MHS_ASCII')):
+            terminal_write(PROBE)
         return self
 
     def __exit__(self, *_):
@@ -152,6 +202,8 @@ class KeyReader:
                 if self.buffer[0] == 27:
                     if len(self.buffer) == 1:
                         complete = now - self.escape_started >= 0.05
+                    elif self.buffer[1:2] in STRING_INTRODUCERS:
+                        complete = string_complete(self.buffer)
                     elif self.buffer[1] not in (ord('['), ord('O')):
                         complete = True
                     else:
@@ -159,8 +211,10 @@ class KeyReader:
                 if complete:
                     value = bytes(self.buffer)
                     self.buffer.clear()
+                    if value[0] == 27 and self.absorb(value):
+                        continue
                     return decode_key(value, self.report_events)
-                if len(self.buffer) > 64 or now - self.escape_started > 1.0:
+                if len(self.buffer) > (512 if self.buffer[1:2] in STRING_INTRODUCERS else 64) or now - self.escape_started > 1.0:
                     self.buffer.clear()
                     raise ValueError('incomplete or oversized terminal key sequence')
             wait = None if deadline is None else max(0.0, deadline - now)
