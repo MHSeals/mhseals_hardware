@@ -51,6 +51,17 @@ def validate_config(config):
             if any(not isinstance(value, (int, float)) or not math.isfinite(value)
                    for value in row.values()):
                 raise ValueError('characterization.velocity_gain values must be finite')
+    curves = characterization.get('speed_curves')
+    if curves:
+        if not isinstance(curves, dict):
+            raise ValueError('characterization.speed_curves must be a mapping')
+        for key, curve in curves.items():
+            if key not in ('surge+', 'surge-', 'sway+', 'sway-', 'yaw+', 'yaw-'):
+                raise ValueError(f'characterization.speed_curves has unknown direction {key}')
+            if not isinstance(curve, dict) or any(
+                    not isinstance(curve.get(term), (int, float)) or
+                    not math.isfinite(curve[term]) for term in ('d1', 'd2')):
+                raise ValueError(f'characterization.speed_curves.{key} needs finite d1 and d2')
     bias = characterization.get('mechanical_bias')
     if bias and (not isinstance(bias, dict) or any(
             axis not in bias or not isinstance(bias[axis], (int, float)) or

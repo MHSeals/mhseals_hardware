@@ -130,3 +130,11 @@ def test_update_keeps_a_following_negative_following_and_a_real_split(tmp_path):
     path.write_text(yaml.safe_dump({'decoupling': first, 'decoupling_negative': split}))
     update_config({'decoupling': second}, path)
     assert yaml.safe_load(path.read_text())['decoupling_negative'] == split
+
+
+@pytest.mark.parametrize('curves', [
+    {'heave+': {'d1': 1.0, 'd2': 0.0}}, {'surge+': {'d1': 1.0}}, {'surge+': {'d1': float('nan'), 'd2': 0.0}}])
+def test_malformed_speed_curves_fail(curves):
+    from mhseals_hardware.configuration import load_defaults, validate_config
+    with pytest.raises(ValueError, match='speed_curves'):
+        validate_config(dict(load_defaults(), characterization={'speed_curves': curves}))

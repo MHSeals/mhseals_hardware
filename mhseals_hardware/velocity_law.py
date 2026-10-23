@@ -7,7 +7,8 @@ The characterization (mhseals_testing) fits the body velocity as
 with ``b_m`` a body-fixed mechanical bias (ESC trim), ``d_w`` the world-fixed
 drift of current and wind, ``G`` the gain and ``e`` the effort. Mechanical
 cross-coupling is cancelled ahead of the mixer by the ``decoupling`` matrix C,
-so the plant this law sees is ``G_eff = G_raw C``. The drift changes from day
+so the plant this law sees is ``G_eff = G_raw C``. Only its diagonal is kept, as
+the linear fallback for the per-direction speed curves. The drift changes from day
 to day, so it is not stored: it is estimated here, in the world frame, and
 rotated into the body every cycle so the estimate survives turns.
 """
@@ -17,6 +18,9 @@ import numpy
 
 from mhseals_hardware.configuration import _follows
 from mhseals_hardware.thruster_mixer import AXES, IDENTITY, validate_decoupling
+
+
+CURVE_KEYS = tuple(axis + sign for axis in AXES for sign in '+-')
 
 
 def gain_matrix(mapping):
@@ -47,12 +51,48 @@ def rotate(vector, yaw):
 
 
 class Plant:
-    """What the controller knows about the boat, read from the hardware config."""
+    """What the controller knows about the boat, read from the hardware config.
+
+    Each axis and sign has a speed curve: the effort that holds speed ``v`` is
+    ``d1 v + d2 v |v|`` (normalized wrench). ``characterization.speed_curves``
+    holds them as ``{'surge+': {'d1': .., 'd2': ..}, ..., 'yaw-': ..}``; a
+    direction without one falls back to the straight line of the
+    ``velocity_gain`` diagonal, so a boat characterized before the curves
+    existed keeps working.
+    """
 
     def __init__(self, config):
         characterization = config.get('characterization', {})
-        if not characterization.get('velocity_gain'):
-            raise ValueError('characterization.velocity_gain is required')
+        curves = characterization.get('speed_curves') or {}
+        missing = [key for key in CURVE_KEYS if key not in curves]
+        if missing and not characterization.get('velocity_gain'):
+            raise ValueError('characterization.speed_curves or velocity_gain is required')
+        diagonal = numpy.diag(self._linear_gain(config)) if missing else ()
+        bias = characterization.get('mechanical_bias', {})
+        self.bias = numpy.array([float(bias.get(axis, 0.0)) for axis in AXES])
+        limits = characterization.get('motion_limits', {}).get('velocity', {})
+        self.limits = numpy.array([float(limits.get(axis, 0.0)) for axis in AXES])
+        if any(limit <= 0 for limit in self.limits):
+            raise ValueError('characterization motion velocity limits are required')
+        self.curves = {}
+        for index, axis in enumerate(AXES):
+            for key in (axis + '+', axis + '-'):
+                if key in curves:
+                    d1, d2 = float(curves[key]['d1']), float(curves[key]['d2'])
+                elif diagonal[index] != 0:
+                    d1, d2 = 1.0 / diagonal[index], 0.0
+                else:
+                    raise ValueError('velocity_gain is singular')
+                # Effort must rise with speed up to the axis limit, else it can't be inverted.
+                if not (math.isfinite(d1) and math.isfinite(d2)) or min(
+                        d1, d1 + 2 * d2 * self.limits[index]) <= 0:
+                    raise ValueError(f'speed curve {key} is not monotone up to the velocity limit')
+                self.curves[key] = (d1, d2)
+
+    @staticmethod
+    def _linear_gain(config):
+        """The velocity_gain matrix this boat's decoupling leaves, as the old law used it."""
+        characterization = config['characterization']
         identity = sum(IDENTITY, ())
         current = config.get('decoupling', identity)
         negative = config.get('decoupling_negative')
@@ -66,18 +106,28 @@ class Plant:
                         _follows(fitted_negative or fitted, negative or current)):
                     raise ValueError('the sign-split decoupling differs from the one the '
                                      'characterization was fitted with; refit')
-                self.gain = gain_matrix(characterization['velocity_gain'])
-            else:
-                self.gain = raw_gain(characterization) @ numpy.array(validate_decoupling(current))
-            self.gain_inv = numpy.linalg.inv(self.gain)
+                return gain_matrix(characterization['velocity_gain'])
+            return raw_gain(characterization) @ numpy.array(validate_decoupling(current))
         except numpy.linalg.LinAlgError as error:
             raise ValueError('velocity_gain is singular') from error
-        bias = characterization.get('mechanical_bias', {})
-        self.bias = numpy.array([float(bias.get(axis, 0.0)) for axis in AXES])
-        limits = characterization.get('motion_limits', {}).get('velocity', {})
-        self.limits = numpy.array([float(limits.get(axis, 0.0)) for axis in AXES])
-        if any(limit <= 0 for limit in self.limits):
-            raise ValueError('characterization motion velocity limits are required')
+
+    def effort(self, axis, speed):
+        """The effort that holds ``speed`` (m/s or rad/s) on ``axis`` (0 surge, 1 sway, 2 yaw)."""
+        d1, d2 = self.curves[CURVE_KEYS[2 * axis + (speed < 0)]]
+        return d1 * speed + d2 * speed * abs(speed)
+
+    def speed(self, axis, sign, effort):
+        """The steady speed ``effort`` gives on ``axis``, signed.
+
+        ``sign`` (+1 or -1) picks the curve when the effort is zero; otherwise
+        the effort's own sign does.
+        """
+        sign = 1 if effort > 0 else -1 if effort < 0 else sign
+        d1, d2 = self.curves[CURVE_KEYS[2 * axis + (sign < 0)]]
+        magnitude = abs(effort)
+        # The positive root of d2 v^2 + d1 v = |e|, in the form that survives d2 -> 0.
+        root = math.sqrt(max(0.0, d1 * d1 + 4 * d2 * magnitude))
+        return sign * 2 * magnitude / (d1 + root)
 
 
 class VelocityLaw:
@@ -123,7 +173,8 @@ class VelocityLaw:
         saturated = numpy.any(numpy.abs(self.effort) >= 0.999)
         if self.drift_time_constant <= 0 or dt == 0 or under_way or saturated:
             return
-        expected = self.plant.bias + self.plant.gain @ self.effort
+        expected = self.plant.bias + numpy.array([
+            self.plant.speed(axis, 1, effort) for axis, effort in enumerate(self.effort)])
         residual = rotate((self.velocity - expected)[:2], self.yaw)
         alpha = dt / (self.drift_time_constant + dt)
         self.drift += alpha * (numpy.array(residual) - self.drift)
@@ -141,7 +192,8 @@ class VelocityLaw:
         target = numpy.clip(numpy.array(desired, float), -self.plant.limits, self.plant.limits)
         self.target = target
         drift_body = numpy.array([*rotate(self.drift, -self.yaw), 0.0])
-        feedforward = self.plant.gain_inv @ (target - self.plant.bias - drift_body)
+        feedforward = numpy.array([self.plant.effort(axis, speed) for axis, speed in
+                                   enumerate(target - self.plant.bias - drift_body)])
         error = target - self.velocity
         if feedback:
             unclipped = feedforward + self.kp * error + self.ki * self.integral
