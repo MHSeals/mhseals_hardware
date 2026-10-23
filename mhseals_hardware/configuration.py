@@ -127,24 +127,30 @@ def load_config(path=None):
 
 
 class ConfigWatcher:
-    """Reload the hardware YAML when its mtime changes."""
+    """Reload the hardware YAML once an edit has settled.
+
+    A change is parsed only when the file's (mtime, size, inode) is the same on two
+    consecutive polls, so an in-place save caught mid-write is never applied as a
+    partial file (whose missing keys would fall back to the defaults).
+    """
 
     def __init__(self, path):
         self.path = path
-        self.mtime = self._stat()
+        self.mtime = self.seen = self._stat()  # applied key, and last tick's key
 
     def _stat(self):
         try:
-            return os.stat(config_path(self.path)).st_mtime_ns
+            st = os.stat(config_path(self.path))
         except OSError:
             return None
+        return st.st_mtime_ns, st.st_size, st.st_ino
 
     def poll(self):
-        """The new config after an edit, else None; raises OSError/ValueError/KeyError on a bad one."""
-        mtime = self._stat()
-        if mtime is None or mtime == self.mtime:
+        """The new config after a settled edit, else None; raises OSError/ValueError/KeyError on a bad one."""
+        key, previous, self.seen = self._stat(), self.seen, self._stat()
+        if key is None or key == self.mtime or key != previous:
             return None
-        self.mtime = mtime
+        self.mtime = key
         return load_config(self.path)
 
 

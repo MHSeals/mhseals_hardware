@@ -96,12 +96,27 @@ def test_watcher_reports_an_edit_once_and_rejects_a_bad_one(tmp_path):
     watch = ConfigWatcher(path)
     assert watch.poll() is None
     edit('command_timeout: 0.3\n', 2)
+    assert watch.poll() is None  # first sight of a change: wait for it to settle
     assert watch.poll()['command_timeout'] == 0.3
     assert watch.poll() is None
     edit('command_timeout: -1\n', 3)
+    assert watch.poll() is None
     with pytest.raises(ValueError):
         watch.poll()
     assert watch.poll() is None  # a bad edit is reported once, not every tick
+
+
+def test_watcher_ignores_a_half_written_file(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, true]\n')
+    watch = ConfigWatcher(path)
+    path.write_text('channel_map: [3, 1, 2, 4]\n')  # first chunk of an in-place rewrite
+    assert watch.poll() is None
+    path.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, false]\n')
+    assert watch.poll() is None  # still changing between ticks
+    config = watch.poll()
+    assert config['channel_map'] == [3, 1, 2, 4]
+    assert config['reversed'] == [True, False, False, False]
 
 
 def test_unset_negative_decoupling_follows_decoupling_and_is_not_frozen_on_save(tmp_path):

@@ -34,6 +34,7 @@ def test_live_correction_updates_parameters_and_manual_pulses(tmp_path, monkeypa
         correction = [1., 0., 0., 0., 1., 0., -.1, 0., 1.]
         save_config(dict(config, decoupling=correction), path)
         node.watch.mtime = None
+        node.watch.seen = node.watch._stat()
         node.reload_callback()
         assert list(node.get_parameter('decoupling').value) == correction
         assert list(node.get_parameter('decoupling_negative').value) == correction
@@ -85,6 +86,7 @@ def start(tmp_path, monkeypatch, config, args=(), fail_on=None):
 def reload(node, path, config):
     save_config(config, path)
     node.watch.mtime = None  # reload now, even within one mtime tick
+    node.watch.seen = node.watch._stat()
     node.reload_callback()
 
 
@@ -129,4 +131,25 @@ def test_launch_override_survives_an_unrelated_edit(tmp_path, monkeypatch):
         assert list(node.get_parameter('reversed').value) == [True] * 4
     finally:
         node.destroy_node()
+        rclpy.shutdown()
+
+
+@pytest.mark.parametrize('text', ['reversed: [true, false', 'manual_amplitude: "x"\n'])
+def test_reload_survives_a_syntax_or_type_error(text, tmp_path, monkeypatch):
+    monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *a, **k: Recorder(
+        load_defaults(), []))
+    path = tmp_path / 'hardware.yaml'
+    save_config(load_defaults(), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=bad_reload_test',
+                    '-p', f'config_file:={path}'])
+    node = None
+    try:
+        node = thruster_pwm_node.ThrusterPWMNode()
+        path.write_text(text)
+        node.watch.mtime = None
+        node.reload_callback()  # must log and keep the old config, not raise
+        assert node.config['manual_amplitude'] == load_defaults()['manual_amplitude']
+    finally:
+        if node is not None:
+            node.destroy_node()
         rclpy.shutdown()

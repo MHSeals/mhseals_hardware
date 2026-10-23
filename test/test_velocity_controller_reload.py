@@ -29,6 +29,7 @@ def test_reload_rebuilds_the_model_and_holds_neutral_while_invalid(tmp_path):
         def edit(new):
             save_config(new, path)
             node._watch.mtime = None  # reload now, even within one mtime tick
+            node._watch.seen = node._watch._stat()
             node._reload()
 
         edit(config(gain=STRONGER))
