@@ -214,8 +214,14 @@ class KeyReader:
                     if value[0] == 27 and self.absorb(value):
                         continue
                     return decode_key(value, self.report_events)
-                if len(self.buffer) > (512 if self.buffer[1:2] in STRING_INTRODUCERS else 64) or now - self.escape_started > 1.0:
+                string = self.buffer[1:2] in STRING_INTRODUCERS
+                max_len = 512 if string else 64
+                if len(self.buffer) > max_len or now - self.escape_started > 1.0:
                     self.buffer.clear()
+                    if string:
+                        # Unterminated APC/DCS/OSC/PM/SOS (e.g. Alt+] on a
+                        # plain terminal): drop it rather than fail the TUI.
+                        continue
                     raise ValueError('incomplete or oversized terminal key sequence')
             wait = None if deadline is None else max(0.0, deadline - now)
             if self.buffer == b'\x1b':

@@ -1,6 +1,7 @@
 """Byte-fed terminal probe replies: they set reader state and never become keys."""
 
 import os
+import time
 
 import pytest
 
@@ -56,4 +57,15 @@ def test_apc_mid_keystroke_never_becomes_keys(feed):
     send(b'\x1b_Gi=31;O')
     assert reader.read(0.05) is None
     send(b'K\x1b\\q')
+    assert reader.read(1) == 'q'
+
+
+@pytest.mark.parametrize('intro', [b']', b'P', b'_', b'X', b'^'])
+def test_unterminated_string_introducer_is_dropped(feed, intro):
+    reader, send = feed
+    send(b'\x1b' + intro)
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline:
+        assert reader.read(0.1) is None
+    send(b'q')
     assert reader.read(1) == 'q'
