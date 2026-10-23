@@ -8,6 +8,7 @@ Either goes neutral after ``command_timeout`` without a message. With
 (neutral, ESC power off, new pins at neutral, power on).
 """
 
+import math
 import time
 
 from geometry_msgs.msg import Twist
@@ -87,6 +88,11 @@ class ThrusterPWMNode(Node):
             if error:
                 self.get_logger().error(f'outputs not moved, kept the old ones: {error}')
                 new.update({key: self.config[key] for key in OUTPUT_KEYS})
+                # Not applied: leave them out of the log and let the next edit retry them.
+                for key in OUTPUT_KEYS:
+                    if key in changed:
+                        del changed[key]
+                        self.file_config[key] = self.config[key]
             else:
                 self.get_logger().info('outputs moved: ' + ', '.join(
                     f'{key}={changed[key]}' for key in OUTPUT_KEYS if key in changed))
@@ -115,7 +121,14 @@ class ThrusterPWMNode(Node):
 
     def cmd_vel_callback(self, message):
         # Twist effort -> per-thruster effort -> pulse widths -> physical outputs.
-        self.drive(thruster_pulses(twist_values(message), self.mixer, self.channel_map,
+        values = twist_values(message)
+        if not all(math.isfinite(value) for value in values):
+            # A NaN or inf must not crash the node (and with it RC): go neutral.
+            self.outputs.neutral()
+            self.get_logger().warning('non-finite cmd_vel; thrusters neutral',
+                                      throttle_duration_sec=1.0)
+            return
+        self.drive(thruster_pulses(values, self.mixer, self.channel_map,
                                    self.reversed, self.decoupling, self.decoupling_negative))
 
     def pulses_callback(self, message):

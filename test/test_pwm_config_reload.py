@@ -147,6 +147,20 @@ def test_failed_switch_reopens_the_old_pins_and_keeps_the_parameters(tmp_path, m
         rclpy.shutdown()
 
 
+def test_failed_switch_is_not_logged_as_applied_and_is_retried(tmp_path, monkeypatch):
+    config = load_defaults()
+    node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
+    try:
+        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
+        assert node.file_config['pwm_channels'] == [0, 0, 0, 0]  # the last applied state
+        events.clear()
+        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))  # unchanged file, retried
+        assert [event[0] for event in events][:2] == ['neutral', 'close']  # a second attempt
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
 def test_launch_override_survives_an_unrelated_edit(tmp_path, monkeypatch):
     config = dict(load_defaults(), output_backend='odroid')
     node, path, events = start(tmp_path, monkeypatch, config,
@@ -177,6 +191,41 @@ def test_reload_survives_a_syntax_or_type_error(text, tmp_path, monkeypatch):
         node.watch.mtime = None
         node.reload_callback()  # must log and keep the old config, not raise
         assert node.config['manual_amplitude'] == load_defaults()['manual_amplitude']
+    finally:
+        if node is not None:
+            node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_non_finite_cmd_vel_goes_neutral_without_raising(tmp_path, monkeypatch):
+    class Outputs:
+        neutrals = 0
+
+        def open(self):
+            return self
+
+        def close(self):
+            pass
+
+        def neutral(self):
+            self.neutrals += 1
+
+        def set_pulse_widths(self, pulses):
+            self.pulses = pulses
+
+    outputs = Outputs()
+    monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *args, **kwargs: outputs)
+    path = tmp_path / 'hardware.yaml'
+    save_config(load_defaults(), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=nan_test', '-p', f'config_file:={path}'])
+    node = None
+    try:
+        node = thruster_pwm_node.ThrusterPWMNode()
+        for bad in (float('nan'), float('inf')):
+            message = Twist()
+            message.linear.x = bad
+            node.cmd_vel_callback(message)
+        assert outputs.neutrals == 2 and not hasattr(outputs, 'pulses')
     finally:
         if node is not None:
             node.destroy_node()

@@ -235,3 +235,19 @@ def test_switch_left_at_hold_holds_again_after_dropout_and_release():
     a.update_rc(frame(mode=MID), 5.1)                  # back, still at HOLD
     a.update_auto((0.4, 0.0, 0.0), 5.1)
     assert a.select(5.11)[0] == 'hold'
+
+
+@pytest.mark.parametrize('bad', [(float('nan'), 0, 0), (0, float('inf'), 0),
+                                 (0, 0, float('-inf'))])
+def test_non_finite_commands_never_reach_select(bad):
+    a = boat()
+    a.update_manual((0.1, 0, 0), 0)
+    a.update_manual(bad, 0.1)
+    assert a.select(0.2) == ('manual', (0.1, 0, 0))
+    assert a.select(0.7)[0] == 'hold'       # keys timed out: the bad frame did not refresh it
+    b = boat()
+    b.update_auto((0.2, 0, 0), 0)
+    b.update_auto(bad, 0.1)
+    assert b.select(0.2)[1] == (0.2, 0, 0)
+    assert b.select(0.7)[0] == 'idle'
+    assert a.rejected == b.rejected == 1
