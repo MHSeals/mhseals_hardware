@@ -253,3 +253,27 @@ def test_non_finite_cmd_vel_goes_neutral_without_raising(tmp_path, monkeypatch):
         if node is not None:
             node.destroy_node()
         rclpy.shutdown()
+
+
+def test_test_pulses_only_when_autonomy_holds_the_thrusters(tmp_path, monkeypatch):
+    from std_msgs.msg import String, UInt16MultiArray
+    node, _, _ = start(tmp_path, monkeypatch, load_defaults())
+    sent = []
+    node.outputs.set_pulse_widths = sent.append
+    pulses = UInt16MultiArray(data=[1500] * 4)
+    try:
+        node.pulses_callback(pulses)
+        assert sent == []                      # no state yet
+        for mux_input, accepted in (('hold', False), ('rc', False), ('manual', False),
+                                    ('auto', True), ('idle', True)):
+            sent.clear()
+            node.guard_callback(String(data=f'{{"input": "{mux_input}"}}'))
+            node.pulses_callback(pulses)
+            assert bool(sent) is accepted, mux_input
+        node.mux_time -= 10                    # a dead mux is not autonomy
+        sent.clear()
+        node.pulses_callback(pulses)
+        assert sent == []
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()

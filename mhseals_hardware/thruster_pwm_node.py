@@ -3,18 +3,24 @@
 Two inputs drive the outputs, newest message wins:
   cmd_vel        Twist effort, through the decoupling, mixer, reversals and channel map
   ~/test_pulses  UInt16MultiArray raw pulses per physical output (bench tests)
+Test pulses are accepted only while ``pulse_guard_topic`` (the command_mux ``~/state``)
+reports input ``auto`` or ``idle``, so they never outvote a human; no fresh state, no pulse.
+An empty ``pulse_guard_topic`` disables the guard (bench use without a mux).
 Either goes neutral after ``command_timeout`` without a message. With
 ``config_file`` set, edits to the YAML apply live; pin or backend edits move the outputs
 (neutral, ESC power off, new pins at neutral, power on).
 """
 
+import json
 import math
 import time
 
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.parameter import Parameter
-from std_msgs.msg import UInt16MultiArray
+from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
+                       QoSHistoryPolicy)
+from std_msgs.msg import String, UInt16MultiArray
 
 from mhseals_hardware.configuration import ConfigWatcher, load_config, validate_config
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs, switch_outputs
@@ -25,6 +31,11 @@ from mhseals_hardware.thruster_mixer import (
 )
 
 RELOAD_PERIOD = 1.0
+PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autonomy or nobody
+GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
+GUARD_QOS = QoSProfile(history=QoSHistoryPolicy.KEEP_LAST, depth=1,
+                       reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
 
 class ThrusterPWMNode(Node):
@@ -51,6 +62,11 @@ class ThrusterPWMNode(Node):
         self.timed_out = False
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
+        self.declare_parameter('pulse_guard_topic', '/command_mux/state')
+        self.guard_topic = self.get_parameter('pulse_guard_topic').value
+        self.mux_input, self.mux_time = None, 0.0
+        if self.guard_topic:
+            self.create_subscription(String, self.guard_topic, self.guard_callback, GUARD_QOS)
         self.create_timer(0.1, self.watchdog_callback)
         if self.config_file:
             self.watch = ConfigWatcher(self.config_file)
@@ -135,12 +151,34 @@ class ThrusterPWMNode(Node):
     def pulses_callback(self, message):
         """Raw pulses per physical output, for bench tests; validated by the outputs."""
         pulses = list(message.data)
+        refusal = self.pulse_refusal()
+        if refusal:
+            self.get_logger().warning(f'test pulses rejected: {refusal}',
+                                      throttle_duration_sec=1.0)
+            return
         try:
             if len(pulses) != 4 or any(not MIN_PWM <= pulse <= MAX_PWM for pulse in pulses):
                 raise ValueError(f'need four pulses within {MIN_PWM}-{MAX_PWM} us, got {pulses}')
             self.drive(pulses)
         except ValueError as error:
             self.get_logger().error(f'test pulses rejected: {error}')
+
+    def guard_callback(self, message):
+        try:
+            self.mux_input = json.loads(message.data).get('input')
+        except (ValueError, AttributeError):
+            self.mux_input = None
+        self.mux_time = time.monotonic()
+
+    def pulse_refusal(self):
+        """Why test pulses are refused now, or None when autonomy holds the thrusters."""
+        if not self.guard_topic:
+            return None
+        if time.monotonic() - self.mux_time > GUARD_MAX_AGE or self.mux_input is None:
+            return f'no fresh {self.guard_topic}'
+        if self.mux_input not in PULSE_INPUTS:
+            return f'command_mux input is {self.mux_input}'
+        return None
 
     def drive(self, pulses):
         self.outputs.set_pulse_widths(pulses)

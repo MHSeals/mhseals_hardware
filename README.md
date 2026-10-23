@@ -169,7 +169,9 @@ neutral, ESC power off, old channels released, new ones opened at neutral, power
 on. If the new outputs fail to open, the old ones reopen and the error is
 logged. The node then holds neutral until the next command. For bench tests it
 also takes raw pulses per physical output on `~/test_pulses`
-(`std_msgs/msg/UInt16MultiArray`, 1100-1900 us), under the same watchdog.
+(`std_msgs/msg/UInt16MultiArray`, 1100-1900 us), under the same watchdog. They are accepted only while `/command_mux/state`
+(`pulse_guard_topic`; empty disables) reports input `auto` or `idle`, and refused
+in `rc`, `manual` and `hold` or without fresh state.
 
 ### Simulator outputs
 
