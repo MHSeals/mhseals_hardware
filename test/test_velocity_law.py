@@ -88,6 +88,20 @@ def test_stale_odometry_gives_zero_effort():
     assert law.step((0.3, 0, 0), 1.0) == (0.0, 0.0, 0.0)
 
 
+def test_non_finite_odometry_is_dropped_and_does_not_latch_the_law():
+    law = VelocityLaw(Plant(config()))
+    law.observe((0, 0, 0), 0.0, 0.0)
+    law.observe((math.nan, 0, 0), 0.0, 0.05)
+    law.observe((0, 0, 0), math.nan, 0.1)
+    law.step((0.3, 0, 0), 0.1)
+    law.observe((0, 0, 0), 0.0, 0.15)
+    assert numpy.all(numpy.isfinite(law.drift)) and numpy.all(numpy.isfinite(law.integral))
+    assert law.step((0.3, 0, 0), 0.15)[0] > 0
+    assert law.step((0.3, 0, 0), 2.0) == (0.0, 0.0, 0.0)  # the dropped samples age out
+    law.observe((0, 0, 0), 0.0, 2.0)
+    assert law.step((0.3, 0, 0), 2.05)[0] > 0
+
+
 def test_decoupling_cancels_coupling_and_composes_across_refits():
     raw = numpy.array(GAIN)
     c = decoupling_for(raw)
@@ -173,6 +187,12 @@ def test_non_monotone_curves_are_refused():
         Plant(curved(**{'surge+': dict(d1=1.0, d2=-1.0)}))
     with pytest.raises(ValueError, match='sway-.*monotone'):
         Plant(curved(**{'sway-': dict(d1=-0.1, d2=1.0)}))
+    # A pure-quadratic curve is monotone and inverts as sqrt(|e| / d2).
+    plant = Plant(curved(**{'surge+': dict(d1=0.0, d2=2.0)}))
+    assert plant.speed(0, 1, 0.5) == pytest.approx(0.5)
+    assert plant.speed(0, 1, 0.0) == 0.0
+    with pytest.raises(ValueError, match='monotone'):
+        Plant(curved(**{'surge+': dict(d1=0.0, d2=0.0)}))
     # A negative d2 that stays rising inside the limit is fine.
     Plant(curved(**{'surge+': dict(d1=1.0, d2=-0.5)}))
 

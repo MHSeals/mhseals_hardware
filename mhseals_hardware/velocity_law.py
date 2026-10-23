@@ -84,8 +84,9 @@ class Plant:
                 else:
                     raise ValueError('velocity_gain is singular')
                 # Effort must rise with speed up to the axis limit, else it can't be inverted.
-                if not (math.isfinite(d1) and math.isfinite(d2)) or min(
-                        d1, d1 + 2 * d2 * self.limits[index]) <= 0:
+                # d1 = 0 with d2 > 0 (pure quadratic) is monotone too; the fitter keeps d1 >= 0.
+                if not (math.isfinite(d1) and math.isfinite(d2)) or (
+                        d1 < 0 or d1 + 2 * d2 * self.limits[index] <= 0):
                     raise ValueError(f'speed curve {key} is not monotone up to the velocity limit')
                 self.curves[key] = (d1, d2)
 
@@ -125,6 +126,8 @@ class Plant:
         sign = 1 if effort > 0 else -1 if effort < 0 else sign
         d1, d2 = self.curves[CURVE_KEYS[2 * axis + (sign < 0)]]
         magnitude = abs(effort)
+        if magnitude == 0:
+            return 0.0
         # The positive root of d2 v^2 + d1 v = |e|, in the form that survives d2 -> 0.
         root = math.sqrt(max(0.0, d1 * d1 + 4 * d2 * magnitude))
         return sign * 2 * magnitude / (d1 + root)
@@ -163,6 +166,10 @@ class VelocityLaw:
 
     def observe(self, velocity, yaw, now):
         """Odometry: update the drift estimate from what the model can't explain."""
+        # A non-finite sample would poison the integral and drift for good: drop it,
+        # so the last good odometry ages out through the staleness check instead.
+        if not (numpy.all(numpy.isfinite(velocity)) and math.isfinite(yaw)):
+            return
         dt = 0.0 if self.odom_time is None else min(0.2, max(0.0, now - self.odom_time))
         self.velocity, self.yaw, self.odom_time = numpy.array(velocity, float), float(yaw), now
         # Learn while asked to hold still (or idle): the effort holding the boat
