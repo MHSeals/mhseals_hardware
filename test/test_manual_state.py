@@ -54,3 +54,7 @@ def test_non_motion_releases_do_not_keep_a_held_key_alive():
         state.update('release:+', t)
         state.update('release:d', t)  # never held
     assert state.update(None, 3.5) == (0, 0, 0)
+
+
+def test_event_mode_alias_is_gone():
+    assert not hasattr(ManualState(), 'event_mode')

@@ -49,10 +49,6 @@ class ManualState:
         self.focused = True
         self.command = (0.0, 0.0, 0.0)
 
-    @property
-    def event_mode(self):  # TODO drop once mhseals_testing reads ``chords``
-        return self.chords
-
     def update(self, key, now):
         if now >= self.deadline:
             self.held.clear()
