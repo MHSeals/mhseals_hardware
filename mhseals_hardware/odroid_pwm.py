@@ -7,12 +7,23 @@ from mhseals_hardware.configuration import load_defaults
 
 
 # pwmchip numbers are allocated dynamically. Platform-address globs remain
-# stable and correspond to physical J2 pins 7, 12, 15, and 33 respectively.
+# stable; J2_PINS below maps each output to its pin and glob.
 _DEFAULTS = load_defaults()
 DEFAULT_PWM_CHIPS = tuple(_DEFAULTS['pwm_chips'])
 DEFAULT_MOSFET_CHIP = _DEFAULTS['mosfet_chip']
 DEFAULT_MOSFET_LINE = _DEFAULTS['mosfet_line']
 DEFAULT_MOSFET_ACTIVE_HIGH = _DEFAULTS['mosfet_active_high']
+
+# Single source for the README pin table and the TUI:
+# output -> (J2 pin, pad, PWM controller, platform path glob).
+J2_PINS = {
+    1: (7, 'GPIO0_D0', 'PWM7', '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*'),
+    2: (12, 'GPIO3_B2', 'PWM3', '/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*'),
+    3: (15, 'GPIO4_B3', 'PWM15', '/sys/devices/platform/febf0030.pwm/pwm/pwmchip*'),
+    4: (33, 'GPIO3_D0', 'PWM8', '/sys/devices/platform/febe0000.pwm/pwm/pwmchip*'),
+    # MOSFET enable: (J2 pin, pad, GPIO bank label, line); moved from pin 11.
+    'mosfet': (13, 'GPIO3_D5', 'gpio3', 29),
+}
 
 
 def resolve_gpio_chip(value, sysfs='/sys/bus/gpio/devices'):

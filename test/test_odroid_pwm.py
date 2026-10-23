@@ -177,3 +177,28 @@ def test_close_unexports_only_channels_exported_here(tmp_path, monkeypatch):
     (chips[1] / 'unexport').write_text('')
     outputs.close(unexport=True)  # idempotent: nothing is released twice
     assert (chips[1] / 'unexport').read_text() == ''
+
+
+def test_j2_pins_match_overlay_readme_and_defaults():
+    import re
+    from pathlib import Path
+    from mhseals_hardware.odroid_pwm import (
+        DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE, DEFAULT_PWM_CHIPS, J2_PINS)
+    root = Path(__file__).resolve().parents[1]
+    outputs = (1, 2, 3, 4)
+
+    overlay = (root / 'config/odroid-m2-thruster-pwm-overlay.dts').read_text()
+    enabled = set(re.findall(r'&(pwm\d+)\s*\{\s*status = "okay"', overlay))
+    assert enabled == {J2_PINS[o][2].lower() for o in outputs}
+
+    rows = {}
+    for line in (root / 'README.md').read_text().splitlines():
+        cells = [c.strip().strip('`') for c in line.strip('|').split('|')]
+        if cells[0].isdigit() and len(cells) == 5:
+            rows[int(cells[0])] = (int(cells[1]), cells[2], cells[3], cells[4])
+    assert rows == {o: J2_PINS[o] for o in outputs}
+
+    assert tuple(J2_PINS[o][3] for o in outputs) == tuple(DEFAULT_PWM_CHIPS)
+    pin, pad, bank, line = J2_PINS['mosfet']
+    assert (pin, bank, line) == (13, DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE)
+    assert f'| MOSFET enable | {pin} | {pad} |' in (root / 'README.md').read_text()

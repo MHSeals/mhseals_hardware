@@ -18,8 +18,10 @@ output) decides which thruster each drives. The boat uses `[1, 3, 2, 4]`.
 | MOSFET enable | 13 | GPIO3_D5 | - | `mosfet_chip: gpio3`, `mosfet_line: 29` (active high) |
 | Signal ground | 6 | | | |
 
+The table is `odroid_pwm.J2_PINS`, which the TUI also reads.
 `pwmchipN` numbers are allocated at boot; the platform glob is stable. `gpio3` is a
-bank label resolved to `/dev/gpiochipN` at runtime (line = 8*bank-letter + index, D5 = 29).
+bank label resolved to `/dev/gpiochipN` at runtime (line = 8*bank-letter + index,
+D5 = 29).
 The MOSFET enable moved from pin 11 (GPIO3_D4, line 28) to pin 13 (GPIO3_D5) when the
 harness was rewired.
 
