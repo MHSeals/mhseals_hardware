@@ -10,6 +10,8 @@ forwards ``select(now)``; all the rules live here.
 * auto: ``/cmd_vel`` newer than ``cmd_timeout``, ramped in over ``ramp``.
 """
 
+import math
+
 MANUAL, HOLD, GUIDED, OTHER = 'MANUAL', 'HOLD', 'GUIDED', 'OTHER'
 # ArduRover mode numbers: the FCU's MODE1..6 values.
 MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
@@ -49,6 +51,7 @@ class Arbitration:
         self.channels, self.rc_time = (), None
         self.manual, self.manual_time = (0.0, 0.0, 0.0), None
         self.auto, self.auto_time = (0.0, 0.0, 0.0), None
+        self.rejected = 0             # non-finite commands dropped
         self.holds = {}               # cause -> {cause, by, since, token}
         self.latched = False          # stick takeover while in GUIDED
         self._deflected = None        # since when a stick is past the takeover
@@ -77,11 +80,24 @@ class Arbitration:
         self._advance(now)
 
     def update_manual(self, cmd, now):
+        """Store a manual command; a NaN or inf one is counted and dropped."""
+        if not self._finite(cmd):
+            return
         self.manual, self.manual_time = tuple(cmd), now
         self._advance(now)
 
     def update_auto(self, cmd, now):
+        """Store an auto command; a NaN or inf one is counted and dropped."""
+        if not self._finite(cmd):
+            return
         self.auto, self.auto_time = tuple(cmd), now
+
+    def _finite(self, cmd):
+        """True for a finite command; otherwise count it (the stamp stays old)."""
+        if all(math.isfinite(v) for v in cmd):
+            return True
+        self.rejected += 1
+        return False
 
     def request(self, op, cause, by, now, token=None):
         """Apply a hold or release request; return ``(ok, reason)``."""
@@ -150,9 +166,11 @@ class Arbitration:
                 # Moving the switch to GUIDED releases only the RC causes.
                 for cause in RC_CAUSES:
                     self.holds.pop(cause, None)
-            elif mode != MANUAL:
-                self._hold('rc_switch', 'rc', now)
             self._prev_mode = mode
+        if valid and mode not in (MANUAL, GUIDED) and 'rc_switch' not in self.holds:
+            # The switch is a level: a held position holds again after a
+            # release (U during an RC dropout) without needing a new edge.
+            self._hold('rc_switch', 'rc', now)
         if not valid or mode != GUIDED:
             self.latched = False
             self._deflected = self._centered = None

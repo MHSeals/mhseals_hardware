@@ -224,3 +224,14 @@ def test_zero_ramp_means_no_ramp():
     a.update_rc(frame(mode=HIGH), 0.2)
     a.update_auto((0.4, 0.0, 0.0), 0.3)
     assert a.select(0.31)[1] == (0.4, 0.0, 0.0)
+
+
+def test_switch_left_at_hold_holds_again_after_dropout_and_release():
+    a = boat()
+    a.update_rc(frame(mode=MID), 0)
+    a.update_auto((0.4, 0.0, 0.0), 0)
+    assert a.select(0.01)[0] == 'hold'
+    assert a.request('release', None, 'tui', 5)[0]     # RC stale: allowed
+    a.update_rc(frame(mode=MID), 5.1)                  # back, still at HOLD
+    a.update_auto((0.4, 0.0, 0.0), 5.1)
+    assert a.select(5.11)[0] == 'hold'
