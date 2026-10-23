@@ -196,7 +196,9 @@ class VelocityLaw:
             return (0.0, 0.0, 0.0)
         dt = 0.0 if self.last_step is None else min(0.2, max(0.0, now - self.last_step))
         self.last_step = now
-        target = numpy.clip(numpy.array(desired, float), -self.plant.limits, self.plant.limits)
+        wanted = numpy.array(desired, float)
+        wanted[~numpy.isfinite(wanted)] = 0.0  # a bad axis asks for rest; it must not reach the integral
+        target = numpy.clip(wanted, -self.plant.limits, self.plant.limits)
         self.target = target
         drift_body = numpy.array([*rotate(self.drift, -self.yaw), 0.0])
         feedforward = numpy.array([self.plant.effort(axis, speed) for axis, speed in

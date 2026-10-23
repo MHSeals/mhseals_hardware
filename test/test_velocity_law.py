@@ -102,6 +102,17 @@ def test_non_finite_odometry_is_dropped_and_does_not_latch_the_law():
     assert law.step((0.3, 0, 0), 2.05)[0] > 0
 
 
+def test_non_finite_command_is_neutralised_and_does_not_latch_the_integral():
+    law = VelocityLaw(Plant(config()))
+    law.observe((0, 0, 0), 0.0, 0.0)
+    law.step((0.3, 0, 0), 0.05)
+    law.observe((0, 0, 0), 0.0, 0.1)
+    assert law.step((math.nan, math.inf, -math.inf), 0.1) is not None
+    assert numpy.all(numpy.isfinite(law.integral))
+    law.observe((0, 0, 0), 0.0, 0.15)
+    assert law.step((0.3, 0, 0), 0.15)[0] > 0
+
+
 def test_decoupling_cancels_coupling_and_composes_across_refits():
     raw = numpy.array(GAIN)
     c = decoupling_for(raw)
