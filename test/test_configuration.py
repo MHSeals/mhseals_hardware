@@ -25,6 +25,16 @@ def test_explicit_missing_config_fails(tmp_path):
         load_config(tmp_path / 'missing.yaml')
 
 
+@pytest.mark.parametrize('text', ['', '\n', '# only a comment\n'])
+def test_empty_or_comment_only_file_means_no_overrides(text, tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(text)
+    reference = tmp_path / 'reference.yaml'
+    reference.write_text('{}\n')
+    assert load_config(path) == load_config(reference)
+    update_config({}, path)
+
+
 def test_unknown_keys_fail(tmp_path):
     config = tmp_path / 'hardware.yaml'
     config.write_text('mosfet_lien: 3\n')

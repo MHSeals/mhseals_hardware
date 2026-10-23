@@ -163,6 +163,9 @@ class ConfigWatcher:
 
 def _read_overrides(path):
     overrides = yaml.safe_load(path.read_text()) if path.exists() else {}
+    # An empty or comment-only file is "no overrides", like a missing one.
+    if overrides is None:
+        overrides = {}
     if not isinstance(overrides, dict):
         raise ValueError('hardware YAML must be a mapping')
     return overrides
