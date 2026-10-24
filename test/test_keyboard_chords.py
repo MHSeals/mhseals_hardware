@@ -352,3 +352,21 @@ def test_uppercase_keys_keep_their_case_through_reader(report_events):
     finally:
         os.close(read_fd)
         os.close(write_fd)
+
+
+def test_reader_keeps_shifted_keys_end_to_end():
+    """rv1-41: a real KeyReader must not lower-case, or every Shift binding dies."""
+    import termios
+    master, slave = os.openpty()
+    attributes = termios.tcgetattr(slave)
+    attributes[3] &= ~(termios.ICANON | termios.ECHO)
+    termios.tcsetattr(slave, termios.TCSANOW, attributes)
+    reader = KeyReader()
+    reader.fd = slave
+    try:
+        os.write(master, b'HVBRAI{}h\x1b[104;2u\x1b[1;2C')
+        keys = [reader.read(.5) for _ in range(11)]
+        assert keys == list('HVBRAI{}h') + ['H', 'shift-right']
+    finally:
+        os.close(master)
+        os.close(slave)
