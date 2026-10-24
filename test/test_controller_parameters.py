@@ -218,3 +218,144 @@ def test_managed_controller_conflict_refuses_before_resources(tmp_path):
     with pytest.raises(ValueError, match='conflicts'):
         cls()
     assert resources == []
+
+
+def test_constructor_consumes_pi_bounds_feedback_and_both_deadlines(tmp_path):
+    from mhseals_hardware.configuration import save_config
+    path = tmp_path / 'hardware.yaml'
+    selected = config()
+    selected['controller'].update(kp=[2., 0., 0.], ki=[4., 0., 0.],
+        integral_limit=[.01]*3, drift_time_constant=0., odom_timeout=.11,
+        command_timeout=.05)
+    save_config(selected, path)
+    resources = []
+    cls, clock = constructor(dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
+        config_scope='consumption'), resources)
+    n = cls()
+    n._law.observe((0., 0., 0.), 0., 1.)
+    n._command((.12, 0., 0.))
+    assert resources[-1][-1] == pytest.approx((.44, 0., 0.))
+    clock.now = 1.1
+    n._command((.12, 0., 0.))
+    assert resources[-1][-1] == pytest.approx((.48, 0., 0.))  # integral clipped to .01
+    assert n.set_parameters_atomically(patch(feedback=False)).successful
+    n._command((.12, 0., 0.))
+    assert resources[-1][-1] == pytest.approx((.2, 0., 0.))
+    clock.now = 1.12
+    n._command((.12, 0., 0.))
+    assert resources[-1][-1] == (0., 0., 0.)  # selected odometry deadline
+    n._law.observe((0., 0., 0.), 0., clock.now)
+    n._command((.12, 0., 0.))
+    clock.now += .06
+    n._watchdog()
+    assert resources[-1][-1] == (0., 0., 0.)  # selected command deadline
+    assert n._law.last_step is None
+
+
+@pytest.mark.parametrize('command_limit,expected', [(.05, .1/.6), (.2, (.1-.02)/.6)])
+def test_constructor_consumes_drift_time_and_command_gate(tmp_path, command_limit, expected):
+    from mhseals_hardware.configuration import save_config
+    path = tmp_path / 'hardware.yaml'
+    selected = config()
+    selected['controller'].update(feedback=False, drift_time_constant=.8,
+        drift_command_limit=command_limit, odom_timeout=1.)
+    save_config(selected, path)
+    resources = []
+    cls, clock = constructor(dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
+        config_scope='drift'), resources)
+    n = cls()
+    n._law.observe((0., 0., 0.), 0., 1.)
+    n._command((.1, 0., 0.))
+    # The first effort predicts .1 m/s; measured .2 leaves a .1 residual.
+    # alpha=.2/(.8+.2), unless the selected command gate freezes learning.
+    clock.now = 1.2
+    n._law.observe((.2, 0., 0.), 0., clock.now)
+    n._command((.1, 0., 0.))
+    assert resources[-1][-1] == pytest.approx((expected, 0., 0.))
+
+
+def test_constructor_restart_consumes_snapshot_then_fresh_yaml(tmp_path):
+    from mhseals_hardware.configuration import save_config
+    from mhseals_hardware.startup_config import startup_inputs
+    path = tmp_path / 'hardware.yaml'
+    selected = config()
+    selected['controller'].update(kp=[2., 0., 0.], ki=[0.]*3, output_topic='/first')
+    save_config(selected, path)
+    overrides = dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
+                     config_scope='same')
+    resources = []
+    cls, _ = constructor(overrides, resources)
+    n = cls()
+    n._law.integral[:] = .1
+    law = n._law
+    selected['controller'].update(kp=[3., 0., 0.], output_topic='/second')
+    save_config(selected, path)
+    n._watch.mtime = None
+    n._watch.seen = n._watch._stat()
+    n._reload()
+    assert n._reload_error == 'restart required: controller'
+    assert n._law is law and list(law.integral) == [.1]*3
+    _, snapshot = startup_inputs(root=tmp_path / 'snapshots', scope='same')
+    overrides.update(config_candidate=snapshot.ticket.candidate, kp=[2., 0., 0.])
+    cls, _ = constructor(overrides, resources)
+    same = cls()  # matching override retains the original captured authority
+    same._law.observe((0., 0., 0.), 0., 1.)
+    same._command((.12, 0., 0.))
+    assert resources[-1] == ('message', '/first', pytest.approx((.44, 0., 0.)))
+    overrides.pop('config_candidate')
+    overrides.pop('kp')
+    overrides['config_scope'] = 'fresh'
+    cls, _ = constructor(overrides, resources)
+    fresh = cls()
+    fresh._law.observe((0., 0., 0.), 0., 1.)
+    fresh._command((.12, 0., 0.))
+    assert resources[-1] == ('message', '/second', pytest.approx((.56, 0., 0.)))
+    # Returning the desired YAML to the original selected section clears pending state.
+    selected['controller'].update(kp=[2., 0., 0.], output_topic='/first')
+    save_config(selected, path)
+    n._watch.mtime = None
+    n._watch.seen = n._watch._stat()
+    n._reload()
+    assert n._reload_error == '' and n._law is law
+
+
+@pytest.mark.parametrize('fault', ['missing', 'corrupt', 'wrong-candidate'])
+def test_actual_constructor_selection_fault_creates_no_resources(tmp_path, fault):
+    from mhseals_hardware.startup_config import startup_inputs
+    _, selected = startup_inputs(root=tmp_path / 'snapshots', scope='same')
+    overrides = dict(config_root=str(tmp_path / 'snapshots'), config_scope='same',
+                     config_candidate=selected.ticket.candidate)
+    artifact = tmp_path / 'snapshots/same/initializing/hardware-pure.json'
+    if fault == 'missing':
+        artifact.unlink()
+    elif fault == 'corrupt':
+        artifact.write_text('{}')
+    else:
+        overrides['config_candidate'] = 'wrong'
+    resources = []
+    cls, _ = constructor(overrides, resources)
+    with pytest.raises((ValueError, FileNotFoundError)):
+        cls()
+    assert resources == []
+
+
+def test_actual_constructor_rejects_legacy_recipe_before_resources(tmp_path):
+    from mhseals_config._bootstrap import begin_bootstrap, finish_bootstrap
+    from mhseals_config._evidence import Recipe
+    from mhseals_hardware.startup_config import prepare_inputs
+    prepared = prepare_inputs()
+    legacy = 'hardware-pure-startup/v1'
+    evaluators = {legacy: Recipe(legacy, lambda document, evidence: True)}
+    recipes = {p: legacy for p in prepared['documents']}
+    root = tmp_path / 'snapshots'
+    ticket = begin_bootstrap(root, 'legacy', prepared['baseline'], prepared['documents'],
+        recipes, source_identity=prepared['source'], participant_identities=recipes,
+        closure='inert', evaluators=evaluators)
+    observations = {p: dict(scope='legacy', candidate=ticket.candidate,
+        source=prepared['source'], identity=legacy, recipe=legacy, evidence={}) for p in recipes}
+    finish_bootstrap(root, ticket, observations, evaluators=evaluators)
+    resources = []
+    cls, _ = constructor(dict(config_root=str(root), config_scope='legacy'), resources)
+    with pytest.raises(ValueError):
+        cls()
+    assert resources == []

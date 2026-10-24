@@ -84,7 +84,7 @@ def compile_inputs(operator=None, *, profile=None, session=None):
 def observe(document):
     """Evaluate the actual pure mixer and, when calibrated, velocity law."""
     config = document['effective']
-    controller = controller_section(config['controller'])  # incomplete legacy documents must refuse
+    controller = controller_section(config.get('controller'))  # incomplete legacy documents must refuse
     mixer = validate_mixer(config['thruster_matrix'])
     evidence = {'mixer': [list(mix_thrusters(*command, mixer=mixer))
                           for command in ((0.25, 0, 0), (0, 0.25, 0), (0, 0, 0.25))],
@@ -101,7 +101,7 @@ def observe(document):
 def evaluate(document, evidence):
     """Independently check bounded probe expectations from the compiled inputs."""
     config = document['effective']
-    controller = controller_section(config['controller'])
+    controller = controller_section(config.get('controller'))
     expected = {'mixer': [[0.25 * config['thruster_matrix'][row * 3 + axis]
                            for row in range(4)] for axis in range(3)],
                 'timeout': config['command_timeout']}
@@ -215,8 +215,7 @@ def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=No
     document = plain(selected.documents['hardware-pure'])
     # Revalidate captured bytes, never reread mutable authoring inputs here.
     for version in ('baseline', 'effective'):
-        if 'controller' not in document[version]:
-            raise ValueError('incomplete legacy controller selection')
+        controller_section(document[version].get('controller'))
     _merge_overrides(document['baseline'])
     _merge_overrides(document['effective'])
     return document, selected
