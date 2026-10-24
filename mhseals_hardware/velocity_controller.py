@@ -45,26 +45,13 @@ class VelocityController(Node):
         self._law_lock = threading.RLock()
         super().__init__('calibrated_velocity_controller')
         self.declare_parameter('config_file', '')
-        self.declare_parameter('input_topic', '/cmd_vel')
-        self.declare_parameter('output_topic', '/cmd_vel_effort')
-        self.declare_parameter('odom_topic', '/odom/local')
-        self.declare_parameter('command_timeout', 0.5)
-        self.declare_parameter('feedback', True)
-        # Effort per m/s (rad/s): about one over the boat's gain, so feedback is felt;
-        # turning while moving needs it, as the steady model has no turning terms.
-        self.declare_parameter('kp', [0.8, 0.8, 0.6])
-        self.declare_parameter('ki', [0.6, 0.6, 0.4])
-        self.declare_parameter('integral_limit', [0.3, 0.3, 0.3])
-        # Seconds for the world-frame drift estimate to settle; 0 disables it.
-        self.declare_parameter('drift_time_constant', 5.0)
-        self.declare_parameter('odom_timeout', 0.3)
-        # Largest commanded speed at which the drift estimate still learns (velocity_law).
-        self.declare_parameter('drift_command_limit', 0.1)
         value = lambda name: self.get_parameter(name).value  # noqa: E731
-        validate_controller({name: value(name) for name in
-                             GAIN_KEYS + ('command_timeout', 'feedback')})
         config, self.startup_selection = node_startup_inputs(
             self, value('config_file') or None, hardware_parameters=False)
+        # Selection is authoritative: declaration must not reapply invocation values.
+        for name, selected in config['controller'].items():
+            self.declare_parameter(name, selected, ignore_override=True)
+        validate_controller(config['controller'])
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'))
@@ -132,7 +119,7 @@ class VelocityController(Node):
 
     @staticmethod
     def _inputs(config):
-        return {key: config.get(key) for key in PLANT_KEYS}
+        return {key: config.get(key) for key in PLANT_KEYS + ('controller',)}
 
     def _reload(self):
         """Retain the accepted Plant until an explicit owner-controlled restart."""
@@ -145,7 +132,7 @@ class VelocityController(Node):
             return
         inputs = self._inputs(config)
         self._requested_plant_inputs = inputs
-        changed = sorted(key for key in PLANT_KEYS if inputs[key] != self._plant_inputs[key])
+        changed = sorted(key for key in inputs if inputs[key] != self._plant_inputs[key])
         if changed:
             self._reload_error = 'restart required: ' + ', '.join(changed)
             self.get_logger().error(self._reload_error)

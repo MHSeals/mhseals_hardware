@@ -234,10 +234,23 @@ def node_startup_inputs(node, path, *, hardware_parameters=True):
             parameter = node._parameter_overrides.get(key)
             if parameter is not None:
                 invocation[key] = parameter.value
+    else:
+        for key in load_defaults()['controller']:
+            parameter = node._parameter_overrides.get(key)
+            if parameter is not None:
+                value = parameter.value
+                invocation.setdefault('controller', {})[key] = (
+                    list(value) if key in ('kp', 'ki', 'integral_limit')
+                    and not isinstance(value, (str, bytes)) else value)
     value = lambda name: node.get_parameter(name).value  # noqa: E731
     document, selected = startup_inputs(
         path, root=value('config_root') or None, scope=value('config_scope') or None,
         profile=value('config_profile') or None,
         config_candidate=value('config_candidate') or None,
         session=(yaml.safe_dump(invocation), 'ROS invocation') if invocation else None)
+    if not hardware_parameters and invocation:
+        captured = document['effective']['controller']
+        requested = controller_section(dict(captured, **invocation['controller']))
+        if requested != captured:
+            raise ValueError('controller invocation conflicts with immutable startup selection')
     return document['effective'], selected

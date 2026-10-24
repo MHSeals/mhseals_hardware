@@ -127,3 +127,94 @@ def test_ros_service_double_array_consumes_new_law_and_rejection_retains_it():
     n.late = lambda ps: NS(successful=False)
     assert not n.set_parameters_atomically(patch(kp=array('d', [3.]*3))).successful
     assert n._law is accepted
+
+
+def constructor(overrides, resources):
+    """Execute the unchanged class body, including __init__, with inert ROS seams."""
+    from mhseals_hardware.configuration import ConfigWatcher
+    from mhseals_hardware.startup_config import node_startup_inputs
+
+    class InertNode(ParameterOwner):
+        def __init__(self, name):
+            self._parameter_overrides = {k: NS(value=v) for k, v in overrides.items()}
+            self.values = {}
+            self.late = lambda ps: NS(successful=True)
+
+        def declare_parameter(self, name, default, *, ignore_override=False):
+            parameter = self._parameter_overrides.get(name)
+            self.values[name] = default if ignore_override or parameter is None else parameter.value
+
+        def get_parameter(self, name):
+            return NS(value=self.values[name])
+
+        def create_publisher(self, kind, topic, depth):
+            resources.append(('publisher', topic))
+            return NS(publish=lambda message: resources.append(('message', topic, message)))
+
+        def create_subscription(self, kind, topic, callback, depth):
+            resources.append(('subscription', topic))
+
+        def create_timer(self, *args):
+            pass
+
+        def add_on_set_parameters_callback(self, callback):
+            pass
+
+        def add_post_set_parameters_callback(self, callback):
+            pass
+
+        def get_logger(self):
+            return NS(error=lambda message: resources.append(('error', message)))
+
+    path = Path(__file__).parents[1] / 'mhseals_hardware/velocity_controller.py'
+    cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
+    clock = NS(now=1.)
+    env = dict(vars(validation), SELECTION_PARAMETERS=SELECTION_PARAMETERS,
+        Node=InertNode, copy=copy, numpy=numpy, threading=threading, Plant=Plant,
+        VelocityLaw=VelocityLaw, node_startup_inputs=node_startup_inputs,
+        ConfigWatcher=ConfigWatcher, PLANT_KEYS=('thruster_matrix', 'characterization',
+            'decoupling', 'decoupling_negative'), Twist=lambda: (0., 0., 0.),
+        Vector3Stamped=object, Odometry=object, yaw_of=lambda q: 0.,
+        SetParametersResult=lambda **kw: NS(**kw),
+        time=NS(monotonic=lambda: clock.now), twist_values=lambda x: x,
+        twist_from=lambda x: tuple(x))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
+                 str(path), 'exec'), env)
+    return env['VelocityController'], clock
+
+
+def test_actual_constructor_consumes_yaml_and_explicit_invocation(tmp_path):
+    from mhseals_hardware.configuration import save_config
+    path = tmp_path / 'hardware.yaml'
+    selected = config()
+    selected['controller'].update(kp=[2., 0., 0.], ki=[0., 0., 0.],
+        input_topic='/selected/input', output_topic='/selected/output', odom_topic='/selected/odom')
+    save_config(selected, path)
+    resources = []
+    cls, _ = constructor(dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
+        config_scope='yaml', kp=array('d', [3., 0., 0.])), resources)
+    n = cls()
+    n._law.observe((0., 0., 0.), 0., 1.)
+    n._command((.12, 0., 0.))
+    # Independent expectation: model .12/.6 plus selected proportional 3*.12.
+    assert resources[-1] == ('message', '/selected/output', pytest.approx((.56, 0., 0.)))
+    assert ('subscription', '/selected/input') in resources
+    assert ('subscription', '/selected/odom') in resources
+    from mhseals_hardware.startup_config import startup_inputs
+    doc, _ = startup_inputs(root=tmp_path / 'snapshots', scope='yaml')
+    assert doc['baseline']['controller']['kp'] == [2., 0., 0.]
+    assert doc['origins']['controller.kp'][-1]['source'] == 'ROS invocation'
+
+
+def test_managed_controller_conflict_refuses_before_resources(tmp_path):
+    from mhseals_hardware.startup_config import startup_inputs
+    from mhseals_hardware.configuration import save_config
+    path = tmp_path / 'hardware.yaml'
+    save_config(config(), path)
+    _, selected = startup_inputs(path, root=tmp_path / 'snapshots', scope='same')
+    resources = []
+    cls, _ = constructor(dict(config_root=str(tmp_path / 'snapshots'), config_scope='same',
+        config_candidate=selected.ticket.candidate, input_topic='/conflict'), resources)
+    with pytest.raises(ValueError, match='conflicts'):
+        cls()
+    assert resources == []
