@@ -1,5 +1,6 @@
 """Actual watcher/law behavior with no ROS transport or output construction."""
 import copy
+import threading
 from types import SimpleNamespace as NS
 
 import pytest
@@ -17,6 +18,7 @@ def controller(fault=''):
                      time=NS(monotonic=lambda: 1.0), twist_values=lambda msg: msg,
                      twist_from=lambda values: tuple(values))
     node = cls()
+    node._law_lock = threading.RLock()
     node._law = VelocityLaw(Plant(accepted))
     node._plant_inputs = node._inputs(accepted)
     node._requested_plant_inputs, node._reload_error = node._plant_inputs, ''
