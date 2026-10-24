@@ -11,7 +11,7 @@ from mhseals_hardware.configuration import load_defaults, save_config
 from mhseals_hardware import outputs as outputs_module, thruster_pwm_node
 
 
-def test_live_correction_updates_parameters_and_manual_pulses(tmp_path, monkeypatch):
+def test_correction_requires_restart_and_keeps_manual_pulses(tmp_path, monkeypatch):
     class Outputs:
         def open(self):
             return self
@@ -38,12 +38,13 @@ def test_live_correction_updates_parameters_and_manual_pulses(tmp_path, monkeypa
         node.watch.mtime = None
         node.watch.seen = node.watch._stat()
         node.reload_callback()
-        assert list(node.get_parameter('decoupling').value) == correction
-        assert list(node.get_parameter('decoupling_negative').value) == correction
+        assert list(node.get_parameter('decoupling').value) == config['decoupling']
+        assert list(node.get_parameter('decoupling_negative').value) == config['decoupling']
         message = Twist()
         message.linear.x = .5
         node.cmd_vel_callback(message)
-        assert outputs.pulses == [1280, 1680, 1320, 1720]
+        assert outputs.pulses == [1300, 1700, 1300, 1700]
+        assert node.pending_restart_keys == ['decoupling', 'decoupling_negative']
     finally:
         if node is not None:
             node.destroy_node()
@@ -120,36 +121,35 @@ def reload(node, path, config):
     node.reload_callback()
 
 
-def test_pin_change_moves_the_outputs(tmp_path, monkeypatch):
+def test_pin_change_requires_restart(tmp_path, monkeypatch):
     config = load_defaults()
     node, path, events = start(tmp_path, monkeypatch, config)
     try:
         events.clear()
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
-        assert events == [('neutral', [0, 0, 0, 0]), ('close', [0, 0, 0, 0], True),
-                          ('open', [1, 0, 0, 0])]
-        assert list(node.get_parameter('pwm_channels').value) == [1, 0, 0, 0]
-        assert node.timed_out
+        assert events == []
+        assert list(node.get_parameter('pwm_channels').value) == [0, 0, 0, 0]
+        assert 'restart required' in node.error
     finally:
         node.destroy_node()
         rclpy.shutdown()
 
 
-def test_failed_switch_reopens_the_old_pins_and_keeps_the_parameters(tmp_path, monkeypatch):
+def test_mixed_structural_edits_keep_all_parameters(tmp_path, monkeypatch):
     config = load_defaults()
     node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
     try:
         events.clear()
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0], reversed=[True] * 4))
-        assert events[-1] == ('open', [0, 0, 0, 0])
+        assert events == []
         assert list(node.get_parameter('pwm_channels').value) == [0, 0, 0, 0]
-        assert list(node.get_parameter('reversed').value) == [True] * 4  # the rest still applies
+        assert list(node.get_parameter('reversed').value) == [False] * 4
     finally:
         node.destroy_node()
         rclpy.shutdown()
 
 
-def test_failed_switch_is_not_logged_as_applied_and_is_retried(tmp_path, monkeypatch):
+def test_repeated_structural_edit_stays_pending(tmp_path, monkeypatch):
     config = load_defaults()
     node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
     try:
@@ -157,13 +157,13 @@ def test_failed_switch_is_not_logged_as_applied_and_is_retried(tmp_path, monkeyp
         assert node.file_config['pwm_channels'] == [0, 0, 0, 0]  # the last applied state
         events.clear()
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))  # unchanged file, retried
-        assert [event[0] for event in events][:2] == ['neutral', 'close']  # a second attempt
+        assert events == [] and node.pending_restart_keys == ['pwm_channels']
     finally:
         node.destroy_node()
         rclpy.shutdown()
 
 
-def test_failed_switch_does_not_log_the_rolled_back_value_as_reloaded(tmp_path, monkeypatch):
+def test_refused_structural_edit_is_not_logged_as_reloaded(tmp_path, monkeypatch):
     config = load_defaults()
     node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
     try:
@@ -173,12 +173,12 @@ def test_failed_switch_does_not_log_the_rolled_back_value_as_reloaded(tmp_path, 
                ('info', 'warning', 'error')})
         monkeypatch.setattr(node, 'get_logger', lambda: logger)
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
-        assert any('kept the old ones' in line for line in lines)
+        assert any('restart required' in line for line in lines)
         assert not any('pwm_channels=' in line for line in lines)  # nothing applied, no 'reloaded'
         lines.clear()
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0], reversed=[True] * 4))
         reloaded = [line for line in lines if line.startswith('config reloaded')]
-        assert len(reloaded) == 1 and 'reversed=' in reloaded[0] and 'pwm_channels' not in reloaded[0]
+        assert reloaded == []
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -190,10 +190,10 @@ def test_launch_override_survives_an_unrelated_edit(tmp_path, monkeypatch):
                                args=['-p', 'output_backend:=topic'])
     try:
         events.clear()
-        reload(node, path, dict(config, reversed=[True] * 4))
+        reload(node, path, dict(config, command_timeout=1.0))
         assert events == []
         assert node.get_parameter('output_backend').value == 'topic'
-        assert list(node.get_parameter('reversed').value) == [True] * 4
+        assert node.command_timeout == 1.0
     finally:
         node.destroy_node()
         rclpy.shutdown()
@@ -304,7 +304,7 @@ def test_outside_set_edit_is_refused_with_a_reason(tmp_path, monkeypatch):
             result = node.set_parameters([thruster_pwm_node.Parameter(name, value=value)])[0]
             assert not result.successful and 'edit hardware.yaml' in result.reason
         assert 'not a driver setting' not in result.reason  # command_timeout is a LIVE key
-        assert 'not a driver setting' in node.set_parameters(
+        assert 'restart required' in node.set_parameters(
             [thruster_pwm_node.Parameter('frequency', value=60.0)])[0].reason
         assert node.get_parameter('command_timeout').value == 0.5
     finally:
@@ -312,7 +312,7 @@ def test_outside_set_edit_is_refused_with_a_reason(tmp_path, monkeypatch):
         rclpy.shutdown()
 
 
-def test_status_is_latched_and_follows_a_switch(tmp_path, monkeypatch):
+def test_status_is_latched_and_reports_pending_restart(tmp_path, monkeypatch):
     config = load_defaults()
     node, path, events = start(tmp_path, monkeypatch, config)
     try:
@@ -321,8 +321,10 @@ def test_status_is_latched_and_follows_a_switch(tmp_path, monkeypatch):
         assert first['mosfet'] == 'none' and len(first['config_sha']) == 12
         reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
         second = latest_status(node)
-        assert second['outputs']['pwm_channels'] == [1, 0, 0, 0]
-        assert second['session'] == first['session'] and second['config_sha'] != first['config_sha']
+        assert second['outputs']['pwm_channels'] == [0, 0, 0, 0]
+        assert second['pending_restart_keys'] == ['pwm_channels']
+        assert second['requested_config_sha'] != first['requested_config_sha']
+        assert second['session'] == first['session'] and second['config_sha'] == first['config_sha']
     finally:
         node.destroy_node()
         rclpy.shutdown()

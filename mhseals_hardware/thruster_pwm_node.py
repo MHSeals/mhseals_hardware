@@ -7,8 +7,8 @@ Test pulses are accepted only while ``pulse_guard_topic`` (the command_mux ``~/s
 reports input ``auto`` or ``idle``, so they never outvote a human; no fresh state, no pulse.
 An empty ``pulse_guard_topic`` disables the guard (bench use without a mux).
 Either goes neutral after ``command_timeout`` without a message. With
-``config_file`` set, edits to the YAML apply live; pin or backend edits move the outputs
-(neutral, ESC power off, new pins at neutral, power on).
+``config_file`` set, validated watchdog edits apply live. Structural or coupled model
+edits require an explicit owner-controlled restart; this node never reopens outputs.
 """
 
 import json
@@ -26,7 +26,7 @@ from std_msgs.msg import String, UInt16MultiArray
 from mhseals_hardware.configuration import (
     ConfigWatcher, config_sha, load_config, validate_config,
 )
-from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs, switch_outputs
+from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
@@ -36,9 +36,11 @@ from mhseals_hardware.thruster_mixer import (
 RELOAD_PERIOD = 1.0
 PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autonomy or nobody
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
-# Settings the driver applies itself: the mixer inputs, and the pins it can move.
-LIVE_KEYS = ('channel_map', 'thruster_matrix', 'decoupling', 'decoupling_negative', 'reversed',
-             'command_timeout')
+# No runtime power/ownership proof permits structural changes in this node lifetime.
+RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
+                              'decoupling', 'decoupling_negative', 'characterization',
+                              'hardware_epoch')
+LIVE_KEYS = ('command_timeout',)
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
@@ -53,6 +55,8 @@ class ThrusterPWMNode(Node):
         self.declare_parameter('config_file', '')
         self.config_file = self.get_parameter('config_file').value or None
         config = load_config(self.config_file)
+        self.requested_config = config
+        self.pending_restart_keys = []
         self.file_config = config  # the YAML as loaded, before any parameters
         # Mappings (the characterization) can't be ROS parameters; they come
         # from the YAML only.
@@ -71,7 +75,6 @@ class ThrusterPWMNode(Node):
         self.outputs = make_outputs(self.config, node=self).open()
         self.last_command_time = time.monotonic()
         self.timed_out = False
-        self.add_on_set_parameters_callback(self.refuse_external)
         self.publish_status()
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
@@ -80,6 +83,7 @@ class ThrusterPWMNode(Node):
         self.mux_input, self.mux_time = None, 0.0
         if self.guard_topic:
             self.create_subscription(String, self.guard_topic, self.guard_callback, GUARD_QOS)
+        self.add_on_set_parameters_callback(self.refuse_external)
         self.create_timer(0.1, self.watchdog_callback)
         if self.config_file:
             self.watch = ConfigWatcher(self.config_file)
@@ -88,6 +92,8 @@ class ThrusterPWMNode(Node):
             f"thruster control ready ({self.config['output_backend']} outputs)")
 
     def apply(self, config):
+        if isinstance(config['command_timeout'], bool):
+            raise ValueError('command_timeout must be numeric, not bool')
         self.command_timeout = float(config['command_timeout'])
         self.channel_map = validate_channel_map(config['channel_map'])
         self.mixer = validate_mixer(config['thruster_matrix'])
@@ -100,9 +106,11 @@ class ThrusterPWMNode(Node):
         if self.own_write:
             return SetParametersResult(successful=True)
         for parameter in parameters:
-            if parameter.name in self.declared:
+            if parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
                 reason = 'edit hardware.yaml'
-                if parameter.name not in LIVE_KEYS + OUTPUT_KEYS:
+                if parameter.name in RESTART_KEYS + ('config_file', 'pulse_guard_topic'):
+                    reason = 'restart required; ' + reason
+                elif parameter.name not in LIVE_KEYS:
                     reason = 'not a driver setting; ' + reason
                 return SetParametersResult(successful=False, reason=reason)
         return SetParametersResult(successful=True)
@@ -113,6 +121,9 @@ class ThrusterPWMNode(Node):
         state = 'none' if mosfet is None else 'on' if mosfet.request is not None else 'off'
         self.status_pub.publish(String(data=json.dumps({
             'session': self.session, 'mosfet': state, 'config_sha': config_sha(self.file_config),
+            'requested_config_sha': config_sha(self.requested_config),
+            'effective_config_sha': config_sha(self.config),
+            'pending_restart_keys': self.pending_restart_keys,
             'outputs': {key: self.config[key] for key in OUTPUT_KEYS}, 'error': self.error})))
 
     def reload_callback(self):
@@ -128,29 +139,21 @@ class ThrusterPWMNode(Node):
         config = self.watch.poll()
         if config is None:
             return
-        # Diff against the previous file, not self.config, so launch overrides stay.
-        changed = {key: value for key, value in config.items()
-                   if not isinstance(value, dict) and value != self.file_config.get(key)}
-        new = validate_config(dict(self.config, **changed))  # may raise: nothing is applied
-        self.file_config, self.error = config, ''
-        if not changed:
+        self.requested_config = config
+        self.pending_restart_keys = sorted(key for key in RESTART_KEYS
+                                           if config.get(key) != self.file_config.get(key))
+        if self.pending_restart_keys:
+            self.error = 'restart required: ' + ', '.join(self.pending_restart_keys)
+            self.get_logger().error(self.error)
             self.publish_status()
             return
-        if any(key in changed for key in OUTPUT_KEYS):
-            self.outputs, error = switch_outputs(self.outputs, self.config, new, node=self)
-            self.timed_out = True  # hold neutral until the next command
-            if error:
-                self.error = f'outputs not moved: {error}'
-                self.get_logger().error(f'outputs not moved, kept the old ones: {error}')
-                new.update({key: self.config[key] for key in OUTPUT_KEYS})
-                # Not applied: leave them out of the log and let the next edit retry them.
-                for key in OUTPUT_KEYS:
-                    if key in changed:
-                        del changed[key]
-                        self.file_config[key] = self.config[key]
-            else:
-                self.get_logger().info('outputs moved: ' + ', '.join(
-                    f'{key}={changed[key]}' for key in OUTPUT_KEYS if key in changed))
+        # Diff against the accepted file so unrelated launch overrides survive.
+        changed = {key: config[key] for key in LIVE_KEYS
+                   if config[key] != self.file_config.get(key)}
+        if isinstance(config['command_timeout'], bool):
+            raise ValueError('command_timeout must be numeric, not bool')
+        new = validate_config(dict(self.config, **changed))
+        self.file_config, self.error = config, ''
         self.config = new
         self.apply(new)
         self.sync_parameters({key: new[key] for key in changed if self.has_parameter(key)})
