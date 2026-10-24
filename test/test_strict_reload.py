@@ -1,6 +1,4 @@
 """Operator YAML is parsed strictly: duplicate/merge/recursive input is refused, last good kept."""
-from pathlib import Path
-
 import pytest
 
 from mhseals_hardware.configuration import (
@@ -13,8 +11,9 @@ from test_mux_configuration import mux
 BAD = {
     'duplicate': 'command_timeout: 0.3\ncommand_timeout: 0.4\n',
     'duplicate-nested': 'controller:\n  kp: [1, 1, 1]\n  kp: [2, 2, 2]\n',
-    'merge': 'base: &b {a: 1}\ncommand_mux:\n  <<: *b\n',
-    'recursive': 'command_mux: &x {mode_ch: *x}\n',
+    'duplicate-mux': 'command_mux:\n  cmd_timeout: 0.9\n  cmd_timeout: 0.8\n',
+    'merge': 'command_mux:\n  <<: {cmd_timeout: 0.9}\n',
+    'recursive': 'command_mux:\n  modes: &x [*x]\n',
     'unknown': 'mosfet_lien: 3\n',
     'syntax': 'command_timeout: [\n',
 }
@@ -64,8 +63,6 @@ def test_watcher_keeps_last_good_and_never_applies_duplicate(tmp_path):
     watch = ConfigWatcher(path)
     path.write_text('command_timeout: 0.4\n')
     settle(watch)
-    good = watch.poll
-    assert watch.last_good is None
     applied = []
 
     def tick():  # the callback shape shared by driver, controller and mux
@@ -80,16 +77,15 @@ def test_watcher_keeps_last_good_and_never_applies_duplicate(tmp_path):
     path.write_text('command_timeout: 0.6\ncommand_timeout: 0.7\n')
     assert tick() is None  # settling
     assert 'duplicate' in tick()
-    assert applied == [] and watch.last_good is None
+    assert applied == []
     path.write_text('command_timeout: 0.2\n')
     tick()
     tick()
     assert [c['command_timeout'] for c in applied] == [0.2]
-    assert watch.last_good is applied[-1]
     path.write_text(BAD['duplicate'])
     tick()
     assert 'duplicate' in tick()
-    assert watch.last_good['command_timeout'] == 0.2 and len(applied) == 1
+    assert [c['command_timeout'] for c in applied] == [0.2]  # nothing new applied
 
 
 def real_startup(monkeypatch, tmp_path):
@@ -109,7 +105,7 @@ def test_mux_startup_is_managed_and_records_snapshot(tmp_path, monkeypatch):
     assert list((tmp_path / 'snap').rglob('active.json'))  # the recorded snapshot
 
 
-@pytest.mark.parametrize('name', ['duplicate', 'merge', 'recursive'])
+@pytest.mark.parametrize('name', ['duplicate', 'duplicate-mux', 'merge', 'recursive'])
 def test_mux_startup_refuses_bad_file_without_snapshot(tmp_path, monkeypatch, name):
     build = real_startup(monkeypatch, tmp_path)
     path = tmp_path / 'hardware.yaml'
@@ -117,3 +113,36 @@ def test_mux_startup_refuses_bad_file_without_snapshot(tmp_path, monkeypatch, na
     with pytest.raises(ValueError):
         build({}, path)
     assert not list((tmp_path / 'snap').rglob('active.json'))
+
+
+def test_mux_with_selection_args_takes_the_selection_not_a_differing_file(tmp_path, monkeypatch):
+    """A mux given an existing selection's root/scope/candidate reads that snapshot.
+
+    Without those arguments (what the testing arming path passes today) the mux
+    bootstraps a new orphan scope from the operator file instead.
+    """
+    build = real_startup(monkeypatch, tmp_path)
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_mux:\n  cmd_timeout: 0.9\n')
+    first = build({}, path)
+    selection = first.startup_selection
+    root = tmp_path / 'snap'
+    scopes = {p.parent.name for p in root.rglob('active.json')}
+    assert len(scopes) == 1
+    scope = scopes.pop()
+    path.write_text('command_mux:\n  cmd_timeout: 0.4\n')  # the operator file now differs
+    arguments = {'config_file': str(path), 'config_root': str(root), 'config_scope': scope,
+                 'config_candidate': selection.ticket.candidate}
+    node = mux({}, arguments, node_startup_inputs=node_startup_inputs)
+    assert node.arbitration.cmd_timeout == 0.9  # from the selection
+    assert {p.parent.name for p in root.rglob('active.json')} == {scope}  # no orphan scope
+    orphan = mux({}, {'config_file': str(path)}, node_startup_inputs=node_startup_inputs)
+    assert orphan.arbitration.cmd_timeout == 0.4  # no selection args: operator file, new scope
+    assert len({p.parent.name for p in root.rglob('active.json')}) == 2
+
+
+def test_unknown_key_keeps_wording_and_origin(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('no_such_setting: 1\n')
+    with pytest.raises(ValueError, match=r'unknown hardware settings: \[.no_such_setting.\] at .*hardware\.yaml'):
+        load_config(path)

@@ -59,7 +59,7 @@ def parse_layer(text, source, layer, fields):
 
 
 def hardware_fields(defaults=None):
-    """The closed hardware schema: one Field per default leaf (controller flattened)."""
+    """Return the closed hardware schema: one Field per default leaf (controller flattened)."""
     defaults = defaults or load_defaults()
     fields = {key: Field(type(value), nullable=value is None)
               for key, value in defaults.items()}

@@ -7,7 +7,6 @@ opens GPIO/PWM) and the mux reads no RC. The test node reads only the published
 """
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import time

@@ -156,7 +156,6 @@ class ConfigWatcher:
     def __init__(self, path):
         self.path = path
         self.mtime = self.seen = self._stat()  # applied key, and last tick's key
-        self.last_good = None  # the last config poll() accepted; kept on a refusal
 
     def _stat(self):
         try:
@@ -179,12 +178,11 @@ class ConfigWatcher:
             config = load_config(self.path)
         except (yaml.YAMLError, TypeError) as error:
             raise ValueError(f'invalid hardware YAML: {error}') from error
-        self.last_good = config
         return config
 
 
 def _read_overrides(path):
-    """The operator file's overrides, parsed by the core strict resolver.
+    """Parse the operator file's overrides with the core strict resolver.
 
     Duplicate, merge, recursive and unknown keys are refused with their located
     source, as in managed startup; every refusal is a ValueError.
@@ -201,6 +199,11 @@ def _read_overrides(path):
         assignments = parse_layer(text, str(path), 'operator', hardware_fields())
     except yaml.YAMLError as error:
         raise ValueError(f'invalid hardware YAML: {error}') from error
+    except ValueError as error:
+        unknown = re.match(r'unknown key (.+?) at (.*)', str(error), re.S)
+        if unknown:  # keep the established wording of this refusal
+            raise ValueError(f'unknown hardware settings: [{unknown[1]!r}] at {unknown[2]}') from error
+        raise
     overrides = {}
     for item in assignments:
         value = plain(item.value)
