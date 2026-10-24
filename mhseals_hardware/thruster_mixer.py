@@ -91,7 +91,9 @@ def decouple(command, decoupling=IDENTITY, negative=None):
 
 def validate_channel_map(values):
     """Validate canonical-to-physical output numbers."""
-    channels = tuple(int(value) for value in values)
+    if any(type(value) is not int for value in values):
+        raise ValueError('channel_map must contain integers')
+    channels = tuple(values)
     if len(channels) != 4 or sorted(channels) != [1, 2, 3, 4]:
         raise ValueError('channel_map must be a permutation of [1, 2, 3, 4]')
     return channels

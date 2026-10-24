@@ -19,6 +19,9 @@ import numpy
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 
+from mhseals_hardware.control_validation import (
+    GAIN_KEYS, RESTART_KEYS, SCALAR_GAINS, VECTOR_GAINS, validate_controller,
+)
 from mhseals_hardware.configuration import ConfigWatcher, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
@@ -26,10 +29,6 @@ from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 # The config keys Plant reads; an edit to anything else keeps the model and the integrator.
 PLANT_KEYS = ('thruster_matrix', 'characterization', 'decoupling', 'decoupling_negative')
-# Controller gains: _validate_gains writes an accepted change into VelocityLaw, so it is live.
-VECTOR_GAINS = ('kp', 'ki', 'integral_limit')  # one value per axis, shape (3,)
-SCALAR_GAINS = ('drift_time_constant', 'odom_timeout', 'drift_command_limit')
-GAIN_KEYS = VECTOR_GAINS + SCALAR_GAINS
 
 
 def yaw_of(orientation):
@@ -58,6 +57,8 @@ class VelocityController(Node):
         # Largest commanded speed at which the drift estimate still learns (velocity_law).
         self.declare_parameter('drift_command_limit', 0.1)
         value = lambda name: self.get_parameter(name).value  # noqa: E731
+        validate_controller({name: value(name) for name in
+                             GAIN_KEYS + ('command_timeout', 'feedback')})
         config = load_config(value('config_file') or None)
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
@@ -81,17 +82,21 @@ class VelocityController(Node):
 
     def _validate_gains(self, parameters):
         """Accept a gain change only if it is finite, and of the right length; apply it live."""
-        values = {}
+        values = {name: self.get_parameter(name).value
+                  for name in GAIN_KEYS + ('command_timeout', 'feedback')}
+        changed = {}
         for parameter in parameters:
-            if parameter.name in GAIN_KEYS:
-                try:
-                    value = numpy.array(parameter.value, float)
-                except (TypeError, ValueError):
-                    return SetParametersResult(successful=False, reason='not numeric')
-                shape = (3,) if parameter.name in VECTOR_GAINS else ()
-                if value.shape != shape or not numpy.all(numpy.isfinite(value)):
-                    return SetParametersResult(successful=False, reason=f'need finite {shape}')
-                values[parameter.name] = value
+            if parameter.name in RESTART_KEYS:
+                return SetParametersResult(successful=False, reason='restart required: ' + parameter.name)
+            if parameter.name in values:
+                values[parameter.name] = parameter.value
+                if parameter.name in GAIN_KEYS:
+                    changed[parameter.name] = parameter.value
+        try:
+            validate_controller(values)
+        except (TypeError, ValueError) as error:
+            return SetParametersResult(successful=False, reason=str(error))
+        values = {name: numpy.array(value, float) for name, value in changed.items()}
         for name, value in values.items():
             attribute = getattr(self._law, name)
             setattr(self._law, name, value if isinstance(attribute, numpy.ndarray) else float(value))

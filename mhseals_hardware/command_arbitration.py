@@ -68,6 +68,15 @@ class Arbitration:
         self.rc_max_age, self.cmd_timeout = rc_max_age, cmd_timeout
         self.stick_takeover, self.stick_time = stick_takeover, stick_time
         self.stick_release, self.ramp = stick_release, ramp
+        from mhseals_hardware.control_validation import nonnegative
+        if len(self.rc_scale) != 3:
+            raise ValueError('rc_scale needs three numbers')
+        for value in self.rc_scale:
+            nonnegative(value, 'rc_scale')
+        for name in ('rc_max_age', 'cmd_timeout', 'stick_takeover', 'stick_time',
+                     'stick_release', 'ramp'):
+            nonnegative(getattr(self, name), name,
+                        positive=name in ('rc_max_age', 'cmd_timeout'))
 
         self.channels, self.rc_time = (), None
         self.manual, self.manual_time = (0.0, 0.0, 0.0), None
@@ -110,7 +119,7 @@ class Arbitration:
         if not all(type(ch) is int and ch >= 1 for ch in channels):
             raise ValueError('mode_ch and stop_ch must be channel numbers >= 1')
         if len(self.modes) != len(MODE_BANDS) + 1 or not all(
-                type(mode) is int for mode in self.modes):
+                type(mode) is int and mode >= 0 for mode in self.modes):
             raise ValueError('modes must be %d FCU mode numbers' % (len(MODE_BANDS) + 1))
 
     def apply_config(self, section, now):
