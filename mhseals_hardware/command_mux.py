@@ -67,7 +67,9 @@ class CommandMux(Node):
             self.declare_parameter(name, list(default) if name == 'rc_scale' else default)
             # Pinned Jazzy Node retains explicit CLI/launch overrides in this map.
             if name in self._parameter_overrides:
-                self._invocation_overrides[name] = self.get_parameter(name).value
+                value = self.get_parameter(name).value
+                # Arbitration validates numeric domains; keep detached JSON-safe vectors.
+                self._invocation_overrides[name] = tuple(value) if name == 'rc_scale' else value
         self.pending = None
         self._reload_error = ''
         effective = self._resolve_section(section)
@@ -142,7 +144,8 @@ class CommandMux(Node):
         try:
             config = self.watch.poll()
         except (OSError, ValueError, KeyError) as error:
-            self.get_logger().error(f'config reload rejected, keeping the old one: {error}')
+            self._reload_error = f'config reload rejected: {error}'
+            self.get_logger().error(self._reload_error)
             return
         if config is not None:
             section = self._resolve_section(config.get('command_mux', {}))

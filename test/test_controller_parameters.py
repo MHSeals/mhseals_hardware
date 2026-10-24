@@ -1,4 +1,5 @@
 """Actual controller callbacks with inert Jazzy-order parameter storage."""
+from array import array
 import ast
 import copy
 from pathlib import Path
@@ -108,3 +109,19 @@ def test_commands_cannot_observe_partially_committed_batch():
     command.join(2)
     assert done.is_set()
     assert list(n._law.kp) == [2.]*3 and list(n._law.ki) == [3.]*3
+
+
+def test_ros_service_double_array_consumes_new_law_and_rejection_retains_it():
+    n = node()
+    n._law.observe((0, 0, 0), 0, 1.)
+    n._command((.12, 0, 0))
+    before = n.sent[-1][0]
+    assert n.set_parameters_atomically(patch(kp=array('d', [2.]*3))).successful
+    n._command((.12, 0, 0))
+    assert n.sent[-1][0] > before
+    accepted = n._law
+    assert not n.set_parameters_atomically(patch(ki=array('d', [float('nan')]*3))).successful
+    assert n._law is accepted
+    n.late = lambda ps: NS(successful=False)
+    assert not n.set_parameters_atomically(patch(kp=array('d', [3.]*3))).successful
+    assert n._law is accepted

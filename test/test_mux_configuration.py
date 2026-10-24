@@ -1,11 +1,13 @@
 """Actual mux initialization/reload against inert ROS bindings and real arbitration."""
+from array import array
 import ast
+import json
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
 
-from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
 
 
 class InertNode:
@@ -35,14 +37,16 @@ def mux(section, overrides=None):
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     cls.bases = [ast.Name(id='InertNode', ctx=ast.Load())]
     InertNode.overrides = overrides or {}
-    env = dict(InertNode=InertNode, Arbitration=Arbitration, RELOAD_PERIOD=1.,
-               time=NS(monotonic=lambda: 0.), Twist=object, String=object, RCIn=object,
+    change = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'change_key')
+    env = dict(json=json, INIT_KEYS=INIT_KEYS, VOLATILE_RC=('age_s', 'rate_hz', 'interval_p95_s'),
+               InertNode=InertNode, Arbitration=Arbitration, RELOAD_PERIOD=1.,
+               time=NS(monotonic=lambda: 0., time_ns=lambda: 1), Twist=object, String=lambda **kw: NS(**kw), RCIn=object,
                STATE_QOS=None, qos_profile_sensor_data=None,
                load_config=lambda path: {'command_mux': section},
                ConfigWatcher=lambda path: NS(poll=lambda: None),
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw))
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), env)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[change, cls], type_ignores=[])), str(path), 'exec'), env)
     return env['CommandMux']()
 
 
@@ -90,3 +94,37 @@ def test_reload_defers_human_then_applies_at_idle_and_state_file_refuses():
 def test_unused_live_parameter_writes_refuse(name):
     n = mux({})
     assert not n._reject_parameters([NS(name=name)]).successful
+
+
+def published(n):
+    sent = []
+    n.state_pub = NS(publish=sent.append)
+    n.publish_state(force=True)
+    return json.loads(sent[-1].data)['configuration']
+
+
+def test_ros_array_override_status_and_pending_are_json_safe_and_detached():
+    scale = array('d', [.1, .2, .1])
+    n = mux({}, {'rc_scale': scale})
+    scale[0] = .9
+    assert published(n)['invocation_overrides']['rc_scale'] == [.1, .2, .1]
+    n.arbitration.update_manual((.4, 0, 0), 0.)
+    n.watch.poll = lambda: {'command_mux': {'ramp': 2.}}
+    n.reload_callback()
+    assert published(n)['pending']['rc_scale'] == [.1, .2, .1]
+    assert n.arbitration.rc_scale == (.1, .2, .1)
+
+
+def test_reload_error_is_current_and_clears_only_after_valid_acceptance():
+    n = mux({})
+    n._reload_error = 'restart required: state_file'
+    old = n.arbitration
+    def bad():
+        raise ValueError('bad rc_scale')
+    n.watch.poll = bad
+    n.reload_callback()
+    assert published(n)['error'] == 'config reload rejected: bad rc_scale'
+    assert n.arbitration is old and old.cmd_timeout == .5
+    n.watch.poll = lambda: {'command_mux': {'cmd_timeout': .9}}
+    n.reload_callback()
+    assert published(n)['error'] == '' and old.cmd_timeout == .9

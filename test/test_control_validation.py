@@ -1,4 +1,6 @@
 """Shared domains, including actual mux construction and effort-only loading."""
+from array import array
+
 import pytest
 
 from mhseals_hardware.command_arbitration import Arbitration
@@ -58,3 +60,15 @@ def test_effort_timing_bool_rejected(key):
 def test_stick_pwm_threshold_is_integer(value):
     with pytest.raises(ValueError):
         Arbitration(stick_takeover=value)
+
+
+@pytest.mark.parametrize('bad', [array('d', [-1., 0., 0.]),
+                                array('d', [float('inf'), 0., 0.]),
+                                array('d', [1., 2.])])
+def test_ros_array_domains_are_not_weakened(bad):
+    with pytest.raises(ValueError):
+        validate_controller(dict(values(), kp=bad))
+
+
+def test_ros_startup_array_domain_is_supported():
+    assert validate_controller(dict(values(), kp=array('d', [.8]*3)))['kp'][0] == .8

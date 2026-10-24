@@ -1,4 +1,5 @@
 """Pure controller domains shared by startup and parameter preflight."""
+from array import array
 import math
 
 VECTOR_GAINS = ('kp', 'ki', 'integral_limit')
@@ -16,7 +17,7 @@ def nonnegative(value, name, positive=False):
 def validate_controller(values):
     for name in VECTOR_GAINS:
         value = values[name]
-        if not isinstance(value, (list, tuple)) or len(value) != 3:
+        if not isinstance(value, (list, tuple, array)) or len(value) != 3:
             raise ValueError(f'{name} needs three numbers')
         for item in value:
             nonnegative(item, name)
