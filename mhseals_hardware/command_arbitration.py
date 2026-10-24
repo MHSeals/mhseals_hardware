@@ -103,6 +103,9 @@ class Arbitration:
     @classmethod
     def from_config(cls, config):
         """Build from the ``command_mux`` section of hardware.yaml."""
+        if config and 'state_file' in config and (
+                not isinstance(config['state_file'], str) or not config['state_file']):
+            raise ValueError('state_file must be a nonempty path string')
         # ``state_file`` belongs to the node (hold persistence), not the state machine.
         return cls(**{k: v for k, v in (config or {}).items() if k != 'state_file'})
 

@@ -12,13 +12,14 @@ import time
 
 from geometry_msgs.msg import Twist
 from mavros_msgs.msg import RCIn
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
                        qos_profile_sensor_data)
 from std_msgs.msg import String
 
 from mhseals_hardware import hold_store
-from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
 from mhseals_hardware.configuration import ConfigWatcher, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 
@@ -56,19 +57,23 @@ class CommandMux(Node):
 
     def __init__(self):
         super().__init__('command_mux')
-        self.declare_parameter('rc_scale', [0.5, 0.5, 0.3])
-        self.declare_parameter('cmd_timeout', 0.5)
-        self.declare_parameter('ramp', 1.0)
         self.declare_parameter('config_file', '')
-        self.arbitration = Arbitration(
-            rc_scale=self.get_parameter('rc_scale').value,
-            cmd_timeout=self.get_parameter('cmd_timeout').value,
-            ramp=self.get_parameter('ramp').value)
-        # The hardware YAML's command_mux section overrides the parameters.
         config_file = self.get_parameter('config_file').value or None
-        self.pending = None
         section = load_config(config_file).get('command_mux', {})
-        self.arbitration.apply_config(section, time.monotonic())
+        defaults = Arbitration()
+        self._invocation_overrides = {}
+        for name in ('rc_scale', 'cmd_timeout', 'ramp'):
+            default = section.get(name, getattr(defaults, name))
+            self.declare_parameter(name, list(default) if name == 'rc_scale' else default)
+            # Pinned Jazzy Node retains explicit CLI/launch overrides in this map.
+            if name in self._parameter_overrides:
+                self._invocation_overrides[name] = self.get_parameter(name).value
+        self.pending = None
+        self._reload_error = ''
+        effective = self._resolve_section(section)
+        self.arbitration = Arbitration.from_config(effective)
+        self._effective_section = effective
+        self.add_on_set_parameters_callback(self._reject_parameters)
         # Holds survive a restart: re-adopt the saved set (invariant 4).
         self.state_file = section.get('state_file') or hold_store.default_path()
         self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
@@ -88,6 +93,16 @@ class CommandMux(Node):
         self._last_state = None
         self._seq = 0
         self._pipeline_ms = None
+
+    def _resolve_section(self, section):
+        """Explicit invocation values win over YAML; omitted YAML uses defaults."""
+        return {**section, **self._invocation_overrides}
+
+    def _reject_parameters(self, parameters):
+        names = {'rc_scale', 'cmd_timeout', 'ramp', 'config_file'}
+        changed = sorted(p.name for p in parameters if p.name in names)
+        return SetParametersResult(successful=not changed,
+                                   reason='restart required: ' + ', '.join(changed) if changed else '')
 
     def check_duplicate(self):
         """Hold at zero while another node also publishes ``/cmd_vel/applied``.
@@ -130,10 +145,19 @@ class CommandMux(Node):
             self.get_logger().error(f'config reload rejected, keeping the old one: {error}')
             return
         if config is not None:
-            self.pending = config.get('command_mux', {})
+            section = self._resolve_section(config.get('command_mux', {}))
+            requested_path = section.get('state_file') or hold_store.default_path()
+            if requested_path != self.state_file:
+                self.pending = None
+                self._reload_error = 'restart required: state_file'
+                self.get_logger().error(self._reload_error)
+                return
+            self.pending = section
         if self.pending is None:
             return
         if self.arbitration.apply_config(self.pending, time.monotonic()):
+            self._effective_section = self.pending
+            self._reload_error = ''
             self.get_logger().info('command_mux config applied')
             self.pending = None
         elif config is not None:
@@ -143,6 +167,11 @@ class CommandMux(Node):
         """Publish ``~/state`` when it changed, or always with ``force``."""
         state = self.arbitration.state(time.monotonic(), time.time_ns(),
                                        self._pipeline_ms)
+        state['configuration'] = {
+            'effective': {key: getattr(self.arbitration, key) for key in INIT_KEYS},
+            'invocation_overrides': self._invocation_overrides,
+            'state_file': str(self.state_file), 'pending': self.pending,
+            'error': self._reload_error}
         key = change_key(state)
         if force or key != self._last_state:
             self._last_state = key
