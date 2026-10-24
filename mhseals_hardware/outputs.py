@@ -97,10 +97,24 @@ def switch_outputs(outputs, old, new, node=None, make=None):
 
     Neutral, ESC power off, release the old channels, open the new ones at
     neutral, power on. If the new outputs fail to open, the old ones reopen.
+    Always attempt release after neutral; any cleanup failure prevents opening.
     """
     make = make or make_outputs
-    outputs.neutral()
-    outputs.close(unexport=True)
+    neutral_error = None
+    try:
+        outputs.neutral()
+    except Exception as error:
+        neutral_error = error
+    try:
+        outputs.close(unexport=True)
+    except Exception as error:
+        if neutral_error is not None:
+            raise OSError(
+                f'outputs neutral failed ({type(neutral_error).__name__}): {neutral_error}; '
+                f'close failed ({type(error).__name__}): {error}') from error
+        raise
+    if neutral_error is not None:
+        raise neutral_error
     try:
         return make(new, node=node).open(), None
     except Exception as error:

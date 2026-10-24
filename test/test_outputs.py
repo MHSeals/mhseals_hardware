@@ -97,3 +97,36 @@ def test_switch_outputs_order_and_rollback():
                                     Recorder(config['name'], events, config['name'] == 'b'))
     assert isinstance(error, OSError) and outputs.name == 'a'
     assert events == ['neutral:a', 'close:a:True', 'fail:b', 'open:a']
+
+
+@pytest.mark.parametrize('fail_neutral,fail_close', [(True, False), (True, True), (False, True)])
+def test_switch_outputs_cleanup_failure_blocks_open(fail_neutral, fail_close):
+    events, made = [], []
+    neutral_error = OSError('neutral write failed')
+    close_error = OSError('release failed')
+
+    class FailingOutputs(Recorder):
+        def neutral(self):
+            super().neutral()
+            if fail_neutral:
+                raise neutral_error
+
+        def close(self, unexport=False):
+            super().close(unexport=unexport)
+            if fail_close:
+                raise close_error
+
+    def make(config, node=None):
+        made.append(config)
+        return Recorder(config['name'], events)
+
+    with pytest.raises(OSError) as caught:
+        switch_outputs(FailingOutputs('a', events), {'name': 'a'}, {'name': 'b'}, make=make)
+
+    assert events == ['neutral:a', 'close:a:True']
+    assert made == []
+    if fail_neutral and fail_close:
+        assert 'neutral' in str(caught.value) and 'neutral write failed' in str(caught.value)
+        assert 'close' in str(caught.value) and 'release failed' in str(caught.value)
+    else:
+        assert caught.value is (neutral_error if fail_neutral else close_error)
