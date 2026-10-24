@@ -58,6 +58,8 @@ def validate_mixer(values):
     """Return a four-row mixer from a flat, finite 12-value sequence."""
     if len(values) != 12:
         raise ValueError('thruster_matrix must contain exactly 12 values')
+    if any(type(value) not in (int, float) for value in values):
+        raise ValueError('matrix values must be numbers')
     values = tuple(float(value) for value in values)
     if not all(value == value and abs(value) != float('inf')
                for value in values):
@@ -70,6 +72,8 @@ def validate_decoupling(values):
     """Return a 3x3 decoupling matrix from a flat, finite 9-value sequence."""
     if len(values) != 9:
         raise ValueError('decoupling must contain exactly 9 values')
+    if any(type(value) not in (int, float) for value in values):
+        raise ValueError('matrix values must be numbers')
     values = tuple(float(value) for value in values)
     if not all(value == value and abs(value) != float('inf') for value in values):
         raise ValueError('decoupling values must be finite')

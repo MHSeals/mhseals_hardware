@@ -66,6 +66,8 @@ class Arbitration:
         self._check_layout()
         self.rc_scale = tuple(rc_scale)
         self.rc_max_age, self.cmd_timeout = rc_max_age, cmd_timeout
+        if type(stick_takeover) is not int or stick_takeover < 0:
+            raise ValueError('stick_takeover must be a nonnegative integer PWM offset')
         self.stick_takeover, self.stick_time = stick_takeover, stick_time
         self.stick_release, self.ramp = stick_release, ramp
         from mhseals_hardware.control_validation import nonnegative

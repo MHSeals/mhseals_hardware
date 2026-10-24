@@ -44,3 +44,17 @@ def test_channel_indexes_are_not_coerced(bad):
     from mhseals_hardware.thruster_mixer import validate_channel_map
     with pytest.raises(ValueError):
         validate_channel_map(bad)
+
+
+@pytest.mark.parametrize('key', ['command_timeout', 'manual_repeat_timeout',
+                                'manual_initial_timeout', 'manual_amplitude', 'manual_yaw_scale'])
+def test_effort_timing_bool_rejected(key):
+    from mhseals_hardware.configuration import validate_config
+    with pytest.raises(ValueError):
+        validate_config(dict(load_defaults(), **{key: True}))
+
+
+@pytest.mark.parametrize('value', [True, 1.5])
+def test_stick_pwm_threshold_is_integer(value):
+    with pytest.raises(ValueError):
+        Arbitration(stick_takeover=value)

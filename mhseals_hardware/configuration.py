@@ -54,7 +54,7 @@ def validate_config(config):
     for group in ('velocity', 'acceleration', 'deceleration', 'combined'):
         values = limits.get(group, {})
         if values and (not isinstance(values, dict) or any(
-                not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0
+                type(value) not in (int, float) or not math.isfinite(value) or value < 0
                 for value in values.values())):
             raise ValueError(f'characterization.motion_limits.{group} must contain finite nonnegative values')
     gain = characterization.get('velocity_gain')
@@ -64,7 +64,7 @@ def validate_config(config):
         for row in gain.values():
             if not isinstance(row, dict) or any(axis not in row for axis in ('surge', 'sway', 'yaw')):
                 raise ValueError('characterization.velocity_gain rows must contain surge, sway, yaw')
-            if any(not isinstance(value, (int, float)) or not math.isfinite(value)
+            if any(type(value) not in (int, float) or not math.isfinite(value)
                    for value in row.values()):
                 raise ValueError('characterization.velocity_gain values must be finite')
     curves = characterization.get('speed_curves')
@@ -75,12 +75,12 @@ def validate_config(config):
             if key not in ('surge+', 'surge-', 'sway+', 'sway-', 'yaw+', 'yaw-'):
                 raise ValueError(f'characterization.speed_curves has unknown direction {key}')
             if not isinstance(curve, dict) or any(
-                    not isinstance(curve.get(term), (int, float)) or
+                    type(curve.get(term)) not in (int, float) or
                     not math.isfinite(curve[term]) for term in ('d1', 'd2')):
                 raise ValueError(f'characterization.speed_curves.{key} needs finite d1 and d2')
     bias = characterization.get('mechanical_bias')
     if bias and (not isinstance(bias, dict) or any(
-            axis not in bias or not isinstance(bias[axis], (int, float)) or
+            axis not in bias or type(bias[axis]) not in (int, float) or
             not math.isfinite(bias[axis]) for axis in ('surge', 'sway', 'yaw'))):
         raise ValueError('characterization.mechanical_bias must contain finite surge, sway, yaw values')
     # PWM outputs and the MOSFET enable line.
@@ -109,11 +109,11 @@ def validate_config(config):
         raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')
     # Watchdog and keyboard deadman timings.
     for key in ('command_timeout', 'manual_repeat_timeout', 'manual_initial_timeout'):
-        if not math.isfinite(config[key]) or not 0 < config[key] <= 2:
+        if type(config[key]) not in (int, float) or not math.isfinite(config[key]) or not 0 < config[key] <= 2:
             raise ValueError(f'{key} must be finite and within (0, 2] seconds')
-    if not math.isfinite(config['manual_amplitude']) or not 0 <= config['manual_amplitude'] <= 1:
+    if type(config['manual_amplitude']) not in (int, float) or not math.isfinite(config['manual_amplitude']) or not 0 <= config['manual_amplitude'] <= 1:
         raise ValueError('manual_amplitude must be within [0, 1]')
-    if not math.isfinite(config['manual_yaw_scale']) or not 0 < config['manual_yaw_scale'] <= 1:
+    if type(config['manual_yaw_scale']) not in (int, float) or not math.isfinite(config['manual_yaw_scale']) or not 0 < config['manual_yaw_scale'] <= 1:
         raise ValueError('manual_yaw_scale must be within (0, 1]')
     return config
 
