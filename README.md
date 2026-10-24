@@ -44,7 +44,7 @@ See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
 section for deployment notes and safety checks.
 
 The device-tree source is
-[`config/odroid-m2-thruster-pwm-overlay.dts`](config/odroid-m2-thruster-pwm-overlay.dts).
+[`host/odroid-m2-thruster-pwm-overlay.dts`](host/odroid-m2-thruster-pwm-overlay.dts).
 The running M2 image must expose all four controllers.
 
 ## Container setup

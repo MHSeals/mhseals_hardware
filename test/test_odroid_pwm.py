@@ -189,7 +189,7 @@ def test_j2_pins_match_overlay_readme_and_defaults():
     root = Path(__file__).resolve().parents[1]
     outputs = (1, 2, 3, 4)
 
-    overlay = (root / 'config/odroid-m2-thruster-pwm-overlay.dts').read_text()
+    overlay = (root / 'host/odroid-m2-thruster-pwm-overlay.dts').read_text()
     enabled = set(re.findall(r'&(pwm\d+)\s*\{\s*status = "okay"', overlay))
     assert enabled == {J2_PINS[o][2].lower() for o in outputs}
 

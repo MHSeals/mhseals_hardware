@@ -2,10 +2,10 @@
 set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-readonly CONFIG_DIR="${SCRIPT_DIR}/../config"
-readonly HELPER_SOURCE="${CONFIG_DIR}/mhseals-thruster-access"
+readonly HOST_DIR="${SCRIPT_DIR}/../host"
+readonly HELPER_SOURCE="${HOST_DIR}/mhseals-thruster-access"
 readonly HELPER_TARGET="/usr/local/libexec/mhseals-thruster-access"
-readonly UNIT_SOURCE="${CONFIG_DIR}/mhseals-thruster-access.service"
+readonly UNIT_SOURCE="${HOST_DIR}/mhseals-thruster-access.service"
 readonly UNIT_TARGET="/etc/systemd/system/mhseals-thruster-access.service"
 readonly LEGACY_RULE="/etc/udev/rules.d/99-mhseals-thrusters.rules"
 
