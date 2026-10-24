@@ -328,3 +328,18 @@ def test_manual_drives_with_caps_lock():
     state = ManualState()
     assert state.update(decode_key(b'W'), 0) == (.25, 0, 0)
     assert state.update(decode_key(b'\x1b[119;2:1u', True), 0.1)[0] == .25
+
+
+@pytest.mark.parametrize('report_events', [False, True])
+def test_uppercase_keys_keep_their_case_through_reader(report_events):
+    """rv1-26: V/E/U/B/D must reach the app uppercase, never folded to v/e/u/b/d."""
+    read_fd, write_fd = os.pipe()
+    reader = KeyReader(report_events=report_events)
+    reader.fd = read_fd
+    try:
+        os.write(write_fd, b'VEUBDvHVBRAI{}h\x1b[104;2u\x1b[1;2C')
+        keys = [reader.read(.5) for _ in range(17)]
+        assert keys == list('VEUBDvHVBRAI{}h') + (['press:H', 'shift-right'] if report_events else ['H', 'shift-right'])
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
