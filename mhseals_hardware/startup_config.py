@@ -15,6 +15,8 @@ from mhseals_hardware.thruster_mixer import mix_thrusters, validate_mixer
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 RECIPE_ID = 'hardware-pure-startup/v1'
+PARTICIPANTS = frozenset(('hardware-baseline', 'hardware-pure'))
+SELECTION_PARAMETERS = ('config_root', 'config_scope', 'config_profile', 'config_candidate')
 
 
 def plain(value):
@@ -122,7 +124,33 @@ def evaluate(document, evidence):
 EVALUATORS = {RECIPE_ID: Recipe(RECIPE_ID, evaluate)}
 
 
-def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=None):
+def prepare_inputs(operator=None, *, profile=None, session=None, document=None):
+    """Prepare the fixed hardware closure without reserving or writing a scope."""
+    from mhseals_config import Artifact, BaselineRevision, digest
+
+    document = document or compile_inputs(operator, profile=profile, session=session)
+    baseline_document = {'baseline': document['baseline'], 'effective': document['baseline'],
+                         'origins': {k: [o for o in origins if o['layer'] != 'session']
+                                     for k, origins in document['origins'].items()}}
+    baseline_hash = digest(baseline_document)
+    artifacts = (Artifact('hardware-baseline.json', baseline_hash),)
+    return {'documents': {'hardware-pure': document, 'hardware-baseline': baseline_document},
+            'recipes': {p: RECIPE_ID for p in PARTICIPANTS},
+            'identities': {p: RECIPE_ID for p in PARTICIPANTS},
+            'baseline_artifacts': artifacts,
+            'baseline': BaselineRevision(baseline_hash, artifacts),
+            'source': digest(document['origins'])}
+
+
+def observe_inputs(documents, ticket, source):
+    """Bind actual pure observations to the owner's captured aggregate identity."""
+    return {p: {'scope': ticket.scope, 'candidate': ticket.candidate, 'source': source,
+                'identity': RECIPE_ID, 'recipe': RECIPE_ID,
+                'evidence': observe(plain(documents[p]))} for p in PARTICIPANTS}
+
+
+def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=None,
+                   config_candidate=None):
     """
     Select an immutable scope, or bootstrap a new pure pre-output snapshot.
 
@@ -130,43 +158,36 @@ def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=No
     """
     import os
     import uuid
-    from mhseals_config import Artifact, BaselineRevision, digest
     from mhseals_config._bootstrap import (
         NoActiveSelection, begin_bootstrap, finish_bootstrap,
-        read_bootstrap_inputs, read_selected_inputs,
+        read_bootstrap_inputs, read_selected_inputs, read_selected_subset,
     )
     from mhseals_hardware.configuration import config_path
 
     root = root or os.environ.get('MHSEALS_CONFIG_ROOT') or (
         Path(os.environ.get('MHSEALS_DATA', str(Path.home() / '.local/share/mhseals')))
         / 'config-startup')
+    if config_candidate and not (scope or os.environ.get('MHSEALS_CONFIG_SCOPE')):
+        raise ValueError('managed startup requires explicit scope')
     scope = scope or os.environ.get('MHSEALS_CONFIG_SCOPE') or uuid.uuid4().hex
     try:
-        selected = read_selected_inputs(root, scope, evaluators=EVALUATORS)
+        selected = read_selected_subset(
+            root, scope, PARTICIPANTS, evaluators=EVALUATORS,
+            expected_candidate=config_candidate)
     except NoActiveSelection:
+        if config_candidate:
+            raise
         selected_path = config_path(path)
         explicit = path or os.environ.get('MHSEALS_HARDWARE_CONFIG')
         operator = selected_path if explicit or selected_path.exists() else None
         document = compile_inputs(operator, profile=profile, session=session)
-        baseline_document = dict(baseline=document['baseline'],  # noqa: C408
-                                 effective=document['baseline'],
-                                 origins={k: [o for o in origins if o['layer'] != 'session']
-                                          for k, origins in document['origins'].items()})
-        baseline_hash = digest(baseline_document)
-        baseline = BaselineRevision(baseline_hash, (
-            Artifact('hardware-baseline.json', baseline_hash),))
-        source = digest(document['origins'])
-        documents = {'hardware-pure': document, 'hardware-baseline': baseline_document}
-        identities = {participant: RECIPE_ID for participant in documents}
+        prepared = prepare_inputs(document=document)
         ticket = begin_bootstrap(
-            root, scope, baseline, documents, identities, source_identity=source,
-            participant_identities=identities, closure='inert', evaluators=EVALUATORS)
+            root, scope, prepared['baseline'], prepared['documents'], prepared['recipes'],
+            source_identity=prepared['source'], participant_identities=prepared['identities'],
+            closure='inert', evaluators=EVALUATORS)
         pending = read_bootstrap_inputs(root, ticket)
-        observations = {
-            participant: dict(scope=scope, candidate=ticket.candidate, source=source,  # noqa: C408
-                              identity=RECIPE_ID, recipe=RECIPE_ID,
-                              evidence=observe(plain(captured)))
-            for participant, captured in pending.documents.items()}
+        observations = observe_inputs(pending.documents, ticket, pending.candidate['source'])
         receipt = finish_bootstrap(root, ticket, observations,
                                    evaluators=EVALUATORS)
         if receipt['status'] != 'verified_startup':
@@ -183,7 +204,7 @@ def node_startup_inputs(node, path, *, hardware_parameters=True):
     """Resolve the existing node startup before its output lifecycle begins."""
     import yaml
 
-    for name in ('config_root', 'config_scope', 'config_profile'):
+    for name in SELECTION_PARAMETERS:
         node.declare_parameter(name, '')
     invocation = {}
     if hardware_parameters:
@@ -195,5 +216,6 @@ def node_startup_inputs(node, path, *, hardware_parameters=True):
     document, selected = startup_inputs(
         path, root=value('config_root') or None, scope=value('config_scope') or None,
         profile=value('config_profile') or None,
+        config_candidate=value('config_candidate') or None,
         session=(yaml.safe_dump(invocation), 'ROS invocation') if invocation else None)
     return document['effective'], selected

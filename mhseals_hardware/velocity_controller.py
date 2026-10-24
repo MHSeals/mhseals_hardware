@@ -25,7 +25,7 @@ from mhseals_hardware.control_validation import (
     GAIN_KEYS, RESTART_KEYS, SCALAR_GAINS, VECTOR_GAINS, validate_controller,
 )
 from mhseals_hardware.configuration import ConfigWatcher
-from mhseals_hardware.startup_config import node_startup_inputs
+from mhseals_hardware.startup_config import SELECTION_PARAMETERS, node_startup_inputs
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
@@ -91,6 +91,8 @@ class VelocityController(Node):
         values = {name: self.get_parameter(name).value
                   for name in GAIN_KEYS + ('command_timeout', 'feedback')}
         for parameter in parameters:
+            if parameter.name in SELECTION_PARAMETERS:
+                return SetParametersResult(successful=False, reason='startup selection is read-only')
             if parameter.name in RESTART_KEYS:
                 return SetParametersResult(successful=False, reason='restart required: ' + parameter.name)
             if parameter.name in values:

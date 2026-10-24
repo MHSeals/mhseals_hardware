@@ -27,7 +27,7 @@ from mhseals_hardware.configuration import (
     ConfigWatcher, config_sha, validate_config,
 )
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
-from mhseals_hardware.startup_config import node_startup_inputs
+from mhseals_hardware.startup_config import SELECTION_PARAMETERS, node_startup_inputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
@@ -109,9 +109,9 @@ class ThrusterPWMNode(Node):
         if self.own_write:
             return SetParametersResult(successful=True)
         for parameter in parameters:
-            if parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
+            if parameter.name in self.declared | set(SELECTION_PARAMETERS) | {'config_file', 'pulse_guard_topic'}:
                 reason = 'edit hardware.yaml'
-                if parameter.name in RESTART_KEYS + ('config_file', 'pulse_guard_topic'):
+                if parameter.name in RESTART_KEYS + SELECTION_PARAMETERS + ('config_file', 'pulse_guard_topic'):
                     reason = 'restart required; ' + reason
                 elif parameter.name not in LIVE_KEYS:
                     reason = 'not a driver setting; ' + reason
