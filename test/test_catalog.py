@@ -122,3 +122,28 @@ def test_controller_catalog_is_complete_independent_and_read_only():
     assert bundle.field('hardware.controller.command_timeout').descriptor['consumers'][0]['id'] == 'velocity_controller'
     with pytest.raises(ValueError):
         REGISTRY['hardware.controller_section'](dict(defaults, feedback=1))
+
+
+def test_default_pointers_include_current_source_lines_and_flat_matrices():
+    from mhseals_hardware.resources import config_resource
+    import re
+    text = config_resource('default.yaml').read_text()
+    locations = {}
+
+    def walk(node, prefix=''):
+        if isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                pointer = prefix + '/' + key.value
+                locations[pointer] = key.start_mark.line + 1
+                walk(value, pointer)
+    walk(yaml.compose(text))
+    for row in load_catalog().rows:
+        ref = row.descriptor['default_ref']
+        assert ref['line'] == locations[ref['yaml_pointer']]
+    for key, rows in (('thruster_matrix', 4), ('decoupling', 3)):
+        block = re.search(key + r': \[\n(.*?)\n\]', text, re.S).group(1)
+        assert len(block.splitlines()) == rows
+        assert all(len(line.split('#')[0].strip().rstrip(',').split(',')) == 3
+                   for line in block.splitlines())
+        value = yaml.safe_load(text)[key]
+        assert len(value) == rows * 3 and all(type(v) is float for v in value)

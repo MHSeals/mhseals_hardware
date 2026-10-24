@@ -20,10 +20,19 @@ channel_map: [1, 2, 3, 4]
 # FL, FR, RR, RL: true flips a thruster wired or mounted backwards.
 reversed: [false, false, false, false]
 # Rows FL, FR, RR, RL; columns surge, sway, yaw.
-thruster_matrix: [-1.0, 1.0, 1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, 1.0, 1.0, -1.0]
+thruster_matrix: [
+  -1.0,  1.0,  1.0,  # FL
+  -1.0, -1.0, -1.0,  # FR
+   1.0, -1.0,  1.0,  # RR
+   1.0,  1.0, -1.0,  # RL
+]
 # Rows and columns surge, sway, yaw, applied before the mixer: cancels the
 # cross-coupling the characterization measured. Identity means none.
-decoupling: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+decoupling: [
+  1.0, 0.0, 0.0,
+  0.0, 1.0, 0.0,
+  0.0, 0.0, 1.0,
+]
 # Optional: the columns to use for an axis commanded below zero, when the
 # coupling differs by direction (yaw only when moving forward, say). null
 # means the same as decoupling.

@@ -7,11 +7,11 @@ consumer_versions:
 default_sources:
 - id: hardware-default
   resource: config/default.yaml
-  sha256: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65
+  sha256: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e
 leaves:
   - canonical_key: hardware.output_backend
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /output_backend, path: config/default.yaml, line: 3, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /output_backend, path: config/default.yaml, line: 3, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: string, dimensions: [], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /output_backend, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [output_backend], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -20,7 +20,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/outputs.py, line: 126, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.pwm_topic
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /pwm_topic, path: config/default.yaml, line: 4, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /pwm_topic, path: config/default.yaml, line: 4, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: string, dimensions: [], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /pwm_topic, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [pwm_topic], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -29,7 +29,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/outputs.py, line: 128, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.pwm_chips
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /pwm_chips, path: config/default.yaml, line: 7, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /pwm_chips, path: config/default.yaml, line: 7, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [4], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /pwm_chips, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [pwm_chips], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -38,7 +38,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/odroid_pwm.py, line: 244, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.pwm_channels
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /pwm_channels, path: config/default.yaml, line: 12, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /pwm_channels, path: config/default.yaml, line: 12, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [4], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /pwm_channels, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [pwm_channels], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -47,7 +47,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/odroid_pwm.py, line: 244, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.frequency
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /frequency, path: config/default.yaml, line: 13, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /frequency, path: config/default.yaml, line: 13, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: number, dimensions: [], units: Hz, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /frequency, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [frequency], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -56,7 +56,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/odroid_pwm.py, line: 244, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.mosfet_chip
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /mosfet_chip, path: config/default.yaml, line: 14, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /mosfet_chip, path: config/default.yaml, line: 14, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: string, dimensions: [], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /mosfet_chip, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [mosfet_chip], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -65,7 +65,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/odroid_pwm.py, line: 244, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.mosfet_line
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /mosfet_line, path: config/default.yaml, line: 15, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /mosfet_line, path: config/default.yaml, line: 15, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: integer, dimensions: [], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /mosfet_line, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [mosfet_line], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -74,7 +74,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/odroid_pwm.py, line: 244, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.mosfet_active_high
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /mosfet_active_high, path: config/default.yaml, line: 16, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /mosfet_active_high, path: config/default.yaml, line: 16, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: boolean, dimensions: [], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /mosfet_active_high, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [mosfet_active_high], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -83,7 +83,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/odroid_pwm.py, line: 244, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.command_timeout
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /command_timeout, path: config/default.yaml, line: 17, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /command_timeout, path: config/default.yaml, line: 17, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: number, dimensions: [], units: seconds, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /command_timeout, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [command_timeout], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: 1, owner_group: thruster_pwm_node}]
@@ -92,7 +92,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/thruster_pwm_node.py, line: 100, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.channel_map
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /channel_map, path: config/default.yaml, line: 19, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /channel_map, path: config/default.yaml, line: 19, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [4], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /channel_map, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [channel_map], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -101,7 +101,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/thruster_pwm_node.py, line: 101, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.reversed
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /reversed, path: config/default.yaml, line: 21, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /reversed, path: config/default.yaml, line: 21, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [4], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /reversed, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [reversed], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}]
@@ -110,10 +110,10 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/thruster_pwm_node.py, line: 105, consume_site: configuration value read; backend fields selected by output_backend}]
   - canonical_key: hardware.thruster_matrix
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /thruster_matrix, path: config/default.yaml, line: 23, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /thruster_matrix, path: config/default.yaml, line: 23, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.decoupling
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /decoupling, path: config/default.yaml, line: 26, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /decoupling, path: config/default.yaml, line: 31, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [9], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /decoupling, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [decoupling], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}, {id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [decoupling], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -122,7 +122,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/thruster_pwm_node.py, line: 103, consume_site: configuration value read; backend fields selected by output_backend}, {source: hardware-default, consumer: velocity_controller, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/velocity_controller.py, line: 134, consume_site: _inputs snapshots PLANT_KEYS for reload comparison; no Plant application claim}]
   - canonical_key: hardware.decoupling_negative
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /decoupling_negative, path: config/default.yaml, line: 30, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /decoupling_negative, path: config/default.yaml, line: 39, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [9], units: unitless, constraint_ref: hardware.validate_config, validator_ref: hardware.validate_config, inputs: [complete hardware configuration]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /decoupling_negative, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': follows-controlling-key, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: thruster_pwm_node, version: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, parameters: [decoupling_negative], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: thruster_pwm_node}, {id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [decoupling_negative], compiler_ref: hardware.compile_inputs, inputs: [operator path, profile path, session text and source], outputs: [baseline, effective, origins], selection_ref: unknown, dependencies: [hardware startup selection, ROS node, output backend], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -131,28 +131,28 @@ leaves:
     coverage: [{source: hardware-default, consumer: thruster_pwm_node, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/thruster_pwm_node.py, line: 104, consume_site: configuration value read; backend fields selected by output_backend}, {source: hardware-default, consumer: velocity_controller, status: traced, revision: 984bb5d6ce0b2448855d9aef6d8dd65b58a57216, path: mhseals_hardware/velocity_controller.py, line: 134, consume_site: _inputs snapshots PLANT_KEYS for reload comparison; no Plant application claim}]
   - canonical_key: hardware.manual_amplitude
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /manual_amplitude, path: config/default.yaml, line: 31, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /manual_amplitude, path: config/default.yaml, line: 40, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.manual_yaw_scale
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /manual_yaw_scale, path: config/default.yaml, line: 33, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /manual_yaw_scale, path: config/default.yaml, line: 42, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.manual_repeat_timeout
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /manual_repeat_timeout, path: config/default.yaml, line: 34, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /manual_repeat_timeout, path: config/default.yaml, line: 43, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.manual_initial_timeout
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /manual_initial_timeout, path: config/default.yaml, line: 35, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /manual_initial_timeout, path: config/default.yaml, line: 44, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.command_mux
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /command_mux, path: config/default.yaml, line: 39, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /command_mux, path: config/default.yaml, line: 48, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.hardware_epoch
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /hardware_epoch, path: config/default.yaml, line: 43, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /hardware_epoch, path: config/default.yaml, line: 52, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.characterization
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /characterization, path: config/default.yaml, line: 46, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /characterization, path: config/default.yaml, line: 55, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
   - canonical_key: hardware.controller.kp
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/kp, path: config/default.yaml, line: 50, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/kp, path: config/default.yaml, line: 59, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [3], units: normalized_effort_per_axis_velocity, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/kp, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [kp], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -161,7 +161,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.ki
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/ki, path: config/default.yaml, line: 51, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/ki, path: config/default.yaml, line: 60, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [3], units: normalized_effort_per_axis_velocity_second, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/ki, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [ki], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -170,7 +170,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.integral_limit
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/integral_limit, path: config/default.yaml, line: 52, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/integral_limit, path: config/default.yaml, line: 61, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: sequence, dimensions: [3], units: axis_velocity_seconds, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/integral_limit, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [integral_limit], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -179,7 +179,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.feedback
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/feedback, path: config/default.yaml, line: 53, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/feedback, path: config/default.yaml, line: 62, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: boolean, dimensions: [], units: unitless, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/feedback, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [feedback], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -188,7 +188,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.drift_time_constant
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/drift_time_constant, path: config/default.yaml, line: 54, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/drift_time_constant, path: config/default.yaml, line: 63, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: number, dimensions: [], units: seconds, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/drift_time_constant, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [drift_time_constant], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -197,7 +197,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.odom_timeout
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/odom_timeout, path: config/default.yaml, line: 55, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/odom_timeout, path: config/default.yaml, line: 64, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: number, dimensions: [], units: seconds, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/odom_timeout, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [odom_timeout], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -206,7 +206,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.command_timeout
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/command_timeout, path: config/default.yaml, line: 56, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/command_timeout, path: config/default.yaml, line: 65, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: number, dimensions: [], units: seconds, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/command_timeout, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [command_timeout], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -215,7 +215,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.drift_command_limit
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/drift_command_limit, path: config/default.yaml, line: 57, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/drift_command_limit, path: config/default.yaml, line: 66, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: number, dimensions: [], units: axis_velocity, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/drift_command_limit, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [drift_command_limit], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -224,7 +224,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.input_topic
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/input_topic, path: config/default.yaml, line: 58, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/input_topic, path: config/default.yaml, line: 67, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: string, dimensions: [], units: unitless, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/input_topic, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [input_topic], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -233,7 +233,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.output_topic
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/output_topic, path: config/default.yaml, line: 59, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/output_topic, path: config/default.yaml, line: 68, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: string, dimensions: [], units: unitless, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/output_topic, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [output_topic], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]
@@ -242,7 +242,7 @@ leaves:
     coverage: [{source: hardware-default, consumer: velocity_controller, status: startup-supported, revision: 7a06194ca88dbad1a4075a90a137f1cc591db83b, path: mhseals_hardware/velocity_controller.py, line: 54, consume_site: 'selected declaration before law and topic resources; inert constructor tests; YAML edits require restart'}]
   - canonical_key: hardware.controller.odom_topic
     aliases: []
-    default_ref: {source_id: hardware-default, yaml_pointer: /controller/odom_topic, path: config/default.yaml, line: 60, source_hash: fe0c456c2d3ccbf1f8235bd48a583c3dcf9ca4909ee9cda1628ee8e30330cf65}
+    default_ref: {source_id: hardware-default, yaml_pointer: /controller/odom_topic, path: config/default.yaml, line: 69, source_hash: 49e78bfe5748e23dc478da48f1a80dcbe0d1b07668a4fb351f9b3258a0028d2e}
     value: {type: string, dimensions: [], units: unitless, constraint_ref: hardware.controller_section, validator_ref: hardware.controller_section, inputs: [complete controller section]}
     authoring: {destination: 'configuration.config_path: MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml', pointer: /controller/odom_topic, layers: [package, profile, operator, session], absence: next-allowed-layer, 'null': reject, reset: next-allowed-layer, scopes: [baseline, session], controlling_keys: []}
     consumers: [{id: velocity_controller, version: 7a06194ca88dbad1a4075a90a137f1cc591db83b, parameters: [odom_topic], compiler_ref: hardware.compile_inputs, inputs: [controller section, Plant inputs, explicit invocation], outputs: [baseline, effective, origins], selection_ref: hardware.node_startup_inputs, dependencies: [hardware startup selection, calibrated Plant], candidate_tier: unsupported, owner_group: velocity_controller}]

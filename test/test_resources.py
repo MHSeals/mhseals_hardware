@@ -14,6 +14,10 @@ def test_source_resources_ignore_cwd_and_refuse_missing(tmp_path, monkeypatch):
     root = Path(__file__).resolve().parents[1]
     monkeypatch.chdir(tmp_path)
     assert resources.config_resource('default.yaml') == root / 'config/default.yaml'
+    linked = tmp_path / 'linked-package'
+    linked.symlink_to(root / 'mhseals_hardware', target_is_directory=True)
+    monkeypatch.setattr(resources, '__file__', str(linked / 'resources.py'))
+    assert resources.config_resource('default.yaml') == root / 'config/default.yaml'
     fake = tmp_path / 'source'
     (fake / 'mhseals_hardware').mkdir(parents=True)
     (fake / 'resource').mkdir()
@@ -53,6 +57,8 @@ def test_installed_wheel_loads_own_data_from_unrelated_cwd(tmp_path):
     target = tmp_path / 'installed'
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--no-index',
                     '--target', str(target), str(wheel)], check=True, capture_output=True)
+    for name in ('default.yaml', 'catalog.yaml'):
+        assert (target / 'share/mhseals_hardware/config' / name).read_bytes() == (root / 'config' / name).read_bytes()
     env = dict(os.environ)
     # Exclude the checkout from subprocess imports, keeping explicit core dependency roots.
     dependency_paths = [str(Path(p).resolve()) for p in env.get('PYTHONPATH', '').split(os.pathsep)
