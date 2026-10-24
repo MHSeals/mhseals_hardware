@@ -109,3 +109,37 @@ def test_required_artifact_fault_prevents_actual_pwm_outputs(tmp_path, fault):
     with pytest.raises((ValueError, FileNotFoundError)):
         namespace['ThrusterPWMNode']()
     assert calls == []
+
+
+@pytest.mark.parametrize('spelling', ['1', '1.0'])
+def test_float_setting_accepts_numeric_yaml_styles(tmp_path, spelling):
+    operator = tmp_path / 'hardware.yaml'
+    operator.write_text('command_timeout: ' + spelling + '\n')
+    document = compile_inputs(operator)
+    assert document['effective']['command_timeout'] == 1.0
+    assert type(document['effective']['command_timeout']) is float
+    operator.write_text('command_timeout: true\n')
+    with pytest.raises(ValueError):
+        compile_inputs(operator)
+
+
+def test_rounding_tolerance_preserves_evidence_shape_and_finiteness(tmp_path):
+    from mhseals_hardware.startup_config import plain, startup_inputs
+    operator = tmp_path / 'hardware.yaml'
+    operator.write_text("""characterization:
+  velocity_gain:
+    surge: {surge: 2.7, sway: 0.0, yaw: 0.0}
+    sway: {surge: 0.0, sway: 2.7, yaw: 0.0}
+    yaw: {surge: 0.0, sway: 0.0, yaw: 2.7}
+  motion_limits:
+    velocity: {surge: 2.7, sway: 2.7, yaw: 2.7}
+""")
+    document, _ = startup_inputs(operator, root=tmp_path / 'snapshots', scope='rounding')
+    evidence = observe(document)
+    assert evaluate(document, evidence)
+    for bad in (float('nan'), float('inf'), True, 0.1):
+        corrupted = plain(evidence)
+        corrupted['law'][0] = bad
+        assert not evaluate(document, corrupted)
+    assert not evaluate(document, dict(evidence, identity='another'))
+    assert not evaluate(document, dict(evidence, law=evidence['law'][:2]))

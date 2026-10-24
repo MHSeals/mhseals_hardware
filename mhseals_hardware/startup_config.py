@@ -4,7 +4,7 @@ Pure hardware startup compilation and non-actuating observation recipes.
 The recipe proves Python mixer/model consumption only, never powered outputs.
 """
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import math
 from pathlib import Path
 
@@ -26,6 +26,22 @@ def plain(value):
     return value
 
 
+def parse_layer(text, source, layer, fields):
+    """Accept integer YAML spelling for float settings without accepting booleans."""
+    import yaml
+
+    numeric_fields = dict(fields)
+    root = yaml.compose(text)
+    if isinstance(root, yaml.MappingNode):
+        for key, value in root.value:
+            if (key.value in fields and fields[key.value].kind is float
+                    and value.tag == 'tag:yaml.org,2002:int'):
+                numeric_fields[key.value] = replace(fields[key.value], kind=int)
+    assignments = parse(text, source, layer, numeric_fields)
+    return tuple(replace(item, value=float(item.value))
+                 if fields[item.key].kind is float else item for item in assignments)
+
+
 def compile_inputs(operator=None, *, profile=None, session=None):
     """Compile B separately from S with located package/profile/operator origins."""
     defaults_path = Path(__file__).with_name('config') / 'default.yaml'
@@ -34,14 +50,14 @@ def compile_inputs(operator=None, *, profile=None, session=None):
               for key, value in defaults.items()}
     # The nullable negative matrix is a sequence when explicitly supplied.
     fields['decoupling_negative'] = Field(list, nullable=True)
-    layers = [parse(defaults_path.read_text(), str(defaults_path), 'defaults', fields)]
+    layers = [parse_layer(defaults_path.read_text(), str(defaults_path), 'defaults', fields)]
     for layer, selected in (('profile', profile), ('operator', operator)):
         if selected is not None:
             path = Path(selected)
-            layers.append(parse(path.read_text(), str(path), layer, fields))
+            layers.append(parse_layer(path.read_text(), str(path), layer, fields))
     if session is not None:
         text, source = session
-        layers.append(parse(text, source, 'session', fields))
+        layers.append(parse_layer(text, source, 'session', fields))
     resolved = resolve(layers)
     return dict(baseline=_merge_overrides(plain(resolved.baseline)),  # noqa: C408
                 effective=_merge_overrides(plain(resolved.effective)),
@@ -89,7 +105,18 @@ def evaluate(document, evidence):
                 wrench = curve['d1'] * speed + curve['d2'] * speed * abs(speed)
             effort = math.copysign(math.sqrt(abs(wrench)), wrench)
             expected['law'].append(max(-1.0, min(1.0, effort)))
-    return evidence == expected
+
+    def matches(actual, wanted):
+        if isinstance(wanted, dict):
+            return (isinstance(actual, dict) and actual.keys() == wanted.keys()
+                    and all(matches(actual[key], value) for key, value in wanted.items()))
+        if isinstance(wanted, list):
+            return (isinstance(actual, (list, tuple)) and len(actual) == len(wanted)
+                    and all(matches(a, b) for a, b in zip(actual, wanted)))
+        return (type(actual) in (int, float) and math.isfinite(actual)
+                and math.isclose(actual, wanted, rel_tol=1e-12, abs_tol=1e-14))
+
+    return matches(evidence, expected)
 
 
 EVALUATORS = {RECIPE_ID: Recipe(RECIPE_ID, evaluate)}
