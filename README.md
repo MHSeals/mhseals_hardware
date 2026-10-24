@@ -234,6 +234,14 @@ ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effo
 
 `ros2 run mhseals_testing boat_test --velocity-control` arms both. The integral
 trim is bounded and the watchdog always returns the outputs to neutral.
+Runtime YAML lives in the repository's top-level `config/` and installs into
+`share/mhseals_hardware/config/`. ODROID access helpers, systemd unit and device-tree
+source live separately in `host/`. The installer copies the same authoritative
+`config/default.yaml` for its host helper; there is no second editable default.
+Python loading needs no ROS: source/symlink checkouts use their own `config/`,
+and wheel/copied colcon installs use their own prefix's share directory. Missing
+required data refuses loading instead of searching another installed overlay.
+
 Controller defaults live under `controller:` in `config/default.yaml`. The selected
 hardware YAML overrides individual leaves, preserving unspecified siblings:
 

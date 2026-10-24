@@ -12,6 +12,7 @@ import re
 
 import yaml
 
+from mhseals_hardware.resources import config_resource
 from mhseals_hardware.command_arbitration import Arbitration
 from mhseals_hardware.control_validation import controller_section
 from mhseals_hardware.thruster_mixer import (
@@ -122,7 +123,7 @@ def validate_config(config):
 
 def load_defaults():
     """Shipped defaults only; never read per-user overrides at import time."""
-    defaults = Path(__file__).with_name('config') / 'default.yaml'
+    defaults = config_resource('default.yaml')
     return validate_config(yaml.safe_load(defaults.read_text()))
 
 

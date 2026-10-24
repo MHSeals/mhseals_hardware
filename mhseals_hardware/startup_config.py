@@ -10,6 +10,7 @@ from pathlib import Path
 
 from mhseals_config._evidence import Recipe
 from mhseals_config.resolver import Field, parse, resolve
+from mhseals_hardware.resources import config_resource
 from mhseals_hardware.configuration import _merge_overrides, load_defaults
 from mhseals_hardware.control_validation import controller_section
 from mhseals_hardware.thruster_mixer import mix_thrusters, validate_mixer
@@ -59,7 +60,7 @@ def parse_layer(text, source, layer, fields):
 
 def compile_inputs(operator=None, *, profile=None, session=None):
     """Compile B separately from S with located package/profile/operator origins."""
-    defaults_path = Path(__file__).with_name('config') / 'default.yaml'
+    defaults_path = config_resource('default.yaml')
     defaults = load_defaults()
     fields = {key: Field(type(value), nullable=value is None)
               for key, value in defaults.items()}

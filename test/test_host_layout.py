@@ -21,4 +21,5 @@ def test_host_installer_sources_and_syntax(tmp_path):
     for name in ('mhseals-thruster-access', 'mhseals-thruster-access.service'):
         assert str(root / 'scripts/../host' / name) in calls
         assert (root / 'host' / name).is_file()
+    assert str(root / 'scripts/../config/default.yaml') in calls
     assert not (root / 'config/mhseals-thruster-access').exists()

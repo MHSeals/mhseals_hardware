@@ -8,6 +8,7 @@ import yaml
 from mhseals_config.catalog import DescriptorBundle
 from mhseals_hardware.catalog import REGISTRY, load_catalog
 from mhseals_hardware.configuration import load_defaults, _merge_overrides
+from mhseals_hardware.resources import config_resource
 
 
 def test_installed_resources_and_inventory():
@@ -28,9 +29,8 @@ def test_installed_resources_and_inventory():
 
 
 def test_nondefault_resource_reference_and_unknown_consumers():
-    config = files('mhseals_hardware').joinpath('config')
-    data = yaml.safe_load(config.joinpath('catalog.yaml').read_text())
-    defaults = yaml.safe_load(config.joinpath('default.yaml').read_text())
+    data = yaml.safe_load(config_resource('catalog.yaml').read_text())
+    defaults = yaml.safe_load(config_resource('default.yaml').read_text())
     defaults['command_timeout'] = 0.73
     raw = yaml.safe_dump(defaults).encode()
     digest = hashlib.sha256(raw).hexdigest()

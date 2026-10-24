@@ -7,14 +7,15 @@ readonly HELPER_SOURCE="${HOST_DIR}/mhseals-thruster-access"
 readonly HELPER_TARGET="/usr/local/libexec/mhseals-thruster-access"
 readonly UNIT_SOURCE="${HOST_DIR}/mhseals-thruster-access.service"
 readonly UNIT_TARGET="/etc/systemd/system/mhseals-thruster-access.service"
+readonly DEFAULT_SOURCE="${SCRIPT_DIR}/../config/default.yaml"
 readonly LEGACY_RULE="/etc/udev/rules.d/99-mhseals-thrusters.rules"
 
-for source in "${HELPER_SOURCE}" "${UNIT_SOURCE}"; do
+for source in "${HELPER_SOURCE}" "${UNIT_SOURCE}" "${DEFAULT_SOURCE}"; do
     [[ -f "${source}" ]] || { echo "Missing access file: ${source}" >&2; exit 1; }
 done
 
 sudo install -D -m 0755 "${HELPER_SOURCE}" "${HELPER_TARGET}"
-sudo install -D -m 0644 "${SCRIPT_DIR}/../mhseals_hardware/config/default.yaml" \
+sudo install -D -m 0644 "${DEFAULT_SOURCE}" \
     /usr/local/share/mhseals/hardware-default.yaml
 sudo install -m 0644 "${UNIT_SOURCE}" "${UNIT_TARGET}"
 sudo rm -f "${LEGACY_RULE}"
