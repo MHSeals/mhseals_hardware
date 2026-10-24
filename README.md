@@ -310,7 +310,9 @@ Plant. Controller ROS `command_timeout` (`velocity_controller.py:51`) and mux
 `cmd_timeout` are independent contracts, not hardware timeout consumers.
 Standalone output tools and downstream simulator consumers remain unqualified.
 
-Tier 1 is candidate metadata only. Missing runtime safety/state contracts,
+Only command_timeout declares candidate tier 1. Restart-only output and correction
+consumer tiers are unsupported until owner-controlled restart recipes are qualified.
+Missing runtime safety/state contracts,
 consumer build evidence and recipes block promotion; no recipe or achieved
 behavior verification is claimed. All rows are read-only, including when exact
 consumer revisions are supplied. Existing armed/hold reload guards are unchanged.

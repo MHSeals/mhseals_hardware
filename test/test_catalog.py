@@ -62,3 +62,43 @@ def test_null_negative_tracks_nondefault_positive():
     assert normalized['decoupling_negative'] == positive
     assert load_catalog().field('hardware.decoupling_negative').descriptor[
         'authoring']['null'] == 'follows-controlling-key'
+
+
+def test_candidate_tiers_follow_actual_restart_policy():
+    # Read constant declarations without importing ROS nodes or opening outputs.
+    import ast
+
+    def constants(module, names, bindings=None):
+        found = dict(bindings or {})
+
+        def value(node):
+            if isinstance(node, ast.Name):
+                return found[node.id]
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+                return value(node.left) + value(node.right)
+            return ast.literal_eval(node)
+
+        source = files('mhseals_hardware').joinpath(module + '.py').read_text()
+        for node in ast.parse(source).body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in names:
+                        found[target.id] = value(node.value)
+        return found
+
+    outputs = constants('outputs', {'OUTPUT_KEYS'})
+    driver = constants('thruster_pwm_node', {'RESTART_KEYS', 'LIVE_KEYS'}, outputs)
+    controller = constants('velocity_controller', {'PLANT_KEYS'})
+    bundle = load_catalog()
+    for row in bundle.rows:
+        key = row.descriptor['canonical_key'].removeprefix('hardware.')
+        for consumer in row.descriptor.get('consumers', ()):
+            if consumer['id'] == 'thruster_pwm_node':
+                assert key in driver['RESTART_KEYS'] + driver['LIVE_KEYS']
+                expected = 'unsupported' if key in driver['RESTART_KEYS'] else 1
+            else:
+                assert consumer['id'] == 'velocity_controller'
+                assert key in controller['PLANT_KEYS']
+                expected = 'unsupported'
+            assert consumer['candidate_tier'] == expected
+            assert not row.writable
