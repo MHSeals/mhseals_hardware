@@ -1,4 +1,4 @@
-"""The velocity controller rebuilds its model when the hardware YAML changes."""
+"""Plant edits require a restart and preserve the running controller."""
 
 import time
 
@@ -14,7 +14,7 @@ from test_velocity_law import config
 STRONGER = ((0.8, 0.0, 0.0), (0.0, 0.4, 0.0), (0.05, 0.0, 0.3))
 
 
-def test_reload_rebuilds_the_model_and_holds_neutral_while_invalid(tmp_path):
+def test_reload_defers_model_edits_and_keeps_commanding(tmp_path):
     path = tmp_path / 'hardware.yaml'
     save_config(config(), path)
     rclpy.init(args=['--ros-args', '-r', '__node:=velocity_reload_test',
@@ -33,9 +33,10 @@ def test_reload_rebuilds_the_model_and_holds_neutral_while_invalid(tmp_path):
             node._reload()
 
         edit(config(gain=STRONGER))
-        assert node._law.plant.curves != curves
+        assert node._law.plant.curves == curves
+        assert node._reload_error.startswith('restart required:')
         edit(dict(config(), characterization={}))  # no velocity_gain: Plant refuses it
-        assert node._fault
+        assert not node._fault and node._reload_error
         push = Twist()
         push.linear.x = 0.3
 
@@ -44,9 +45,9 @@ def test_reload_rebuilds_the_model_and_holds_neutral_while_invalid(tmp_path):
             node._command(push)
 
         command()
-        assert sent[-1] == Twist()
+        assert sent[-1] != Twist()
         edit(config())
-        assert not node._fault and node._law.plant.curves == curves
+        assert not node._fault and not node._reload_error and node._law.plant.curves == curves
         command()
         assert sent[-1] != Twist()
     finally:

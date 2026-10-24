@@ -5,8 +5,8 @@ The native PWM node consumes normalized effort, despite its historical
 body velocity commands from Nav2 and emits ``cmd_vel_effort`` for that node.
 The control law lives in ``velocity_law``; this node only wires it to ROS and
 publishes its live drift estimate on ``~/drift`` (odom frame, m/s). With
-``config_file`` set it rebuilds the model when the YAML changes, and holds neutral
-effort while the new model is invalid.
+``config_file`` edits that change the Plant require an owner-controlled restart.
+The running law retains its accepted model and state while a request is deferred.
 """
 from __future__ import annotations
 
@@ -63,6 +63,8 @@ class VelocityController(Node):
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'))
         self._plant_inputs = self._inputs(config)
+        self._requested_plant_inputs = self._plant_inputs
+        self._reload_error = ''  # deferred file request, distinct from a running-model fault
         self._fault = ''  # why the model is invalid; neutral effort until it is fixed
         self._frame = 'odom'
         self._last_command = time.monotonic()
@@ -100,7 +102,7 @@ class VelocityController(Node):
         return {key: config.get(key) for key in PLANT_KEYS}
 
     def _reload(self):
-        """Rebuild the model after a YAML edit. The driver applies the same file."""
+        """Retain the accepted Plant until an explicit owner-controlled restart."""
         try:
             config = self._watch.poll()
         except (OSError, ValueError, KeyError) as error:
@@ -109,19 +111,13 @@ class VelocityController(Node):
         if config is None:
             return
         inputs = self._inputs(config)
-        if inputs == self._plant_inputs and not self._fault:
-            return  # a pin, timeout or manual_* edit: keep the integral
-        self._plant_inputs = inputs
-        self._law.reset()
-        try:
-            self._law.plant = Plant(config)
-        except ValueError as error:
-            # The driver already applied this file, so the old model is wrong too.
-            self._fault = str(error)
-            self.get_logger().error(f'velocity model invalid, holding neutral: {error}')
-            return
-        self._fault = ''
-        self.get_logger().info('velocity model rebuilt')
+        self._requested_plant_inputs = inputs
+        changed = sorted(key for key in PLANT_KEYS if inputs[key] != self._plant_inputs[key])
+        if changed:
+            self._reload_error = 'restart required: ' + ', '.join(changed)
+            self.get_logger().error(self._reload_error)
+            return  # do not reset, rebuild, or fault the still-valid running law
+        self._reload_error = ''  # exact revert/unrelated edit; preserve any genuine fault
 
     def _odom(self, message):
         self._frame = message.header.frame_id or self._frame
