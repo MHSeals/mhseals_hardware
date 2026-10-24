@@ -13,6 +13,7 @@ import re
 import yaml
 
 from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.control_validation import controller_section
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reversed,
 )
@@ -26,6 +27,7 @@ def config_path(path=None):
 
 def validate_config(config):
     """Reject a config that could drive the wrong pins or produce unsafe output."""
+    config['controller'] = controller_section(config['controller'])
     # Thruster layout.
     validate_channel_map(config['channel_map'])
     validate_reversed(config['reversed'])
@@ -192,7 +194,13 @@ def _merge_overrides(overrides):
     unknown = set(overrides) - set(defaults)
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
-    config = validate_config(dict(defaults, **overrides))
+    combined = dict(defaults, **overrides)
+    if 'controller' in overrides:
+        section = overrides['controller']
+        if not isinstance(section, dict):
+            raise ValueError('controller must be a mapping')
+        combined['controller'] = dict(defaults['controller'], **section)
+    config = validate_config(combined)
     # ROS array parameters are typed by their elements: ints or a mix would declare the
     # wrong type (or crash), so every matrix is a plain list of floats.
     for key in ('thruster_matrix', 'decoupling', 'decoupling_negative'):

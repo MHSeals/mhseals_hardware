@@ -26,3 +26,24 @@ def validate_controller(values):
     if type(values['feedback']) is not bool:
         raise ValueError('feedback must be a boolean')
     return values
+
+
+TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic')
+CONTROLLER_KEYS = GAIN_KEYS + ('command_timeout', 'feedback') + TOPIC_KEYS
+
+
+def controller_section(values):
+    """Validate a complete owned section and normalize ROS numeric types."""
+    import re
+
+    if not isinstance(values, dict) or set(values) != set(CONTROLLER_KEYS):
+        raise ValueError('controller must contain exactly the registered controller keys')
+    validate_controller(values)
+    for name in TOPIC_KEYS:
+        topic = values[name]
+        if not isinstance(topic, str) or not re.fullmatch(
+                r'/(?:[A-Za-z_][A-Za-z_0-9]*)(?:/[A-Za-z_][A-Za-z_0-9]*)*', topic):
+            raise ValueError(f'controller.{name} must be an absolute ROS topic')
+    return {name: [float(v) for v in value] if name in VECTOR_GAINS
+            else float(value) if name in SCALAR_GAINS + ('command_timeout',) else value
+            for name, value in values.items()}

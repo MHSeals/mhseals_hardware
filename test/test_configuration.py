@@ -4,7 +4,7 @@ import os
 import pytest
 
 from mhseals_hardware.configuration import (
-    ConfigWatcher, configure_args, load_config, save_config, update_config, validate_config,
+    ConfigWatcher, configure_args, load_config, load_defaults, save_config, update_config, validate_config,
 )
 from mhseals_hardware.keyboard import decode_key
 
@@ -256,3 +256,24 @@ def test_hardware_epoch_defaults_to_zero_and_can_be_bumped(tmp_path):
 def test_invalid_hardware_epoch_fails(value, tmp_path):
     with pytest.raises(ValueError, match='hardware_epoch'):
         update_config({'hardware_epoch': value}, str(tmp_path / 'hardware.yaml'))
+
+
+def test_controller_partial_merge_and_independent_deadline(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_timeout: 0.4\ncontroller: {kp: [1, 2, 3], command_timeout: 1}\n')
+    selected = load_config(path)
+    assert selected['command_timeout'] == 0.4
+    assert selected['controller']['command_timeout'] == 1.0
+    assert type(selected['controller']['command_timeout']) is float
+    assert selected['controller']['kp'] == [1., 2., 3.]
+    assert selected['controller']['ki'] == load_defaults()['controller']['ki']
+
+
+@pytest.mark.parametrize('section', ['null', '{unknown: 1}', '{kp: [1, 2]}',
+    '{ki: [true, 0, 0]}', '{feedback: 1}', '{odom_timeout: 0}',
+    '{command_timeout: .inf}', '{input_topic: relative}', '{output_topic: /bad//topic}'])
+def test_controller_invalid_section(tmp_path, section):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('controller: ' + section + '\n')
+    with pytest.raises(ValueError):
+        load_config(path)

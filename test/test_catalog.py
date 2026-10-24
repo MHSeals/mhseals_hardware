@@ -13,7 +13,7 @@ from mhseals_hardware.configuration import load_defaults, _merge_overrides
 def test_installed_resources_and_inventory():
     bundle = load_catalog()
     defaults = load_defaults()
-    assert len(bundle.rows) == len(defaults)
+    assert len(bundle.rows) == len(defaults) - 1  # controller leaves follow in CY06
     for row in bundle.rows:
         key = row.descriptor['canonical_key'].removeprefix('hardware.')
         value = row.default
