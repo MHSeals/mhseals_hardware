@@ -74,7 +74,7 @@ from mhseals_hardware.startup_config import compile_inputs, observe, evaluate
 assert config_resource('default.yaml') == Path(sys.argv[1]) / 'share/mhseals_hardware/config/default.yaml'
 assert not (Path(sys.argv[1]) / 'mhseals_hardware/config').exists()
 assert load_defaults()['controller']['kp'] == [0.8, 0.8, 0.6]
-assert len(load_catalog().rows) == 32
+assert len(load_catalog().rows) == 41
 compiled = compile_inputs()
 evidence = observe(compiled)
 assert evidence['mixer'][0] == [-.25, -.25, .25, .25]
