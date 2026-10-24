@@ -10,6 +10,7 @@ import numpy
 import pytest
 
 from mhseals_hardware import control_validation as validation
+from mhseals_hardware.startup_config import SELECTION_PARAMETERS
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 from test_velocity_law import config
 
@@ -34,7 +35,8 @@ def node():
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     cls.bases = [ast.Name(id='ParameterOwner', ctx=ast.Load())]
-    env = dict(vars(validation), ParameterOwner=ParameterOwner, copy=copy, numpy=numpy,
+    env = dict(vars(validation), SELECTION_PARAMETERS=SELECTION_PARAMETERS,
+               ParameterOwner=ParameterOwner, copy=copy, numpy=numpy,
                SetParametersResult=lambda **kw: NS(**kw), time=NS(monotonic=lambda: 1.),
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), env)
