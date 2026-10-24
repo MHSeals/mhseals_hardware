@@ -31,7 +31,7 @@ class InertNode:
         return NS(info=self.logs.append, error=self.logs.append)
 
 
-def mux(section, overrides=None):
+def mux(section, overrides=None, **replace):
     path = Path(__file__).parents[1] / 'mhseals_hardware/command_mux.py'
     tree = ast.parse(path.read_text())
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef))
@@ -42,10 +42,11 @@ def mux(section, overrides=None):
                InertNode=InertNode, Arbitration=Arbitration, RELOAD_PERIOD=1.,
                time=NS(monotonic=lambda: 0., time_ns=lambda: 1), Twist=object, String=lambda **kw: NS(**kw), RCIn=object,
                STATE_QOS=None, qos_profile_sensor_data=None,
-               load_config=lambda path: {'command_mux': section},
+               node_startup_inputs=lambda node, path, **kw: ({'command_mux': section}, None),
                ConfigWatcher=lambda path: NS(poll=lambda: None),
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw))
+    env.update(replace)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[change, cls], type_ignores=[])), str(path), 'exec'), env)
     return env['CommandMux']()
 

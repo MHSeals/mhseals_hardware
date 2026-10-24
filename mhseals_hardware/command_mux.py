@@ -20,8 +20,9 @@ from std_msgs.msg import String
 
 from mhseals_hardware import hold_store
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
-from mhseals_hardware.configuration import ConfigWatcher, load_config
+from mhseals_hardware.configuration import ConfigWatcher
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
+from mhseals_hardware.startup_config import node_startup_inputs
 
 STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
@@ -59,7 +60,10 @@ class CommandMux(Node):
         super().__init__('command_mux')
         self.declare_parameter('config_file', '')
         config_file = self.get_parameter('config_file').value or None
-        section = load_config(config_file).get('command_mux', {})
+        # Managed startup (records its snapshot); the mux takes only the command_mux section.
+        config, self.startup_selection = node_startup_inputs(
+            self, config_file, hardware_parameters=False)
+        section = config.get('command_mux', {})
         defaults = Arbitration()
         self._invocation_overrides = {}
         for name in ('rc_scale', 'cmd_timeout', 'ramp'):

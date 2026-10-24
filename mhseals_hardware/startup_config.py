@@ -58,10 +58,9 @@ def parse_layer(text, source, layer, fields):
                  if fields[item.key].kind is float else item for item in assignments)
 
 
-def compile_inputs(operator=None, *, profile=None, session=None):
-    """Compile B separately from S with located package/profile/operator origins."""
-    defaults_path = config_resource('default.yaml')
-    defaults = load_defaults()
+def hardware_fields(defaults=None):
+    """The closed hardware schema: one Field per default leaf (controller flattened)."""
+    defaults = defaults or load_defaults()
     fields = {key: Field(type(value), nullable=value is None)
               for key, value in defaults.items()}
     fields.pop('controller')
@@ -69,6 +68,14 @@ def compile_inputs(operator=None, *, profile=None, session=None):
                    for key, value in defaults['controller'].items()})
     # The nullable negative matrix is a sequence when explicitly supplied.
     fields['decoupling_negative'] = Field(list, nullable=True)
+    return fields
+
+
+def compile_inputs(operator=None, *, profile=None, session=None):
+    """Compile B separately from S with located package/profile/operator origins."""
+    defaults_path = config_resource('default.yaml')
+    defaults = load_defaults()
+    fields = hardware_fields(defaults)
     layers = [parse_layer(defaults_path.read_text(), str(defaults_path), 'defaults', fields)]
     for layer, selected in (('profile', profile), ('operator', operator)):
         if selected is not None:

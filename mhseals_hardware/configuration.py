@@ -156,6 +156,7 @@ class ConfigWatcher:
     def __init__(self, path):
         self.path = path
         self.mtime = self.seen = self._stat()  # applied key, and last tick's key
+        self.last_good = None  # the last config poll() accepted; kept on a refusal
 
     def _stat(self):
         try:
@@ -175,18 +176,38 @@ class ConfigWatcher:
             return None
         self.mtime = key
         try:
-            return load_config(self.path)
+            config = load_config(self.path)
         except (yaml.YAMLError, TypeError) as error:
             raise ValueError(f'invalid hardware YAML: {error}') from error
+        self.last_good = config
+        return config
 
 
 def _read_overrides(path):
-    overrides = yaml.safe_load(path.read_text()) if path.exists() else {}
-    # An empty or comment-only file is "no overrides", like a missing one.
-    if overrides is None:
-        overrides = {}
-    if not isinstance(overrides, dict):
-        raise ValueError('hardware YAML must be a mapping')
+    """The operator file's overrides, parsed by the core strict resolver.
+
+    Duplicate, merge, recursive and unknown keys are refused with their located
+    source, as in managed startup; every refusal is a ValueError.
+    """
+    if not path.exists():
+        return {}
+    from mhseals_hardware.startup_config import hardware_fields, parse_layer, plain
+
+    text = path.read_text()
+    try:
+        # An empty or comment-only file is "no overrides", like a missing one.
+        if yaml.compose(text) is None:
+            return {}
+        assignments = parse_layer(text, str(path), 'operator', hardware_fields())
+    except yaml.YAMLError as error:
+        raise ValueError(f'invalid hardware YAML: {error}') from error
+    overrides = {}
+    for item in assignments:
+        value = plain(item.value)
+        if item.key.startswith('controller.'):
+            overrides.setdefault('controller', {})[item.key[len('controller.'):]] = value
+        else:
+            overrides[item.key] = value
     return overrides
 
 
