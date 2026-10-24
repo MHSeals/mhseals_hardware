@@ -1,14 +1,15 @@
-"""Pure hardware startup compilation and non-actuating observation recipes.
+"""
+Pure hardware startup compilation and non-actuating observation recipes.
 
 The recipe proves Python mixer/model consumption only, never powered outputs.
 """
-import math
-from dataclasses import asdict
-from pathlib import Path
 from collections.abc import Mapping
+from dataclasses import asdict
+import math
+from pathlib import Path
 
-from mhseals_config.resolver import Field, parse, resolve
 from mhseals_config._evidence import Recipe
+from mhseals_config.resolver import Field, parse, resolve
 from mhseals_hardware.configuration import _merge_overrides, load_defaults
 from mhseals_hardware.thruster_mixer import mix_thrusters, validate_mixer
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
@@ -42,7 +43,7 @@ def compile_inputs(operator=None, *, profile=None, session=None):
         text, source = session
         layers.append(parse(text, source, 'session', fields))
     resolved = resolve(layers)
-    return dict(baseline=_merge_overrides(plain(resolved.baseline)),
+    return dict(baseline=_merge_overrides(plain(resolved.baseline)),  # noqa: C408
                 effective=_merge_overrides(plain(resolved.effective)),
                 origins={key: [asdict(origin) for origin in origins]
                          for key, origins in resolved.origins.items()})
@@ -95,7 +96,8 @@ EVALUATORS = {RECIPE_ID: Recipe(RECIPE_ID, evaluate)}
 
 
 def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=None):
-    """Select an immutable scope, or bootstrap a new pure pre-output snapshot.
+    """
+    Select an immutable scope, or bootstrap a new pure pre-output snapshot.
 
     A pure receipt authorizes no output operation; node lifecycle remains owner.
     """
@@ -119,7 +121,7 @@ def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=No
         explicit = path or os.environ.get('MHSEALS_HARDWARE_CONFIG')
         operator = selected_path if explicit or selected_path.exists() else None
         document = compile_inputs(operator, profile=profile, session=session)
-        baseline_document = dict(baseline=document['baseline'],
+        baseline_document = dict(baseline=document['baseline'],  # noqa: C408
                                  effective=document['baseline'],
                                  origins={k: [o for o in origins if o['layer'] != 'session']
                                           for k, origins in document['origins'].items()})
@@ -134,7 +136,7 @@ def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=No
             participant_identities=identities, closure='inert', evaluators=EVALUATORS)
         pending = read_bootstrap_inputs(root, ticket)
         observations = {
-            participant: dict(scope=scope, candidate=ticket.candidate, source=source,
+            participant: dict(scope=scope, candidate=ticket.candidate, source=source,  # noqa: C408
                               identity=RECIPE_ID, recipe=RECIPE_ID,
                               evidence=observe(plain(captured)))
             for participant, captured in pending.documents.items()}

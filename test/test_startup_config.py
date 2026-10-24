@@ -1,7 +1,6 @@
 """Pure compiler probes do not initialize a ROS node or an output driver."""
-import pytest
-
 from mhseals_hardware.startup_config import compile_inputs, evaluate, observe
+import pytest
 
 
 def test_baseline_session_and_origins(tmp_path):
@@ -22,7 +21,7 @@ def test_baseline_session_and_origins(tmp_path):
 
 def test_nondefault_actual_mixer_and_law(tmp_path):
     operator = tmp_path / 'hardware.yaml'
-    operator.write_text('''command_timeout: 0.7
+    operator.write_text("""command_timeout: 0.7
 thruster_matrix: [0.5, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5]
 characterization:
   velocity_gain:
@@ -31,7 +30,7 @@ characterization:
     yaw: {surge: 0.0, sway: 0.0, yaw: 0.5}
   motion_limits:
     velocity: {surge: 0.5, sway: 0.5, yaw: 0.5}
-''')
+""")
     document = compile_inputs(operator)
     evidence = observe(document)
     assert evidence['mixer'][0] == [0.125, 0.0, 0.0, 0.125]
@@ -89,7 +88,7 @@ def test_required_artifact_fault_prevents_actual_pwm_outputs(tmp_path, fault):
     class Node:
         def __init__(self, name):
             self._parameter_overrides = {}
-            self.parameters = dict(config_root=str(root), config_scope='same')
+            self.parameters = {'config_root': str(root), 'config_scope': 'same'}
 
         def declare_parameter(self, name, value):
             self.parameters.setdefault(name, value)
@@ -103,7 +102,7 @@ def test_required_artifact_fault_prevents_actual_pwm_outputs(tmp_path, fault):
                and n.name == 'ThrusterPWMNode')
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef)
                 and n.name == '__init__']
-    namespace = dict(Node=Node, node_startup_inputs=node_startup_inputs,
+    namespace = dict(Node=Node, node_startup_inputs=node_startup_inputs,  # noqa: C408
                      make_outputs=lambda *args, **kwargs: calls.append('outputs'))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
                  str(source), 'exec'), namespace)
