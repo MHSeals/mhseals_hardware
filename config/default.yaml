@@ -43,9 +43,22 @@ manual_yaw_scale: 0.5
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
-# command_mux overrides (Arbitration arguments): mode_ch, modes (MODE1..6 FCU numbers),
-# stop_ch, rc_scale, cmd_timeout, ramp ... Applied live, but only while idle or holding.
-command_mux: {}
+# command_mux (Arbitration arguments). Applied live, but only while idle or holding.
+# mode_ch/stop_ch: 1-based RC channels. modes: the FCU MODE1..6 numbers (0 MANUAL,
+# 4 HOLD, 15 GUIDED). rc_scale: surge, sway, yaw fraction at full stick.
+# rc_max_age, cmd_timeout, stick_time, stick_release, ramp: seconds.
+# stick_takeover: PWM microseconds past center.
+command_mux:
+  mode_ch: 8
+  modes: [0, 0, 0, 4, 0, 15]
+  stop_ch: 6
+  rc_scale: [0.5, 0.5, 0.3]
+  rc_max_age: 0.3
+  cmd_timeout: 0.5
+  stick_takeover: 200
+  stick_time: 0.2
+  stick_release: 0.5
+  ramp: 1.0
 
 # Bumped (never reset) when the hardware changes physically (ballast, prop swap,
 # remount): calibrations recorded under an older epoch count as invalid.

@@ -64,10 +64,9 @@ class CommandMux(Node):
         config, self.startup_selection = node_startup_inputs(
             self, config_file, hardware_parameters=False)
         section = config.get('command_mux', {})
-        defaults = Arbitration()
         self._invocation_overrides = {}
         for name in ('rc_scale', 'cmd_timeout', 'ramp'):
-            default = section.get(name, getattr(defaults, name))
+            default = section[name]
             self.declare_parameter(name, list(default) if name == 'rc_scale' else default)
             # Pinned Jazzy Node retains explicit CLI/launch overrides in this map.
             if name in self._parameter_overrides:

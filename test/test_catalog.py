@@ -14,12 +14,14 @@ from mhseals_hardware.resources import config_resource
 def test_installed_resources_and_inventory():
     bundle = load_catalog()
     defaults = load_defaults()
-    assert len(bundle.rows) == len(defaults) - 1 + len(defaults['controller'])
+    assert len(bundle.rows) == (len(defaults) - 2 + len(defaults['controller'])
+                                + len(defaults['command_mux']))
     for row in bundle.rows:
         key = row.descriptor['canonical_key'].removeprefix('hardware.')
         value = row.default
-        assert (list(value) if isinstance(value, tuple) else value) == (defaults['controller'][key.split('.')[1]]
-                if key.startswith('controller.') else defaults[key])
+        section, _, leaf = key.partition('.')
+        assert (list(value) if isinstance(value, tuple) else value) == (
+            defaults[section][leaf] if leaf else defaults[key])
         assert not row.writable
     timeout = bundle.field('hardware.command_timeout')
     assert timeout.default == defaults['command_timeout']
@@ -90,6 +92,7 @@ def test_candidate_tiers_follow_actual_restart_policy():
     outputs = constants('outputs', {'OUTPUT_KEYS'})
     driver = constants('thruster_pwm_node', {'RESTART_KEYS', 'LIVE_KEYS'}, outputs)
     controller = constants('velocity_controller', {'PLANT_KEYS'})
+    mux = constants('command_arbitration', {'INIT_KEYS'})
     bundle = load_catalog()
     for row in bundle.rows:
         key = row.descriptor['canonical_key'].removeprefix('hardware.')
@@ -97,6 +100,9 @@ def test_candidate_tiers_follow_actual_restart_policy():
             if consumer['id'] == 'thruster_pwm_node':
                 assert key in driver['RESTART_KEYS'] + driver['LIVE_KEYS']
                 expected = 'unsupported' if key in driver['RESTART_KEYS'] else 1
+            elif consumer['id'] == 'command_mux':
+                assert key.removeprefix('command_mux.') in mux['INIT_KEYS']
+                expected = 1
             else:
                 assert consumer['id'] == 'velocity_controller'
                 assert key in controller['PLANT_KEYS'] or key.startswith('controller.')

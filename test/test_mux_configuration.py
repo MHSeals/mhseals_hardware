@@ -8,6 +8,11 @@ from types import SimpleNamespace as NS
 import pytest
 
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
+from mhseals_hardware.configuration import load_defaults
+
+
+def full(section):
+    return {**load_defaults()['command_mux'], **section}
 
 
 class InertNode:
@@ -42,7 +47,7 @@ def mux(section, overrides=None, **replace):
                InertNode=InertNode, Arbitration=Arbitration, RELOAD_PERIOD=1.,
                time=NS(monotonic=lambda: 0., time_ns=lambda: 1), Twist=object, String=lambda **kw: NS(**kw), RCIn=object,
                STATE_QOS=None, qos_profile_sensor_data=None,
-               node_startup_inputs=lambda node, path, **kw: ({'command_mux': section}, None),
+               node_startup_inputs=lambda node, path, **kw: ({'command_mux': full(section)}, None),
                ConfigWatcher=lambda path: NS(poll=lambda: None),
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw))
@@ -78,14 +83,14 @@ def test_reload_defers_human_then_applies_at_idle_and_state_file_refuses():
     n = mux({})
     old = n.arbitration
     old.update_manual((.4, 0, 0), 0.)
-    n.watch.poll = lambda: {'command_mux': {'rc_scale': [.2]*3, 'cmd_timeout': .9}}
+    n.watch.poll = lambda: {'command_mux': full({'rc_scale': [.2]*3, 'cmd_timeout': .9})}
     n.reload_callback()
     assert n.pending and old.cmd_timeout == .5
     old.manual_time = None
     n.watch.poll = lambda: None
     n.reload_callback()
     assert n.pending is None and old.cmd_timeout == .9 and old.rc_scale == (.2,)*3
-    n.watch.poll = lambda: {'command_mux': {'state_file': '/other', 'cmd_timeout': .2}}
+    n.watch.poll = lambda: {'command_mux': full({'state_file': '/other', 'cmd_timeout': .2})}
     n.reload_callback()
     assert n._reload_error == 'restart required: state_file'
     assert n.pending is None and old.cmd_timeout == .9 and n.state_file == '/default'
@@ -110,7 +115,7 @@ def test_ros_array_override_status_and_pending_are_json_safe_and_detached():
     scale[0] = .9
     assert published(n)['invocation_overrides']['rc_scale'] == [.1, .2, .1]
     n.arbitration.update_manual((.4, 0, 0), 0.)
-    n.watch.poll = lambda: {'command_mux': {'ramp': 2.}}
+    n.watch.poll = lambda: {'command_mux': full({'ramp': 2.})}
     n.reload_callback()
     assert published(n)['pending']['rc_scale'] == [.1, .2, .1]
     assert n.arbitration.rc_scale == (.1, .2, .1)
@@ -126,6 +131,6 @@ def test_reload_error_is_current_and_clears_only_after_valid_acceptance():
     n.reload_callback()
     assert published(n)['error'] == 'config reload rejected: bad rc_scale'
     assert n.arbitration is old and old.cmd_timeout == .5
-    n.watch.poll = lambda: {'command_mux': {'cmd_timeout': .9}}
+    n.watch.poll = lambda: {'command_mux': full({'cmd_timeout': .9})}
     n.reload_callback()
     assert published(n)['error'] == '' and old.cmd_timeout == .9

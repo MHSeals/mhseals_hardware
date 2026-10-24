@@ -4,18 +4,23 @@ import pytest
 
 from mhseals_hardware import hold_store
 from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.configuration import load_defaults
+
+
+def arbitration(**changes):
+    return Arbitration(**{**load_defaults()['command_mux'], **changes})
 
 
 def restarted(path, now):
     """What a fresh mux process does at start."""
-    a = Arbitration(ramp=1.0)
+    a = arbitration(ramp=1.0)
     a.adopt_holds(hold_store.load(path), now)
     return a
 
 
 def test_keys_hold_survives_restart(tmp_path):
     path = tmp_path / 'run' / 'command_mux.json'
-    old = Arbitration()
+    old = arbitration()
     old.request('hold', 'keys', 'keys', 1.0)
     hold_store.save(path, old.holds)
     new = restarted(path, 50.0)
@@ -43,7 +48,7 @@ def test_torn_or_missing_file_starts_clean(tmp_path, text):
 
 def test_file_holds_only_a_token_hash(tmp_path):
     path = tmp_path / 'command_mux.json'
-    a = Arbitration()
+    a = arbitration()
     a.request('hold', 'apply', 'config', 0, token='s3cret')
     hold_store.save(path, a.holds)
     assert 's3cret' not in path.read_text()
@@ -52,7 +57,7 @@ def test_file_holds_only_a_token_hash(tmp_path):
 
 @pytest.mark.parametrize('cause', ['rc_stick', 'rc_stop', 'rc_lost', 'rc_switch'])
 def test_adopted_rc_hold_survives_the_first_guided_frame(cause):
-    a = Arbitration(ramp=1.0)
+    a = arbitration(ramp=1.0)
     a.adopt_holds({cause: {'cause': cause, 'by': 'rc', 'since': 1.0, 'token': ''}}, 50.0)
     a.update_auto((1.0, 0.0, 0.0), 50.0)
     a.update_rc([1500, 1500, 1500, 1500, 1500, 1900, 1500, 1900], 50.0)   # GUIDED

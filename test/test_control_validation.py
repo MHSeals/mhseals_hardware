@@ -8,6 +8,10 @@ from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.control_validation import validate_controller
 
 
+def arbitration(**changes):
+    return Arbitration(**{**load_defaults()['command_mux'], **changes})
+
+
 def values():
     return dict(kp=[.8]*3, ki=[.6]*3, integral_limit=[.3]*3,
                 drift_time_constant=5., odom_timeout=.3,
@@ -32,13 +36,13 @@ def test_controller_domains(key, bad):
     ('rc_max_age', True), ('stick_time', float('inf'))])
 def test_mux_domains(key, bad):
     with pytest.raises(ValueError):
-        Arbitration.from_config({key: bad})
+        Arbitration.from_config({**load_defaults()['command_mux'], key: bad})
 
 
 def test_valid_domains_keep_effort_only_defaults_valid():
     assert validate_controller(values())['feedback'] is True
     assert load_defaults()['characterization'] == {}
-    assert Arbitration(ramp=0).ramp == 0
+    assert arbitration(ramp=0).ramp == 0
 
 
 @pytest.mark.parametrize('bad', [[1.5, 2, 3, 4], [True, 2, 3, 4]])
@@ -59,7 +63,7 @@ def test_effort_timing_bool_rejected(key):
 @pytest.mark.parametrize('value', [True, 1.5])
 def test_stick_pwm_threshold_is_integer(value):
     with pytest.raises(ValueError):
-        Arbitration(stick_takeover=value)
+        arbitration(stick_takeover=value)
 
 
 @pytest.mark.parametrize('bad', [array('d', [-1., 0., 0.]),

@@ -224,6 +224,11 @@ def _merge_overrides(overrides):
         if not isinstance(section, dict):
             raise ValueError('controller must be a mapping')
         combined['controller'] = dict(defaults['controller'], **section)
+    if 'command_mux' in overrides:
+        section = overrides['command_mux']
+        if not isinstance(section, dict):
+            raise ValueError('command_mux must be a mapping')
+        combined['command_mux'] = dict(defaults['command_mux'], **section)
     config = validate_config(combined)
     # ROS array parameters are typed by their elements: ints or a mix would declare the
     # wrong type (or crash), so every matrix is a plain list of floats.

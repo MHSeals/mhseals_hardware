@@ -36,7 +36,7 @@ def token_hash(token):
     return hashlib.sha256(str(token).encode()).hexdigest()
 
 
-def mode_from_pwm(pwm, modes=(0, 0, 0, 4, 0, 15)):
+def mode_from_pwm(pwm, modes):
     """Decode the mode switch exactly as the FCU does, from raw PWM."""
     slot = sum(pwm >= edge for edge in MODE_BANDS)
     return MODE_NAMES.get(modes[slot], OTHER)
@@ -58,10 +58,9 @@ INIT_KEYS = ('mode_ch', 'modes', 'stop_ch', 'rc_scale', 'rc_max_age', 'cmd_timeo
 class Arbitration:
     """The state machine behind ``command_mux``."""
 
-    def __init__(self, mode_ch=8, modes=(0, 0, 0, 4, 0, 15), stop_ch=6,
-                 rc_scale=(0.5, 0.5, 0.3), rc_max_age=0.3, cmd_timeout=0.5,
-                 stick_takeover=200, stick_time=0.2, stick_release=0.5,
-                 ramp=1.0):
+    def __init__(self, mode_ch, modes, stop_ch, rc_scale, rc_max_age, cmd_timeout,
+                 stick_takeover, stick_time, stick_release, ramp):
+        # Every value comes from the command_mux section of default.yaml.
         self.mode_ch, self.modes, self.stop_ch = mode_ch, tuple(modes), stop_ch
         self._check_layout()
         self.rc_scale = tuple(rc_scale)

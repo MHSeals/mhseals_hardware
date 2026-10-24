@@ -1,6 +1,19 @@
 import pytest
 
-from mhseals_hardware.command_arbitration import Arbitration, mode_from_pwm
+from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, mode_from_pwm
+from mhseals_hardware.configuration import load_defaults
+
+
+MODES = (0, 0, 0, 4, 0, 15)
+
+
+def section(**changes):
+    return {**load_defaults()['command_mux'], **changes}
+
+
+def arbitration(**changes):
+    return Arbitration(**section(**changes))
+
 
 LOW, MID, HIGH = 1100, 1550, 1900   # MANUAL, HOLD, GUIDED on the mode channel
 PUSH = (1500, 1800, 1500, 1500)     # sway stick past the takeover
@@ -13,7 +26,7 @@ def frame(mode=HIGH, sticks=(1500, 1500, 1500, 1500), arm=1900):
 
 def boat():
     """A mux that has been running a while (no start-up ramp pending)."""
-    a = Arbitration()
+    a = arbitration()
     a._ramp_pending = False
     return a
 
@@ -27,9 +40,9 @@ def latch(a):
 
 
 def test_mode_bands_match_the_fcu():
-    assert [mode_from_pwm(p) for p in (1100, 1300, 1400, 1550, 1700, 1900)] == [
+    assert [mode_from_pwm(p, MODES) for p in (1100, 1300, 1400, 1550, 1700, 1900)] == [
         'MANUAL', 'MANUAL', 'MANUAL', 'HOLD', 'MANUAL', 'GUIDED']
-    assert mode_from_pwm(1230) == 'MANUAL' and mode_from_pwm(1750) == 'GUIDED'
+    assert mode_from_pwm(1230, MODES) == 'MANUAL' and mode_from_pwm(1750, MODES) == 'GUIDED'
 
 
 def test_mode5_band_decodes_manual_and_drives_rc():
@@ -220,7 +233,7 @@ def test_out_of_range_stick_neither_latches_nor_drives(bad):
 
 
 def test_zero_ramp_means_no_ramp():
-    a = Arbitration(ramp=0)
+    a = arbitration(ramp=0)
     a.update_rc(frame(mode=MID), 0)
     a.update_auto((0.4, 0.0, 0.0), 0.1)
     a.select(0.1)
@@ -257,7 +270,7 @@ def test_non_finite_commands_never_reach_select(bad):
 
 
 def test_state_never_publishes_a_hold_token():
-    a = Arbitration()
+    a = arbitration()
     a.request('hold', 'apply', 'config_revert', 0, token='s3cret')
     state = a.state(0.1)
     assert 's3cret' not in repr(state)
@@ -266,7 +279,7 @@ def test_state_never_publishes_a_hold_token():
 
 
 def test_releases_record_who_and_whether_tokenless():
-    a = Arbitration()
+    a = arbitration()
     a.request('hold', 'apply', 'config', 0, token='t1')
     a.request('release', 'apply', 'config', 0.1, token='t1')
     assert a.state(0.2)['last_release'] == {
@@ -316,30 +329,30 @@ def test_config_applies_when_idle_and_pends_during_rc():
     a = boat()
     a.update_rc(frame(mode=LOW, sticks=(1500, 1900, 1500, 1500)), 0)
     assert a.select(0.01)[0] == 'rc'
-    assert a.apply_config({'mode_ch': 7, 'stop_ch': 5}, 0.01) is False
+    assert a.apply_config(section(mode_ch=7, stop_ch=5), 0.01) is False
     assert (a.mode_ch, a.stop_ch) == (8, 6)
     assert a.select(5)[0] in ('idle', 'hold')      # the frame went stale
-    assert a.apply_config({'mode_ch': 7, 'stop_ch': 5}, 5) is True
+    assert a.apply_config(section(mode_ch=7, stop_ch=5), 5) is True
     assert (a.mode_ch, a.stop_ch) == (7, 5)
 
 
 def test_bad_layout_is_rejected():
-    for section in ({'mode_ch': 0}, {'modes': [0, 4]}, {'bogus': 1}):
+    for bad in (section(mode_ch=0), section(modes=[0, 4]), section(bogus=1), {'mode_ch': 7}):
         with pytest.raises((ValueError, TypeError)):
-            boat().apply_config(section, 0)
+            boat().apply_config(bad, 0)
 
 
 def test_first_auto_after_start_ramps_in():
-    a = Arbitration(ramp=1.0)
+    a = arbitration(ramp=1.0)
     a.update_auto((1.0, 0.0, 0.0), 100.0)
     assert a.select(100.0) == ('auto', (0.0, 0.0, 0.0))
     assert a.select(100.5)[1][0] == pytest.approx(0.5)
 
 
 def test_adopted_hold_blocks_auto_and_keeps_its_token():
-    a = Arbitration()
+    a = arbitration()
     a.request('hold', 'apply', 'config', 0, token='t1')
-    b = Arbitration()
+    b = arbitration()
     b.adopt_holds(a.holds, 5.0)
     b.update_auto((1.0, 0.0, 0.0), 5.0)
     assert b.select(5.0)[0] == 'hold'
@@ -353,7 +366,7 @@ RC_FIELDS = {'valid', 'mode', 'latched', 'stick', 'pwm_mode', 'rate_hz',
 
 
 def test_state_has_the_authority_fields_and_wall_clock_times():
-    a = Arbitration()
+    a = arbitration()
     for i in range(5):
         a.update_rc([1500, 1500, 1500, 1500, 1500, 1800, 1500, 1100], i * 0.04)
         a.select(i * 0.04)            # the node selects on every frame
@@ -366,15 +379,23 @@ def test_state_has_the_authority_fields_and_wall_clock_times():
 
 
 def test_state_cause_names_the_hold_and_the_release():
-    a = Arbitration()
+    a = arbitration()
     a.update_rc([1500, 1500, 1500, 1500, 1500, 1800, 1500, 1500], 0.0)   # HOLD switch
     state = a.state(0.01, wall_ns=10**18)
     assert state['cause'] == 'rc_switch' and state['hold']['by'] == 'rc'
     assert state['holds'][0]['since_ns'] == 10**18 - int(0.01e9)
-    b = Arbitration()
+    b = arbitration()
     b.request('hold', 'tui', 'tui', 0.0)
     b.update_auto((0.1, 0, 0), 0.1)
     assert b.state(0.1)['cause'] == 'tui'
     b.request('release', 'tui', 'tui', 0.2)
     b.update_auto((0.1, 0, 0), 0.2)
     assert b.state(0.2)['cause'] == 'release'
+
+
+def test_yaml_section_equals_the_former_python_defaults():
+    a = arbitration()
+    assert (a.mode_ch, a.modes, a.stop_ch, a.rc_scale) == (8, MODES, 6, (0.5, 0.5, 0.3))
+    assert (a.rc_max_age, a.cmd_timeout, a.stick_takeover) == (0.3, 0.5, 200)
+    assert (a.stick_time, a.stick_release, a.ramp) == (0.2, 0.5, 1.0)
+    assert set(load_defaults()['command_mux']) == set(INIT_KEYS)
