@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
     ],
     package_data={package_name: ['config/*.yaml']},
-    install_requires=['setuptools', 'rich', 'gpiod', 'PyYAML', 'numpy'],
+    install_requires=['setuptools', 'rich', 'gpiod', 'PyYAML', 'numpy', 'mhseals_config'],
     zip_safe=True,
     author='MHS Seals',
     description='Native ODROID-M2 PWM thruster control for MHS Seals',
