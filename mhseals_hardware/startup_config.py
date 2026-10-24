@@ -11,10 +11,11 @@ from pathlib import Path
 from mhseals_config._evidence import Recipe
 from mhseals_config.resolver import Field, parse, resolve
 from mhseals_hardware.configuration import _merge_overrides, load_defaults
+from mhseals_hardware.control_validation import controller_section
 from mhseals_hardware.thruster_mixer import mix_thrusters, validate_mixer
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
-RECIPE_ID = 'hardware-pure-startup/v1'
+RECIPE_ID = 'hardware-pure-startup/v2'
 PARTICIPANTS = frozenset(('hardware-baseline', 'hardware-pure'))
 SELECTION_PARAMETERS = ('config_root', 'config_scope', 'config_profile', 'config_candidate')
 
@@ -34,11 +35,16 @@ def parse_layer(text, source, layer, fields):
 
     numeric_fields = dict(fields)
     root = yaml.compose(text)
-    if isinstance(root, yaml.MappingNode):
-        for key, value in root.value:
-            if (key.value in fields and fields[key.value].kind is float
-                    and value.tag == 'tag:yaml.org,2002:int'):
-                numeric_fields[key.value] = replace(fields[key.value], kind=int)
+    def walk(node, prefix=''):
+        if isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                name = prefix + key.value
+                if (name in fields and fields[name].kind is float
+                        and value.tag == 'tag:yaml.org,2002:int'):
+                    numeric_fields[name] = replace(fields[name], kind=int)
+                elif name not in fields:
+                    walk(value, name + '.')
+    walk(root)
     assignments = parse(text, source, layer, numeric_fields)
     return tuple(replace(item, value=float(item.value))
                  if fields[item.key].kind is float else item for item in assignments)
@@ -50,6 +56,9 @@ def compile_inputs(operator=None, *, profile=None, session=None):
     defaults = load_defaults()
     fields = {key: Field(type(value), nullable=value is None)
               for key, value in defaults.items()}
+    fields.pop('controller')
+    fields.update({'controller.' + key: Field(type(value))
+                   for key, value in defaults['controller'].items()})
     # The nullable negative matrix is a sequence when explicitly supplied.
     fields['decoupling_negative'] = Field(list, nullable=True)
     layers = [parse_layer(defaults_path.read_text(), str(defaults_path), 'defaults', fields)]
@@ -61,8 +70,13 @@ def compile_inputs(operator=None, *, profile=None, session=None):
         text, source = session
         layers.append(parse_layer(text, source, 'session', fields))
     resolved = resolve(layers)
-    return dict(baseline=_merge_overrides(plain(resolved.baseline)),  # noqa: C408
-                effective=_merge_overrides(plain(resolved.effective)),
+    def nested(values):
+        values = plain(values)
+        values['controller'] = {key: values.pop('controller.' + key)
+                                for key in defaults['controller']}
+        return _merge_overrides(values)
+    return dict(baseline=nested(resolved.baseline),  # noqa: C408
+                effective=nested(resolved.effective),
                 origins={key: [asdict(origin) for origin in origins]
                          for key, origins in resolved.origins.items()})
 
@@ -70,21 +84,24 @@ def compile_inputs(operator=None, *, profile=None, session=None):
 def observe(document):
     """Evaluate the actual pure mixer and, when calibrated, velocity law."""
     config = document['effective']
+    controller = controller_section(config['controller'])  # incomplete legacy documents must refuse
     mixer = validate_mixer(config['thruster_matrix'])
     evidence = {'mixer': [list(mix_thrusters(*command, mixer=mixer))
                           for command in ((0.25, 0, 0), (0, 0.25, 0), (0, 0, 0.25))],
                 'timeout': config['command_timeout']}
     if config.get('characterization'):
-        law = VelocityLaw(Plant(config), kp=(0, 0, 0), ki=(0, 0, 0),
-                          drift_time_constant=0)
+        law = VelocityLaw(Plant(config), **{key: value for key, value in controller.items()
+                          if key not in ('feedback', 'command_timeout', 'input_topic',
+                                         'output_topic', 'odom_topic')})
         law.observe((0, 0, 0), 0.0, 0.0)
-        evidence['law'] = list(law.step((0.1, 0, 0), 0.0))
+        evidence['law'] = list(law.step((0.1, 0, 0), 0.0, feedback=controller['feedback']))
     return evidence
 
 
 def evaluate(document, evidence):
     """Independently check bounded probe expectations from the compiled inputs."""
     config = document['effective']
+    controller = controller_section(config['controller'])
     expected = {'mixer': [[0.25 * config['thruster_matrix'][row * 3 + axis]
                            for row in range(4)] for axis in range(3)],
                 'timeout': config['command_timeout']}
@@ -106,6 +123,8 @@ def evaluate(document, evidence):
             else:
                 wrench = curve['d1'] * speed + curve['d2'] * speed * abs(speed)
             effort = math.copysign(math.sqrt(abs(wrench)), wrench)
+            if controller['feedback']:
+                effort += controller['kp'][len(expected['law'])] * min(target, limit)
             expected['law'].append(max(-1.0, min(1.0, effort)))
 
     def matches(actual, wanted):
@@ -195,6 +214,9 @@ def startup_inputs(path=None, *, root=None, scope=None, profile=None, session=No
         selected = read_selected_inputs(root, scope, evaluators=EVALUATORS)
     document = plain(selected.documents['hardware-pure'])
     # Revalidate captured bytes, never reread mutable authoring inputs here.
+    for version in ('baseline', 'effective'):
+        if 'controller' not in document[version]:
+            raise ValueError('incomplete legacy controller selection')
     _merge_overrides(document['baseline'])
     _merge_overrides(document['effective'])
     return document, selected

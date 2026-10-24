@@ -34,7 +34,7 @@ characterization:
     document = compile_inputs(operator)
     evidence = observe(document)
     assert evidence['mixer'][0] == [0.125, 0.0, 0.0, 0.125]
-    assert evidence['law'] == pytest.approx([0.2, 0.0, 0.0])
+    assert evidence['law'] == pytest.approx([0.28, 0.0, 0.0])
     assert evidence['timeout'] == 0.7
     assert evaluate(document, evidence)
     evidence['mixer'][0][0] = 0.0
@@ -143,3 +143,46 @@ def test_rounding_tolerance_preserves_evidence_shape_and_finiteness(tmp_path):
         assert not evaluate(document, corrupted)
     assert not evaluate(document, dict(evidence, identity='another'))
     assert not evaluate(document, dict(evidence, law=evidence['law'][:2]))
+
+
+def test_controller_leaf_precedence_and_locations(tmp_path):
+    profile = tmp_path / 'profile.yaml'
+    profile.write_text('controller: {kp: [1, 2, 3], feedback: false}\n')
+    operator = tmp_path / 'operator.yaml'
+    operator.write_text('controller:\n  odom_timeout: 1\n')
+    doc = compile_inputs(operator, profile=profile,
+        session=('controller: {kp: [2, 3, 4]}', 'ROS invocation'))
+    assert doc['baseline']['controller']['kp'] == [1., 2., 3.]
+    assert doc['effective']['controller']['kp'] == [2., 3., 4.]
+    assert doc['effective']['controller']['feedback'] is False
+    assert doc['effective']['controller']['odom_timeout'] == 1.0
+    assert doc['origins']['controller.odom_timeout'][-1]['line'] == 2
+    assert [o['layer'] for o in doc['origins']['controller.kp']] == [
+        'defaults', 'profile', 'session']
+    operator.write_text('{}')
+    assert compile_inputs(operator)['effective']['controller']['odom_timeout'] == .3
+
+
+@pytest.mark.parametrize('text', ['controller: {kp: [1, 2, 3], kp: [2, 3, 4]}',
+    'controller: {<<: {feedback: false}}', 'controller: &self {kp: *self}',
+    'controller: {odom_timeout: true}', 'controller: null'])
+def test_controller_strict_sources(tmp_path, text):
+    path = tmp_path / 'operator.yaml'
+    path.write_text(text)
+    with pytest.raises(ValueError):
+        compile_inputs(path)
+
+
+def test_controller_snapshot_retains_complete_baseline_and_session(tmp_path):
+    from mhseals_hardware.startup_config import startup_inputs
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('controller: {kp: [2, 3, 4], input_topic: /custom}\n')
+    first, selected = startup_inputs(path, root=tmp_path / 'snapshots', scope='same',
+        session=('controller: {feedback: false}', 'invocation'))
+    path.unlink()
+    again, _ = startup_inputs(path, root=tmp_path / 'snapshots', scope='same')
+    assert first == again
+    baseline = selected.documents['hardware-baseline']['effective']['controller']
+    assert baseline['feedback'] is True
+    assert again['effective']['controller']['feedback'] is False
+    assert again['effective']['controller']['input_topic'] == '/custom'
