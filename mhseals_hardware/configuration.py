@@ -175,10 +175,9 @@ class ConfigWatcher:
             return None
         self.mtime = key
         try:
-            config = load_config(self.path)
+            return load_config(self.path)
         except (yaml.YAMLError, TypeError) as error:
             raise ValueError(f'invalid hardware YAML: {error}') from error
-        return config
 
 
 def _read_overrides(path):
