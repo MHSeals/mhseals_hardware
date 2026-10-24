@@ -35,15 +35,22 @@ def parse_layer(text, source, layer, fields):
 
     numeric_fields = dict(fields)
     root = yaml.compose(text)
-    def walk(node, prefix=''):
+    def walk(node, prefix='', ancestors=frozenset()):
+        # Preprocessing must leave malformed graphs to the located strict parser.
+        if id(node) in ancestors:
+            return
+        ancestors = ancestors | {id(node)}
         if isinstance(node, yaml.MappingNode):
             for key, value in node.value:
+                if key.tag != 'tag:yaml.org,2002:str':
+                    continue
                 name = prefix + key.value
                 if (name in fields and fields[name].kind is float
                         and value.tag == 'tag:yaml.org,2002:int'):
                     numeric_fields[name] = replace(fields[name], kind=int)
-                elif name not in fields:
-                    walk(value, name + '.')
+                elif name not in fields and any(
+                        field.startswith(name + '.') for field in fields):
+                    walk(value, name + '.', ancestors)
     walk(root)
     assignments = parse(text, source, layer, numeric_fields)
     return tuple(replace(item, value=float(item.value))

@@ -186,3 +186,31 @@ def test_controller_snapshot_retains_complete_baseline_and_session(tmp_path):
     assert baseline['feedback'] is True
     assert again['effective']['controller']['feedback'] is False
     assert again['effective']['controller']['input_topic'] == '/custom'
+
+
+@pytest.mark.parametrize('text', [
+    'controller: &x {unknown: *x}',
+    'controller: &x {controller: *x}',
+    'controller: {kp: &x [*x, 0, 0]}',
+    'unknown: &x {unknown: *x}',
+    'controller: {kp: [1, 2, 3], kp: [2, 3, 4]}',
+    'controller: {<<: {feedback: false}}',
+    '? [invalid, key]\n: value',
+])
+def test_malformed_graphs_reach_located_strict_parser(tmp_path, text):
+    path = tmp_path / 'malformed.yaml'
+    path.write_text(text)
+    with pytest.raises(ValueError) as error:
+        compile_inputs(path)
+    assert str(path) in str(error.value)
+    assert 'line=' in str(error.value)
+
+
+def test_repeated_nonrecursive_aliases_keep_numeric_normalization(tmp_path):
+    path = tmp_path / 'aliases.yaml'
+    path.write_text('controller:\n  kp: &g [1, 2, 3]\n  ki: *g\n'
+                    '  drift_time_constant: &t 1\n  odom_timeout: *t\n')
+    section = compile_inputs(path)['effective']['controller']
+    assert section['kp'] == section['ki'] == [1., 2., 3.]
+    assert type(section['drift_time_constant']) is float
+    assert type(section['odom_timeout']) is float

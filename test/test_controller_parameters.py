@@ -359,3 +359,21 @@ def test_actual_constructor_rejects_legacy_recipe_before_resources(tmp_path):
     with pytest.raises(ValueError):
         cls()
     assert resources == []
+
+
+@pytest.mark.parametrize('text', [
+    'controller: &x {unknown: *x}',
+    'controller: &x {controller: *x}',
+    'controller: {kp: &x [*x, 0, 0]}',
+    'unknown: &x {unknown: *x}',
+])
+def test_recursive_yaml_refuses_before_constructor_resources(tmp_path, text):
+    path = tmp_path / 'recursive.yaml'
+    path.write_text(text)
+    resources = []
+    cls, _ = constructor(dict(config_file=str(path),
+        config_root=str(tmp_path / 'snapshots'), config_scope='recursive'), resources)
+    with pytest.raises(ValueError) as error:
+        cls()
+    assert str(path) in str(error.value) and 'line=' in str(error.value)
+    assert resources == []
