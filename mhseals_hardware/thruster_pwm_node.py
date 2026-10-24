@@ -56,9 +56,10 @@ class ThrusterPWMNode(Node):
         self.declare_parameter('config_file', '')
         self.config_file = self.get_parameter('config_file').value or None
         config, self.startup_selection = node_startup_inputs(self, self.config_file)
-        self.requested_config = config
+        file_layer = self.startup_baseline
+        self.requested_config = file_layer
         self.pending_restart_keys = []
-        self.file_config = config  # the YAML as loaded, before any parameters
+        self.file_config = file_layer  # the YAML as loaded, before any parameters
         # Mappings (the characterization) can't be ROS parameters; they come
         # from the YAML only.
         keys = [key for key, value in config.items() if not isinstance(value, dict)]

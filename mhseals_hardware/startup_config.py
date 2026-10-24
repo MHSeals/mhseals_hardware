@@ -267,4 +267,5 @@ def node_startup_inputs(node, path, *, hardware_parameters=True):
         requested = controller_section(dict(captured, **invocation['controller']))
         if requested != captured:
             raise ValueError('controller invocation conflicts with immutable startup selection')
+    node.startup_baseline = document['baseline']  # the file layer, without the ROS session layer
     return document['effective'], selected
