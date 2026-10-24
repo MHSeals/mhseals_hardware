@@ -181,7 +181,8 @@ class ConfigWatcher:
 
 
 def _read_overrides(path):
-    """Parse the operator file's overrides with the core strict resolver.
+    """
+    Parse the operator file's overrides with the core strict resolver.
 
     Duplicate, merge, recursive and unknown keys are refused with their located
     source, as in managed startup; every refusal is a ValueError.
@@ -201,7 +202,8 @@ def _read_overrides(path):
     except ValueError as error:
         unknown = re.match(r'unknown key (.+?) at (.*)', str(error), re.S)
         if unknown:  # keep the established wording of this refusal
-            raise ValueError(f'unknown hardware settings: [{unknown[1]!r}] at {unknown[2]}') from error
+            raise ValueError(
+                f'unknown hardware settings: [{unknown[1]!r}] at {unknown[2]}') from error
         raise
     overrides = {}
     for item in assignments:

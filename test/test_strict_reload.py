@@ -1,10 +1,10 @@
 """Operator YAML is parsed strictly: duplicate/merge/recursive input is refused, last good kept."""
-import pytest
-
 from mhseals_hardware.configuration import (
     ConfigWatcher, load_config, update_config,
 )
 from mhseals_hardware.startup_config import node_startup_inputs
+
+import pytest
 
 from test_mux_configuration import mux
 
@@ -116,7 +116,8 @@ def test_mux_startup_refuses_bad_file_without_snapshot(tmp_path, monkeypatch, na
 
 
 def test_mux_with_selection_args_takes_the_selection_not_a_differing_file(tmp_path, monkeypatch):
-    """A mux given an existing selection's root/scope/candidate reads that snapshot.
+    """
+    A mux given an existing selection's root/scope/candidate reads that snapshot.
 
     Without those arguments (what the testing arming path passes today) the mux
     bootstraps a new orphan scope from the operator file instead.
@@ -144,5 +145,6 @@ def test_mux_with_selection_args_takes_the_selection_not_a_differing_file(tmp_pa
 def test_unknown_key_keeps_wording_and_origin(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('no_such_setting: 1\n')
-    with pytest.raises(ValueError, match=r'unknown hardware settings: \[.no_such_setting.\] at .*hardware\.yaml'):
+    wording = r'unknown hardware settings: \[.no_such_setting.\] at .*hardware\.yaml'
+    with pytest.raises(ValueError, match=wording):
         load_config(path)

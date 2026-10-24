@@ -10,7 +10,6 @@ from geometry_msgs.msg import Twist
 from mavros_msgs.msg import RCIn
 
 from mhseals_hardware import command_mux
-from mhseals_hardware.configuration import load_defaults
 
 
 def test_rc_frame_reaches_applied_in_the_same_callback():
@@ -53,7 +52,7 @@ def test_reload_during_rc_pends_until_idle(tmp_path):
         frame.channels = [1500, 2000, 1500, 1500, 1500, 1800, 1500, 1100]
         node._rc(frame)
         # ConfigWatcher.poll returns the full merged section, as load_config does.
-        section = dict(load_defaults()['command_mux'], mode_ch=7)
+        section = dict(node._effective_section, mode_ch=7)
         node.watch.poll = lambda: {'command_mux': section}
         node.reload_callback()
         assert node.arbitration.mode_ch == 8 and node.pending == section

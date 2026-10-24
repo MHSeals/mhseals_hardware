@@ -1,4 +1,5 @@
-"""Real thruster_pwm_node and command_mux processes refuse a duplicate-key reload.
+"""
+Real thruster_pwm_node and command_mux processes refuse a duplicate-key reload.
 
 Runs only where ROS is installed. Both nodes are separate processes on a private
 ROS domain with localhost discovery; the driver uses the topic backend (nothing
