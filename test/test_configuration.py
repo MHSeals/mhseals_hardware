@@ -242,3 +242,17 @@ def test_command_mux_section_is_validated(tmp_path):
         path.write_text(text)
         with pytest.raises(ValueError):
             load_config(path)
+
+
+def test_hardware_epoch_defaults_to_zero_and_can_be_bumped(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('')
+    assert load_config(str(path))['hardware_epoch'] == 0
+    update_config({'hardware_epoch': 3}, str(path))
+    assert load_config(str(path))['hardware_epoch'] == 3
+
+
+@pytest.mark.parametrize('value', [-1, 1.5, '2', True, None])
+def test_invalid_hardware_epoch_fails(value, tmp_path):
+    with pytest.raises(ValueError, match='hardware_epoch'):
+        update_config({'hardware_epoch': value}, str(tmp_path / 'hardware.yaml'))

@@ -33,6 +33,9 @@ def validate_config(config):
     validate_decoupling(config['decoupling'])
     if config.get('decoupling_negative') is not None:
         validate_decoupling(config['decoupling_negative'])
+    epoch = config.get('hardware_epoch', 0)
+    if type(epoch) is not int or epoch < 0:
+        raise ValueError('hardware_epoch must be an integer >= 0')
     # Transmitter layout and mux timing; the section is built to prove it decodes.
     mux = config.get('command_mux', {})
     if not isinstance(mux, dict):
