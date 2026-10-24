@@ -24,9 +24,10 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String, UInt16MultiArray
 
 from mhseals_hardware.configuration import (
-    ConfigWatcher, config_sha, load_config, validate_config,
+    ConfigWatcher, config_sha, validate_config,
 )
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
+from mhseals_hardware.startup_config import node_startup_inputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
@@ -54,7 +55,7 @@ class ThrusterPWMNode(Node):
         # Every hardware setting is a ROS parameter, defaulting to the YAML config.
         self.declare_parameter('config_file', '')
         self.config_file = self.get_parameter('config_file').value or None
-        config = load_config(self.config_file)
+        config, self.startup_selection = node_startup_inputs(self, self.config_file)
         self.requested_config = config
         self.pending_restart_keys = []
         self.file_config = config  # the YAML as loaded, before any parameters
@@ -65,6 +66,8 @@ class ThrusterPWMNode(Node):
             self.declare_parameter(key, config[key])
         self.config = validate_config(dict(config, **{key: self.get_parameter(key).value
                                                        for key in keys}))
+        if self.config != config:
+            raise ValueError('ROS overrides conflict with immutable startup selection')
         self.declared = set(keys)
         self.own_write = False  # true only while this node mirrors a reload into parameters
         self.session = uuid.uuid4().hex[:8]

@@ -50,3 +50,63 @@ def test_rejects_invalid_sources(tmp_path, text):
     operator.write_text(text)
     with pytest.raises(ValueError):
         compile_inputs(operator)
+
+
+def test_bootstrap_same_scope_ignores_authoring_edits(tmp_path):
+    from mhseals_hardware.startup_config import startup_inputs
+    operator = tmp_path / 'hardware.yaml'
+    operator.write_text('command_timeout: 0.5\n')
+    root = tmp_path / 'snapshots'
+    first, selected = startup_inputs(operator, root=root, scope='same',
+                                     session=('command_timeout: 0.8\n', 'invocation'))
+    operator.write_text('command_timeout: 0.6\n')
+    restarted, again = startup_inputs(operator, root=root, scope='same')
+    fresh, _ = startup_inputs(operator, root=root, scope='fresh')
+    assert first == restarted
+    assert selected.ticket == again.ticket
+    assert fresh['effective']['command_timeout'] == 0.6
+    assert restarted['baseline']['command_timeout'] == 0.5
+    assert restarted['effective']['command_timeout'] == 0.8
+    assert selected.manifest.baseline.artifacts[0].name == 'hardware-baseline.json'
+
+
+@pytest.mark.parametrize('fault', ['missing', 'corrupt'])
+def test_required_artifact_fault_prevents_actual_pwm_outputs(tmp_path, fault):
+    import ast
+    from pathlib import Path
+    from types import SimpleNamespace
+    from mhseals_hardware.startup_config import node_startup_inputs, startup_inputs
+
+    root = tmp_path / 'snapshots'
+    startup_inputs(root=root, scope='same')
+    artifact = root / 'same/initializing/hardware-pure.json'
+    if fault == 'missing':
+        artifact.unlink()
+    else:
+        artifact.write_text('{}')
+    calls = []
+
+    class Node:
+        def __init__(self, name):
+            self._parameter_overrides = {}
+            self.parameters = dict(config_root=str(root), config_scope='same')
+
+        def declare_parameter(self, name, value):
+            self.parameters.setdefault(name, value)
+
+        def get_parameter(self, name):
+            return SimpleNamespace(value=self.parameters[name])
+
+    source = Path(__file__).parents[1] / 'mhseals_hardware/thruster_pwm_node.py'
+    tree = ast.parse(source.read_text())
+    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef)
+               and n.name == 'ThrusterPWMNode')
+    cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef)
+                and n.name == '__init__']
+    namespace = dict(Node=Node, node_startup_inputs=node_startup_inputs,
+                     make_outputs=lambda *args, **kwargs: calls.append('outputs'))
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
+                 str(source), 'exec'), namespace)
+    with pytest.raises((ValueError, FileNotFoundError)):
+        namespace['ThrusterPWMNode']()
+    assert calls == []

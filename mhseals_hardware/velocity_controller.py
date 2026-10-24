@@ -24,7 +24,8 @@ from rclpy.node import Node
 from mhseals_hardware.control_validation import (
     GAIN_KEYS, RESTART_KEYS, SCALAR_GAINS, VECTOR_GAINS, validate_controller,
 )
-from mhseals_hardware.configuration import ConfigWatcher, load_config
+from mhseals_hardware.configuration import ConfigWatcher
+from mhseals_hardware.startup_config import node_startup_inputs
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
@@ -62,7 +63,8 @@ class VelocityController(Node):
         value = lambda name: self.get_parameter(name).value  # noqa: E731
         validate_controller({name: value(name) for name in
                              GAIN_KEYS + ('command_timeout', 'feedback')})
-        config = load_config(value('config_file') or None)
+        config, self.startup_selection = node_startup_inputs(
+            self, value('config_file') or None, hardware_parameters=False)
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'))
