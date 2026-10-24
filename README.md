@@ -286,3 +286,31 @@ The package intentionally contains only pin-level and thruster code: the PWM
 outputs (pins or a simulator topic), the ROS bridge, the mixer, the velocity
 controller, the direct test and identification tools, and their shared
 keyboard/manual control code.
+
+### Initial configuration catalog (read-only)
+
+`mhseals_hardware.catalog.load_catalog` reads installed `config/catalog.yaml`
+against hash-pinned installed `config/default.yaml`. Its explicit registry binds
+`validate_config(complete_config)` and `compile_inputs(operator, profile=..., 
+session=...)`; loading metadata invokes neither. No numeric defaults or ranges
+are copied. Validation remains in configuration/mixer code, including finite
+matrix qualification, four channels, strict integer channels and boolean directions.
+Decoupling is a flat row-major 3x3 surge/sway/yaw correction; channel/reversal
+sequences use FL/FR/RR/RL order. Null negative correction follows the positive
+matrix through `_merge_overrides`; it is independently authorable when non-null,
+so this is not a derived-only leaf. Persistence uses existing `config_path`.
+
+The named closure covers timeout, positive/negative correction, backend, topic,
+PWM paths/channels/frequency, MOSFET fields, channel map and reversals. Every
+other top-level default has an explicit incomplete inventory row; descendants
+of characterization and command_mux are unsupported, not wildcard families.
+Controller correction inputs are retained for reload comparison at
+`velocity_controller.py:134`; this does not prove correction is applied inside
+Plant. Controller ROS `command_timeout` (`velocity_controller.py:51`) and mux
+`cmd_timeout` are independent contracts, not hardware timeout consumers.
+Standalone output tools and downstream simulator consumers remain unqualified.
+
+Tier 1 is candidate metadata only. Missing runtime safety/state contracts,
+consumer build evidence and recipes block promotion; no recipe or achieved
+behavior verification is claimed. All rows are read-only, including when exact
+consumer revisions are supplied. Existing armed/hold reload guards are unchanged.

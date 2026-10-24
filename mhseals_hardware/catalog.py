@@ -1,0 +1,22 @@
+"""Explicit installed hardware descriptor binding; no ROS or output lifecycle."""
+from importlib.resources import files
+
+from mhseals_config.catalog import DescriptorBundle
+from mhseals_hardware.configuration import validate_config
+from mhseals_hardware.startup_config import compile_inputs
+
+
+# Domain functions take their original full closures, never individual leaf values.
+REGISTRY = {
+    'hardware.validate_config': validate_config,
+    'hardware.compile_inputs': compile_inputs,
+}
+
+
+def load_catalog(*, consumer_versions=None):
+    """Read only package resources. Missing installed consumer builds stay blocked."""
+    config = files('mhseals_hardware').joinpath('config')
+    return DescriptorBundle.read_yaml(
+        config.joinpath('catalog.yaml').read_text(),
+        {'hardware-default': config.joinpath('default.yaml').read_bytes()},
+        REGISTRY, consumer_versions or {})
