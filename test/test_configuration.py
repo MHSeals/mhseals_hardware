@@ -277,3 +277,27 @@ def test_controller_invalid_section(tmp_path, section):
     path.write_text('controller: ' + section + '\n')
     with pytest.raises(ValueError):
         load_config(path)
+
+
+@pytest.mark.parametrize('writer', [save_config, update_config])
+def test_matrix_rows_persist_through_actual_save_paths(tmp_path, writer):
+    import yaml
+
+    target = tmp_path / 'hardware.yaml'
+    config = load_defaults()
+    matrices = {
+        'thruster_matrix': [-1.2, .3, 2.0, .4, -1.5, -.6, 1.7, -.8, .9, 1.0, 1.1, -1.2],
+        'decoupling': [1.1, -.2, .3, .4, 1.5, -.6, -.7, .8, 1.9],
+        'decoupling_negative': [.9, .2, -.3, -.4, 1.2, .6, .7, -.8, 1.4],
+    }
+    config.update(matrices, manual_amplitude=.37)
+    expected = config if writer is save_config else {**matrices, 'manual_amplitude': .37}
+    writer(expected, target)
+    text = target.read_text()
+    assert yaml.safe_load(text) == expected
+    assert load_config(target) == config
+    for key, values in matrices.items():
+        block = text.split(key + ': [\n', 1)[1].split('\n]', 1)[0].splitlines()
+        assert len(block) == len(values) // 3
+        assert all(len(line.strip().rstrip(',').split(',')) == 3 for line in block)
+    assert not list(tmp_path.glob('.hardware-*'))

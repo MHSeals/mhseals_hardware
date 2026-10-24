@@ -267,12 +267,35 @@ def _update_locked(changes, target):
     return _write_config(overrides, target)
 
 
+def _config_yaml(normalized):
+    """Keep flat mixer/correction sequences grouped by their three-column rows."""
+    matrices = {'thruster_matrix': 12, 'decoupling': 9, 'decoupling_negative': 9}
+    # Give matrices independent sequences so other fields cannot alias their anchors.
+    serializable = {key: list(value) if key in matrices and value is not None else value
+                    for key, value in normalized.items()}
+    text = yaml.safe_dump(serializable, sort_keys=False)
+    replacements = []
+    for key, value in yaml.compose(text, Loader=yaml.SafeLoader).value:
+        if key.value not in matrices or not isinstance(value, yaml.SequenceNode):
+            continue
+        if len(value.value) != matrices[key.value]:
+            continue  # Validation remains the caller's responsibility.
+        scalars = [text[item.start_mark.index:item.end_mark.index] for item in value.value]
+        rows = ['  ' + ', '.join(scalars[i:i + 3]) + ','
+                for i in range(0, len(scalars), 3)]
+        replacement = key.value + ': [\n' + '\n'.join(rows) + '\n]\n'
+        replacements.append((key.start_mark.index, value.end_mark.index, replacement))
+    for start, end, replacement in reversed(replacements):
+        text = text[:start] + replacement + text[end:]
+    return text
+
+
 def _write_config(normalized, target):
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix='.hardware-', dir=target.parent)
     try:
         with os.fdopen(fd, 'w') as stream:
-            yaml.safe_dump(normalized, stream, sort_keys=False)
+            stream.write(_config_yaml(normalized))
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, target)
