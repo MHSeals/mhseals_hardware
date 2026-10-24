@@ -234,8 +234,40 @@ ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effo
 
 `ros2 run mhseals_testing boat_test --velocity-control` arms both. The integral
 trim is bounded and the watchdog always returns the outputs to neutral.
-With `config_file` it rebuilds its model within a second of the YAML changing, and
-holds neutral effort while the new model is invalid.
+Controller defaults live under `controller:` in `config/default.yaml`. The selected
+hardware YAML overrides individual leaves, preserving unspecified siblings:
+
+```yaml
+controller:
+  kp: [1.2, 0.8, 0.6]
+  ki: [0.4, 0.4, 0.2]
+  input_topic: /navigation/velocity
+  odom_timeout: 0.4
+```
+
+The section also owns `integral_limit`, `feedback`, `drift_time_constant`,
+`command_timeout`, `drift_command_limit`, `output_topic` and `odom_topic`.
+Vectors have three finite nonnegative numbers (surge, sway, yaw); deadlines are
+positive seconds, drift time/command limits are nonnegative, feedback is boolean,
+and topics are absolute ROS names. Unknown leaves and null values refuse startup.
+Driver `command_timeout`, controller `controller.command_timeout`, and mux
+`cmd_timeout` are independent watchdogs.
+
+Startup captures package < profile < operator < explicit ROS invocation into an
+immutable selection. Only supplied ROS parameters override YAML. The controller
+constructs its law and topic resources from that selection. Restarting the same
+scope retains captured values after YAML edits or deletion; a fresh standalone
+scope consumes edited YAML. Old snapshots without the complete section/current
+recipe require a fresh selection. Conflicting ROS overrides on a selected scope
+refuse before topic resources; matching overrides preserve captured authority.
+
+With `config_file`, YAML edits to the controller section or Plant inputs report
+`restart required` and retain the running law, observer and integrator. Direct ROS
+gain updates retain atomic validation and post-commit law replacement; topics,
+file and selection parameters remain restart-only. No YAML live gains are enabled.
+Managed TUI profile topology capture is a separate integration gate: its captured
+controller input/output/odometry must agree with child argv, driver remaps and
+readiness checks. This hardware packet alone does not qualify that managed path.
 
 For deadman keyboard control from any machine on the same ROS domain:
 
@@ -304,10 +336,10 @@ The named closure covers timeout, positive/negative correction, backend, topic,
 PWM paths/channels/frequency, MOSFET fields, channel map and reversals. Every
 other top-level default has an explicit incomplete inventory row; descendants
 of characterization and command_mux are unsupported, not wildcard families.
-Controller correction inputs are retained for reload comparison at
-`velocity_controller.py:134`; this does not prove correction is applied inside
-Plant. Controller ROS `command_timeout` (`velocity_controller.py:51`) and mux
-`cmd_timeout` are independent contracts, not hardware timeout consumers.
+All eleven controller leaves have nested default pointers and per-leaf provenance.
+Their startup consumption is covered with inert constructor tests; all YAML edits
+remain pending restart. Controller correction inputs are retained for reload
+comparison; this does not prove correction is applied inside Plant.
 Standalone output tools and downstream simulator consumers remain unqualified.
 
 Only command_timeout declares candidate tier 1. Restart-only output and correction

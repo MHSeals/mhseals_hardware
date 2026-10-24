@@ -13,11 +13,12 @@ from mhseals_hardware.configuration import load_defaults, _merge_overrides
 def test_installed_resources_and_inventory():
     bundle = load_catalog()
     defaults = load_defaults()
-    assert len(bundle.rows) == len(defaults) - 1  # controller leaves follow in CY06
+    assert len(bundle.rows) == len(defaults) - 1 + len(defaults['controller'])
     for row in bundle.rows:
         key = row.descriptor['canonical_key'].removeprefix('hardware.')
         value = row.default
-        assert (list(value) if isinstance(value, tuple) else value) == defaults[key]
+        assert (list(value) if isinstance(value, tuple) else value) == (defaults['controller'][key.split('.')[1]]
+                if key.startswith('controller.') else defaults[key])
         assert not row.writable
     timeout = bundle.field('hardware.command_timeout')
     assert timeout.default == defaults['command_timeout']
@@ -98,7 +99,26 @@ def test_candidate_tiers_follow_actual_restart_policy():
                 expected = 'unsupported' if key in driver['RESTART_KEYS'] else 1
             else:
                 assert consumer['id'] == 'velocity_controller'
-                assert key in controller['PLANT_KEYS']
+                assert key in controller['PLANT_KEYS'] or key.startswith('controller.')
                 expected = 'unsupported'
             assert consumer['candidate_tier'] == expected
             assert not row.writable
+
+
+def test_controller_catalog_is_complete_independent_and_read_only():
+    defaults = load_defaults()['controller']
+    bundle = load_catalog()
+    rows = [row for row in bundle.rows if row.descriptor['canonical_key'].startswith('hardware.controller.')]
+    assert len(rows) == len(defaults) == 11
+    for row in rows:
+        descriptor = row.descriptor
+        key = descriptor['canonical_key'].split('.')[-1]
+        assert descriptor['default_ref']['yaml_pointer'] == '/controller/' + key
+        assert descriptor['aliases'] == ()
+        assert descriptor['coverage'][0]['status'] == 'startup-supported'
+        assert descriptor['consumers'][0]['candidate_tier'] == 'unsupported'
+        assert not row.writable
+    assert bundle.field('hardware.command_timeout').descriptor['consumers'][0]['id'] == 'thruster_pwm_node'
+    assert bundle.field('hardware.controller.command_timeout').descriptor['consumers'][0]['id'] == 'velocity_controller'
+    with pytest.raises(ValueError):
+        REGISTRY['hardware.controller_section'](dict(defaults, feedback=1))

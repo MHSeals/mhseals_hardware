@@ -3,13 +3,16 @@ from importlib.resources import files
 
 from mhseals_config.catalog import DescriptorBundle
 from mhseals_hardware.configuration import validate_config
-from mhseals_hardware.startup_config import compile_inputs
+from mhseals_hardware.startup_config import compile_inputs, node_startup_inputs
+from mhseals_hardware.control_validation import controller_section
 
 
 # Domain functions take their original full closures, never individual leaf values.
 REGISTRY = {
     'hardware.validate_config': validate_config,
     'hardware.compile_inputs': compile_inputs,
+    'hardware.node_startup_inputs': node_startup_inputs,
+    'hardware.controller_section': controller_section,
 }
 
 
