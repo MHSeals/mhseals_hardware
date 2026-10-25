@@ -114,13 +114,15 @@ class VelocityLaw:
 
     def __init__(self, plant, kp=(0.8, 0.8, 0.6), ki=(0.6, 0.6, 0.4),
                  integral_limit=(0.3, 0.3, 0.3), drift_time_constant=5.0, odom_timeout=0.3,
-                 drift_command_limit=0.1, drift_limit=0.5):
+                 drift_command_limit=0.1, drift_limit=0.5, drift_carry=0.02):
         self.plant = plant
         self.kp, self.ki = numpy.array(kp, float), numpy.array(ki, float)
         self.integral_limit = numpy.array(integral_limit, float)
         self.drift_time_constant = float(drift_time_constant)
         self.drift_command_limit = float(drift_command_limit)
         self.drift_limit = float(drift_limit)
+        self.drift_carry = float(drift_carry)
+        self.carried = numpy.zeros(2)  # world frame, m, since the boat last got under way
         self.odom_timeout = float(odom_timeout)
         self.drift = numpy.zeros(2)  # world frame (x east, y north in odom), m/s
         self.velocity = None
@@ -147,21 +149,31 @@ class VelocityLaw:
         # error (a straight-line gain on a squared thrust curve), which would be taken
         # for current and turned with the boat.
         under_way = numpy.any(numpy.abs(self.target) > self.drift_command_limit)
+        if under_way:
+            self.carried = numpy.zeros(2)
         saturated = numpy.any(numpy.abs(self.effort) >= 0.999)
         if self.drift_time_constant <= 0 or dt == 0 or under_way or saturated:
             return
+        self.carried += dt * numpy.array(rotate(self.velocity[:2], self.yaw))
         expected = self.plant.bias + numpy.array([
             self.plant.speed(axis, 1, effort) for axis, effort in enumerate(self.effort)])
-        residual = rotate((self.velocity - expected)[:2], self.yaw)
+        residual = numpy.array(rotate((self.velocity - expected)[:2], self.yaw))
+        before = math.hypot(*self.drift)
         alpha = dt / (self.drift_time_constant + dt)
-        self.drift += alpha * (numpy.array(residual) - self.drift)
+        self.drift += alpha * (residual - self.drift)
         # Against a dock or a buoy the boat stops while the effort pushes on, and the
-        # observer takes the contact for current: its feed-forward then holds that effort
-        # and every push into the contact adds to it, so it winds up. No real current is
-        # faster than drift_limit, so the estimate stops there.
+        # residual reads as a current pushing it off the contact; learning that would hold
+        # the push and wind it up. A real current carries the boat along it before the
+        # loop catches it, while the boat reached the contact moving the other way. So the
+        # estimate grows only once the boat has been carried drift_carry along the residual
+        # since it last got under way (displacement, not speed: the PI soon stops the boat);
+        # it may always shrink or turn. drift_limit is the backstop.
+        size = numpy.linalg.norm(residual)
+        carried = size > 0 and self.carried @ residual / size > self.drift_carry
+        limit = self.drift_limit if carried else min(before, self.drift_limit)
         speed = math.hypot(*self.drift)
-        if speed > self.drift_limit:
-            self.drift *= self.drift_limit / speed
+        if speed > limit:
+            self.drift *= limit / speed
 
     def stale(self, now):
         return self.odom_time is None or now - self.odom_time > self.odom_timeout

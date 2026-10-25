@@ -3,7 +3,8 @@ from array import array
 import math
 
 VECTOR_GAINS = ('kp', 'ki', 'integral_limit')
-SCALAR_GAINS = ('drift_time_constant', 'odom_timeout', 'drift_command_limit', 'drift_limit')
+SCALAR_GAINS = ('drift_time_constant', 'odom_timeout', 'drift_command_limit', 'drift_limit',
+                'drift_carry')
 GAIN_KEYS = VECTOR_GAINS + SCALAR_GAINS
 RESTART_KEYS = ('config_file', 'input_topic', 'output_topic', 'odom_topic')
 

@@ -83,9 +83,13 @@ controller:
   odom_timeout: 0.3
   command_timeout: 0.5
   drift_command_limit: 0.1
-  # m/s: the fastest current and wind drift the observer may believe. Contact with a dock
-  # or buoy reads as current; past this it would wind the effort up against the contact.
+  # m/s: the fastest current and wind drift the observer may believe, a backstop for
+  # contact with a dock or buoy, which reads as current. Keep it well below the slowest
+  # axis's full-effort speed (sway, usually), or it can't stop the effort reaching full.
   drift_limit: 0.5
+  # m: the estimate grows only after the boat has been carried this far along the
+  # supposed current since it last got under way; the boat against a contact is not.
+  drift_carry: 0.02
   input_topic: /cmd_vel
   output_topic: /cmd_vel_effort
   odom_topic: /odom/local

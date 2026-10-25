@@ -15,7 +15,7 @@ def arbitration(**changes):
 def values():
     return dict(kp=[.8]*3, ki=[.6]*3, integral_limit=[.3]*3,
                 drift_time_constant=5., odom_timeout=.3,
-                drift_command_limit=.1, drift_limit=.5, command_timeout=.5, feedback=True)
+                drift_command_limit=.1, drift_limit=.5, drift_carry=.02, command_timeout=.5, feedback=True)
 
 
 @pytest.mark.parametrize('key,bad', [
@@ -23,6 +23,7 @@ def values():
     ('integral_limit', [-1, 0, 0]), ('kp', [1]),
     ('odom_timeout', 0), ('command_timeout', True),
     ('drift_time_constant', -1), ('drift_command_limit', float('inf')), ('drift_limit', -0.1),
+    ('drift_carry', float('nan')),
     ('feedback', 1)])
 def test_controller_domains(key, bad):
     with pytest.raises(ValueError):
