@@ -91,3 +91,22 @@ def test_plain_terminal_repeats_never_rearm_a_stopped_key():
     state.update('w', 0)
     state.update(None, .7)
     assert state.update('repeat:w', .8) == (0, 0, 0)      # it never reported events: no re-arm
+
+
+def test_drain_reads_a_whole_stale_burst_before_publishing():
+    from mhseals_hardware.manual_state import drain
+
+    class Keys:
+        def __init__(self, queued):
+            self.queued = list(queued)
+
+        def read(self, timeout=None):
+            return self.queued.pop(0) if self.queued else None
+    # A link stall delivers a held key's repeats and its release together, more than 64 events.
+    keys = Keys(['repeat:w'] * 200 + ['release:w'])
+    assert drain(keys, ManualState(), 'press:w', clock=lambda: 1.0) == (0, 0, 0)
+    assert drain(Keys(['release:w']), ManualState(), 'x', clock=lambda: 1.0) is None
+    ticks = iter(range(100))     # past DRAIN_S after one event: the rest stays queued
+    keys = Keys(['release:w'])
+    assert drain(keys, ManualState(), 'press:w', clock=lambda: next(ticks)) == (.25, 0, 0)
+    assert keys.queued == ['release:w']

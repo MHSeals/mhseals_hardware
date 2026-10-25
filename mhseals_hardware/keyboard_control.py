@@ -16,7 +16,7 @@ from rich.panel import Panel
 
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.configuration import load_config
-from mhseals_hardware.manual_state import ManualState
+from mhseals_hardware.manual_state import ManualState, drain
 
 
 def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False):
@@ -54,22 +54,9 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 manual_panel(amplitude=amplitude), console=console,
                 refresh_per_second=10) as live:
             while True:
-                key = keys.read(timeout=0.05)
-                # Consume already queued events before publishing one coherent
-                # command; never publish an intermediate neutral between events.
-                for index in range(64):
-                    if key and key.lower() in (
-                            'x', 'm', 'escape',
-                            'press:x', 'press:m', 'press:escape'):
-                        return
-                    command = state.update(key, time.monotonic())
-                    if key in ('space', 'press:space', 'focus-out'):
-                        break  # Stop must not be hidden by queued input.
-                    if index == 63:
-                        break
-                    key = keys.read(timeout=0)
-                    if key is None:
-                        break
+                command = drain(keys, state, keys.read(timeout=0.05), time.monotonic)
+                if command is None:
+                    return
                 label = ' '.join(f'{axis} {value:+.2f}' for axis, value in
                                  zip(('SURGE', 'SWAY', 'YAW'), command) if value)
                 publish_manual(message_publisher, command)

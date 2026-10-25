@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from mhseals_hardware.keyboard import KeyReader, decode_key
-from mhseals_hardware.manual_state import ManualState
+from mhseals_hardware.manual_state import ManualState, drain
 
 
 def test_event_type_survives_decode():
@@ -246,7 +246,7 @@ def test_actual_publish_loop_has_no_initial_neutral_and_finally_stops(disconnect
     messages = []
     publisher = SimpleNamespace(publish=lambda msg: messages.append(
         (clock.now, (msg.linear.x, msg.linear.y, msg.angular.z))))
-    scope = dict(ManualState=ManualState, KeyReader=Reader, Live=Live,
+    scope = dict(ManualState=ManualState, drain=drain, KeyReader=Reader, Live=Live,
                  Console=lambda: object(), Panel=lambda *a, **kw: a[0],
                  Twist=twist, time=SimpleNamespace(monotonic=lambda: clock.now))
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), scope)

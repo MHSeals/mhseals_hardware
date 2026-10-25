@@ -1,6 +1,7 @@
 """Clock-injected deadman state; independent of ROS and terminal rendering."""
 
 import math
+import time
 
 MANUAL_KEYS = {
     'w': ('surge', 1.0), 'up': ('surge', 1.0),
@@ -114,3 +115,27 @@ class ManualState:
         self.command = (x / scale * self.amplitude, y / scale * self.amplitude,
                         yaw * self.amplitude * self.yaw_scale)
         return self.command
+
+
+DRAIN_S = 0.1   # s; a whole queued batch is read before publishing, bounded by time, not count
+EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
+STOP_KEYS = ('space', 'press:space', 'focus-out')
+
+
+def drain(keys, state, key, clock=time.monotonic):
+    """Feed ``key`` and everything already queued to ``state``: the command to publish, None to exit.
+
+    One coherent command per batch: no intermediate command goes out between a press and its
+    release, so a burst of stale repeats after a link stall meets its release first. Stop keys end
+    the batch at once; past DRAIN_S the rest stays queued for the next batch.
+    """
+    deadline = clock() + DRAIN_S
+    while True:
+        if key and key.lower() in EXIT_KEYS:
+            return None
+        command = state.update(key, clock())
+        if key is None or key in STOP_KEYS or clock() >= deadline:
+            return command
+        key = keys.read(timeout=0)
+        if key is None:
+            return command
