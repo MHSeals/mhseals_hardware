@@ -302,3 +302,14 @@ def test_matrix_rows_persist_through_actual_save_paths(tmp_path, writer):
         assert len(block) == len(values) // 3
         assert all(len(line.strip().rstrip(',').split(',')) == 3 for line in block)
     assert not list(tmp_path.glob('.hardware-*'))
+
+
+def test_saved_shared_lists_reload_without_aliases(tmp_path):
+    from mhseals_hardware.configuration import load_config, update_config
+    path = tmp_path / 'hardware.yaml'
+    gains = [1.0, 2.0, 3.0]
+    section = dict(load_defaults()['controller'], kp=gains, ki=gains)
+    update_config({'controller': section}, path)
+    text = path.read_text()
+    assert '&' not in text and '*id' not in text
+    assert load_config(path)['controller']['ki'] == gains

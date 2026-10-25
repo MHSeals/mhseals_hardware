@@ -344,13 +344,20 @@ def _update_locked(changes, target):
     return _write_config(overrides, target)
 
 
+class _NoAliasDumper(yaml.SafeDumper):
+    """Never emit anchors or aliases, which the strict loader refuses."""
+
+    def ignore_aliases(self, data):
+        return True
+
+
 def _config_yaml(normalized):
     """Keep flat mixer/correction sequences grouped by their three-column rows."""
     matrices = {'thruster_matrix': 12, 'decoupling': 9, 'decoupling_negative': 9}
     # Give matrices independent sequences so other fields cannot alias their anchors.
     serializable = {key: list(value) if key in matrices and value is not None else value
                     for key, value in normalized.items()}
-    text = yaml.safe_dump(serializable, sort_keys=False)
+    text = yaml.dump(serializable, Dumper=_NoAliasDumper, sort_keys=False)
     replacements = []
     for key, value in yaml.compose(text, Loader=yaml.SafeLoader).value:
         if key.value not in matrices or not isinstance(value, yaml.SequenceNode):
