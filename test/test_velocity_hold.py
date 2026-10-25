@@ -6,6 +6,7 @@ import numpy
 import pytest
 
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
+from test_command_arbitration import LOW, PUSH, boat, frame
 from test_controller_parameters import node
 from test_velocity_law import config
 
@@ -46,7 +47,7 @@ def test_a_hold_is_neutral_at_once_while_the_input_still_reads_manual():
     assert any(n.sent[-1])                      # the keyboard drives (station-keeps here)
     # Space: the hold is set, but manual stays the input until its frames time out.
     n._mux_state(NS(data=json.dumps({'input': 'manual', 'since_ns': 100,
-                                     'hold': {'cause': 'keys', 'since_ns': 200}})))
+                                     'holds': [{'cause': 'keys', 'since_ns': 200}]})))
     assert n.sent[-1] == (0., 0., 0.) and not n._law.integral.any()
     n._command((0., 0., 0.))                    # the first frame of the hold
     assert n.sent[-1] == (0., 0., 0.)
@@ -56,10 +57,76 @@ def test_a_hold_is_neutral_at_once_while_the_input_still_reads_manual():
 def test_a_takeover_after_a_hold_still_drives(source):
     n, plain = pushing(), pushing()
     n._mux_state(NS(data=json.dumps({'input': source, 'since_ns': 300,
-                                     'hold': {'cause': 'rc_stick', 'since_ns': 200}})))
+                                     'holds': [{'cause': 'rc_stick', 'since_ns': 200}]})))
     n._command((.12, 0., 0.))
     plain._command((.12, 0., 0.))
     assert n.sent[-1] == pytest.approx(plain.sent[-1]) and any(n.sent[-1])
+
+
+def test_a_hold_without_a_start_time_is_neutral():
+    n = pushing()
+    n._mux_state(NS(data=json.dumps({'input': 'manual', 'since_ns': 300,
+                                     'holds': [{'cause': 'a', 'since_ns': 100},
+                                               {'cause': 'b'}]})))
+    assert n.sent[-1] == (0., 0., 0.)
+
+
+# Through the real mux state machine, published as the mux node does.
+
+def publish(n, a, now):
+    """Feed ``a``'s ``~/state`` at ``now`` to the controller; return the input."""
+    state = a.state(now, wall_ns=10**18 + int(now * 1e9))
+    n._mux_state(NS(data=json.dumps(state)))
+    return state['input']
+
+
+def drives(n, plain):
+    n._command((.12, 0., 0.))
+    plain._command((.12, 0., 0.))
+    return any(n.sent[-1]) and n.sent[-1] == pytest.approx(plain.sent[-1])
+
+
+def test_a_new_hold_behind_an_older_one_is_neutral_on_the_first_cycle():
+    n, plain, a = pushing(), pushing(), boat()
+    a.request('hold', 'op', 'tui', 0.0)                 # hold A
+    a.update_manual((.12, 0., 0.), 0.1)                 # the keyboard takes over
+    assert publish(n, a, 0.1) == 'manual' and drives(n, plain)
+    a.request('hold', 'space', 'tui', 0.2)              # Space: hold B
+    assert publish(n, a, 0.2) == 'manual'               # still reads manual
+    assert a.state(0.2)['hold']['cause'] == 'op'        # the oldest hold is A
+    n._command((.12, 0., 0.))
+    assert n.sent[-1] == (0., 0., 0.)
+
+
+def test_placing_the_same_cause_again_is_neutral():
+    n, plain, a = pushing(), pushing(), boat()
+    a.request('hold', 'space', 'tui', 0.0)
+    a.update_manual((.12, 0., 0.), 0.1)
+    assert publish(n, a, 0.1) == 'manual' and drives(n, plain)
+    a.request('hold', 'space', 'tui', 0.2)              # Space again
+    assert publish(n, a, 0.2) == 'manual'
+    n._command((.12, 0., 0.))
+    assert n.sent[-1] == (0., 0., 0.)
+
+
+def test_rc_driving_keeps_driving_through_a_later_hold():
+    n, plain, a = pushing(), pushing(), boat()
+    a.update_rc(frame(mode=LOW, sticks=PUSH), 0.0)      # switch at MANUAL: rc drives
+    assert publish(n, a, 0.0) == 'rc' and drives(n, plain)
+    a.request('hold', 'space', 'tui', 0.1)
+    a.update_rc(frame(mode=LOW, sticks=PUSH), 0.1)
+    assert publish(n, a, 0.1) == 'rc' and a.holds
+    assert drives(n, plain)                             # rc outranks holds
+
+
+def test_rc_takeover_after_a_hold_drives():
+    n, a = pushing(), boat()
+    a.request('hold', 'space', 'tui', 0.0)
+    assert publish(n, a, 0.0) == 'hold'
+    a.update_rc(frame(mode=LOW, sticks=PUSH), 0.1)
+    assert publish(n, a, 0.1) == 'rc'
+    n._command((.12, 0., 0.))                           # the law was reset by the hold
+    assert any(n.sent[-1])
 
 
 def test_release_to_auto_resumes_with_no_stale_integral():

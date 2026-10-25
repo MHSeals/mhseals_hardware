@@ -246,9 +246,8 @@ class Arbitration:
     # State machine
 
     def _hold(self, cause, by, now, token=None):
-        held = self.holds.get(cause)
-        since = held['since'] if held else now
-        self.holds[cause] = {'cause': cause, 'by': by, 'since': since,
+        # Placing a cause again restarts its since, so the controller sees a new hold.
+        self.holds[cause] = {'cause': cause, 'by': by, 'since': now,
                              'token': token_hash(token)}
         self._ramp_pending = True     # auto resumes through the ramp
 

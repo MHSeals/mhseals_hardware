@@ -116,6 +116,13 @@ def test_keyboard_ending_sets_a_keys_hold():
     assert a.select(0.6)[0] == 'hold' and a.holds['keys']['by'] == 'keys'
 
 
+def test_placing_a_cause_again_restarts_its_since():
+    a = boat()
+    a.request('hold', 'space', 'tui', 0.0)
+    a.request('hold', 'space', 'tui', 0.4)
+    assert a.holds['space']['since'] == 0.4
+
+
 def test_stop_switch_falling_edge_holds():
     a = boat()
     a.update_rc(frame(arm=1900), 0)
