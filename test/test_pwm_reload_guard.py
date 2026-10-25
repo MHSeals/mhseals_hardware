@@ -25,7 +25,8 @@ def extract(file, name, **extra):
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     constants = [n for n in tree.body if isinstance(n, ast.Assign) and
                  any(isinstance(t, ast.Name) and t.id in
-                     ('LIVE_KEYS', 'RESTART_KEYS', 'PLANT_KEYS') for t in n.targets)]
+                     ('LIVE_KEYS', 'RESTART_KEYS', 'PLANT_KEYS', 'HEARTBEAT_STALL')
+                     for t in n.targets)]
     env = dict(globals(), SetParametersResult=lambda **kw: NS(**kw),
                String=lambda **kw: NS(**kw), Parameter=lambda name, **kw: NS(name=name, **kw),
                **extra)
@@ -163,3 +164,59 @@ def test_estop_latch_refuses_drive_publishes_and_follows_the_stop_channel():
     node.drive([1600] * 4)
     node.rc_callback(NS(channels=run))            # switch back: still latched
     assert sent == ['neutral'] and node.estop.latched
+
+
+class Line:
+    """A held MOSFET enable recording its levels (heartbeat flips and the cut)."""
+
+    def __init__(self):
+        self.request, self.enabled, self.levels = object(), True, []
+
+    def set_enabled(self, enabled):
+        self.enabled = enabled
+        self.levels.append(enabled)
+
+    def beat(self):
+        if self.enabled:
+            self.levels.append('flip')
+
+
+def powered_node():
+    node, _ = pwm()
+    node.outputs.mosfet = Line()
+    node.outputs.neutral = lambda: None
+    node.estop = RemoteEstop(node.outputs, node.config['command_mux'])
+    return node
+
+
+def test_operator_estop_service_cuts_latches_and_reports():
+    node = powered_node()
+    response = node.estop_service(None, NS())
+    assert response.success and response.message == 'latched (operator)'
+    assert node.outputs.mosfet.levels == [False] and node.statuses[-1]['estop']['cause'] == 'operator'
+    assert node.estop_service(None, NS()).success      # repeat: still off, same cause
+    assert node.outputs.mosfet.levels == [False]
+
+
+def test_operator_estop_reports_a_failed_cut():
+    node = powered_node()
+
+    def broken(enabled):
+        raise OSError('line busy')
+    node.outputs.mosfet.set_enabled = broken
+    response = node.estop_service(None, NS())
+    assert not response.success and 'may still be on' in response.message
+    assert node.estop.latched
+
+
+def test_heartbeat_gap_latches_instead_of_resuming():
+    node = powered_node()
+    node.last_beat = None
+    node.heartbeat()                               # the first beat has no gap to judge
+    node.heartbeat()
+    assert node.outputs.mosfet.levels == ['flip', 'flip'] and not node.estop.latched
+    node.last_beat -= 0.2                          # the node stalled past the circuit timeout
+    node.heartbeat()
+    assert node.estop.cause == 'stall' and node.outputs.mosfet.levels[-1] is False
+    node.heartbeat()
+    assert node.outputs.mosfet.levels == ['flip', 'flip', False]

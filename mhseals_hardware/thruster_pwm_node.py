@@ -11,7 +11,8 @@ Either goes neutral after ``command_timeout`` without a message. With
 MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
 shuts down like Ctrl+C. ``mosfet_heartbeat_hz`` toggles the enable for a
-heartbeat circuit. With
+heartbeat circuit. The ``~/estop`` service (std_srvs/Trigger) is the operator's
+e-stop: the same latched cut. With
 ``config_file`` set, validated watchdog edits apply live. Structural or coupled model
 edits require an explicit owner-controlled restart; this node never reopens outputs.
 """
@@ -30,6 +31,7 @@ from rclpy.parameter import Parameter
 from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
                        qos_profile_sensor_data)
 from std_msgs.msg import String, UInt16MultiArray
+from std_srvs.srv import Trigger
 
 from mhseals_hardware.configuration import (
     ConfigWatcher, config_sha, startup_config, validate_config,
@@ -45,6 +47,7 @@ from mhseals_hardware.thruster_mixer import (
 RELOAD_PERIOD = 1.0
 PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autonomy or nobody
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
+HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s timeout
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
                               'decoupling', 'decoupling_negative', 'reverse_thrust_ratio',
@@ -87,10 +90,12 @@ class ThrusterPWMNode(Node):
         self.outputs = make_outputs(self.config, node=self).open()
         self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
                                  self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
-        mosfet = getattr(self.outputs, 'mosfet', None)
-        if self.config['mosfet_heartbeat_hz'] and mosfet is not None:
+        self.last_beat = None
+        if self.config['mosfet_heartbeat_hz'] and getattr(self.outputs, 'mosfet', None):
             # Two flips per cycle; a stopped, killed or hung node stops the heartbeat.
-            self.create_timer(0.5 / self.config['mosfet_heartbeat_hz'], mosfet.beat)
+            self.create_timer(0.5 / self.config['mosfet_heartbeat_hz'], self.heartbeat)
+        # Operator e-stop (the TUI): the same latched cut, cause 'operator'.
+        self.create_service(Trigger, '~/estop', self.estop_service)
         self.last_command_time = time.monotonic()
         self.timed_out = False
         self.publish_status()
@@ -270,6 +275,25 @@ class ThrusterPWMNode(Node):
             self.get_logger().error(f'remote e-stop ({self.estop.cause}): ESC power cut and '
                                     'latched; re-arm to restore')
             self.publish_status()
+
+    def estop_service(self, _request, response):
+        """Cut and latch now; success means ESC power is off (an earlier cut keeps its cause)."""
+        self.estop_step(self.estop.trip, 'operator')
+        mosfet = getattr(self.outputs, 'mosfet', None)
+        powered = mosfet is not None and mosfet.request is not None and mosfet.enabled
+        response.success = self.estop.latched and not powered
+        response.message = (f'latched ({self.estop.cause})' if response.success else
+                            'cut failed: ESC power may still be on')
+        return response
+
+    def heartbeat(self):
+        """Flip the enable; a gap long enough for the circuit to drop latches a cut,
+        so power never comes back by itself when a stalled node resumes."""
+        now = time.monotonic()
+        if self.last_beat is not None and now - self.last_beat > HEARTBEAT_STALL:
+            self.estop_step(self.estop.trip, 'stall')
+        self.last_beat = now
+        self.outputs.mosfet.beat()
 
     def drive(self, pulses):
         if self.estop.latched:

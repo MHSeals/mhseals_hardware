@@ -1,5 +1,6 @@
 """Remote e-stop: the RC stop-channel edge (and, optionally, losing RC while it
-controls the boat) cuts ESC power through the MOSFET.
+controls the boat), the operator's e-stop or a stalled heartbeat cuts ESC power
+through the MOSFET.
 
 ROS-free and clock-injected. The edge is the command_mux rule itself
 (``Arbitration.update_rc``), fed the same ``command_mux`` section. The cut
@@ -45,6 +46,14 @@ class RemoteEstop:
         """Age the RC stream (no frame arrives to notice it went stale); True on a cut."""
         self.rule.select(now)
         return self._lost(wall_ns)
+
+    def trip(self, cause, now, wall_ns):
+        """A cut not from RC (the operator, a stalled heartbeat); always armed.
+        An earlier cut keeps its cause. True when this call cut the power."""
+        if self.latched:
+            return False
+        self.cut(cause, wall_ns)
+        return True
 
     def _lost(self, wall_ns):
         """The mux's rc_lost: RC was in control (MANUAL or a stick takeover) and its

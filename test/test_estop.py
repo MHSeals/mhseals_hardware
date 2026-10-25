@@ -191,6 +191,25 @@ def test_rc_loss_cut_is_off_unless_configured(tmp_path, line):
     assert not estop.tick(now + 1.0, 0) and outputs.mosfet.enabled
 
 
+def test_operator_trip_cuts_and_latches_whatever_rc_does(tmp_path, line):
+    outputs, estop = arm(tmp_path, enabled=False)      # even with the RC cut off
+    outputs.set_pulse_widths([1700] * 4)
+    assert estop.trip('operator', 1.0, 5)
+    assert line[-1] == 0 and duties(outputs) == ['1500000'] * 4
+    assert estop.state()['cause'] == 'operator' and estop.state()['since_ns'] == 5
+    stream(estop, [frame(ON), frame(OFF), frame(ON)] * 3, 2.0)
+    assert line.count(1) == 1 and estop.cause == 'operator'
+
+
+def test_neither_cut_overrides_or_undoes_the_other(tmp_path, line):
+    outputs, estop = arm(tmp_path)
+    estop.rc(frame(ON), 1.0, 1)
+    estop.rc(frame(OFF), 1.02, 1)
+    assert not estop.trip('operator', 1.1, 2)          # already off: keeps the RC cause
+    assert estop.state()['cause'] == 'rc-stop' and estop.state()['since_ns'] == 1
+    assert line.count(1) == 1 and line[-1] == 0
+
+
 def test_heartbeat_flips_only_while_powered(tmp_path, line):
     outputs, estop = arm(tmp_path)
     mosfet = outputs.mosfet
