@@ -160,7 +160,8 @@ class MosfetEnable:
         self.active_high = bool(active_high)
         self.chip = None
         self.request = None
-        self.enabled = False  # the level last driven; requested lines start inactive
+        self.enabled = False  # powering the ESCs; requested lines start inactive
+        self.level = False    # the logical level last driven (flips under a heartbeat)
 
     def open(self):
         try:
@@ -191,6 +192,17 @@ class MosfetEnable:
         return self
 
     def set_enabled(self, enabled):
+        self._drive(enabled)
+        self.enabled = self.level = bool(enabled)
+
+    def beat(self):
+        """Heartbeat: while enabled, flip the line; a heartbeat circuit holds the
+        gate only while it keeps flipping. Cut (not enabled), it stays inactive."""
+        if self.enabled and self.request is not None:
+            self._drive(not self.level)
+            self.level = not self.level
+
+    def _drive(self, enabled):
         physical_value = bool(enabled) == self.active_high
         if hasattr(self.request, 'set_value'):
             try:
@@ -204,7 +216,6 @@ class MosfetEnable:
                 self.request.set_value(value)
         else:
             self.request.set_values({self.offset: int(physical_value)})
-        self.enabled = bool(enabled)
 
     def close(self):
         if self.request is not None:
