@@ -109,6 +109,14 @@ def test_placing_the_same_cause_again_is_neutral():
     assert n.sent[-1] == (0., 0., 0.)
 
 
+def test_a_tokened_repeat_does_not_starve_a_keyboard_takeover():
+    n, plain, a = pushing(), pushing(), boat()
+    a.request('hold', 'watchdog', 'nav', 0.0, token='t')
+    a.update_manual((.12, 0., 0.), 0.1)                 # the keyboard takes over
+    a.request('hold', 'watchdog', 'nav', 0.2, token='t')  # the watchdog repeats
+    assert publish(n, a, 0.2) == 'manual' and drives(n, plain)
+
+
 def test_rc_driving_keeps_driving_through_a_later_hold():
     n, plain, a = pushing(), pushing(), boat()
     a.update_rc(frame(mode=LOW, sticks=PUSH), 0.0)      # switch at MANUAL: rc drives

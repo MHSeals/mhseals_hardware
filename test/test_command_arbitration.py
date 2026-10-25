@@ -123,6 +123,15 @@ def test_placing_a_cause_again_restarts_its_since():
     assert a.holds['space']['since'] == 0.4
 
 
+def test_a_tokened_repeat_keeps_its_since_and_a_new_token_restarts_it():
+    a = boat()
+    a.request('hold', 'watchdog', 'nav', 0.0, token='t')
+    a.request('hold', 'watchdog', 'nav', 0.4, token='t')
+    assert a.holds['watchdog']['since'] == 0.0
+    a.request('hold', 'watchdog', 'nav', 0.8, token='u')
+    assert a.holds['watchdog']['since'] == 0.8
+
+
 def test_stop_switch_falling_edge_holds():
     a = boat()
     a.update_rc(frame(arm=1900), 0)
