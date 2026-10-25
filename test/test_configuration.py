@@ -259,6 +259,26 @@ def test_invalid_hardware_epoch_fails(value, tmp_path):
         update_config({'hardware_epoch': value}, str(tmp_path / 'hardware.yaml'))
 
 
+@pytest.mark.parametrize('value', [0, 0.0, 10, 20.0, 100])
+def test_mosfet_heartbeat_is_off_or_fast_enough(value, tmp_path):
+    update_config({'mosfet_heartbeat_hz': value}, str(tmp_path / 'hardware.yaml'))
+    assert load_config(str(tmp_path / 'hardware.yaml'))['mosfet_heartbeat_hz'] == value
+
+
+@pytest.mark.parametrize('value', [0.5, 3.3, 9.99, -1, 101, float('nan'), True, '20'])
+def test_slow_or_invalid_mosfet_heartbeat_fails(value, tmp_path):
+    with pytest.raises(ValueError, match='mosfet_heartbeat_hz'):
+        update_config({'mosfet_heartbeat_hz': value}, str(tmp_path / 'hardware.yaml'))
+
+
+def test_schema_documents_the_mosfet_heartbeat_floor():
+    from pathlib import Path
+    import yaml
+    schema = yaml.safe_load((Path(__file__).parents[1] / 'config/schema.yaml').read_text())
+    assert schema['mosfet_heartbeat_hz']['range'] == [0, 100]
+    assert '10-100' in schema['mosfet_heartbeat_hz']['doc']
+
+
 def test_controller_partial_merge_and_independent_deadline(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_timeout: 0.4\ncontroller: {kp: [1, 2, 3], command_timeout: 1}\n')

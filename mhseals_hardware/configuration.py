@@ -113,9 +113,11 @@ def validate_config(config):
     for key in ('estop_cuts_power', 'estop_on_rc_loss'):
         if type(config[key]) is not bool:
             raise ValueError(f'{key} must be a boolean')
+    # Under 10 Hz a flip is more than the driver's 0.15 s stall threshold away.
     beat = config['mosfet_heartbeat_hz']
-    if type(beat) not in (int, float) or not math.isfinite(beat) or not 0 <= beat <= 100:
-        raise ValueError('mosfet_heartbeat_hz must be within [0, 100] (0 = off)')
+    if type(beat) not in (int, float) or not math.isfinite(beat) or not (
+            beat == 0 or 10 <= beat <= 100):
+        raise ValueError('mosfet_heartbeat_hz must be 0 (off) or within [10, 100]')
     if not isinstance(config['mosfet_chip'], str) or not re.fullmatch(
             r'(?:/dev/gpiochip\d+|gpio\d+)', config['mosfet_chip']):
         raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')

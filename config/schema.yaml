@@ -8,7 +8,7 @@ mosfet_line: {type: int, units: count, tier: restart, doc: "GPIO line offset of 
 mosfet_active_high: {type: bool, units: bool, tier: restart, doc: "True when a high level powers the thrusters."}
 estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until re-armed."}
 estop_on_rc_loss: {type: bool, units: bool, tier: restart, doc: "Losing RC while it controls the boat cuts the MOSFET and latches it off until re-armed."}
-mosfet_heartbeat_hz: {type: float, units: Hz, range: [0, 100], tier: restart, doc: "Toggle rate of the MOSFET enable for a heartbeat circuit; 0 holds a steady level."}
+mosfet_heartbeat_hz: {type: float, units: Hz, range: [0, 100], tier: restart, doc: "Toggle rate of the MOSFET enable for a heartbeat circuit: 0 holds a steady level, otherwise 10-100 (slower stalls the driver's 0.15 s heartbeat check)."}
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
