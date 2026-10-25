@@ -5,7 +5,7 @@ import pytest
 
 from mhseals_hardware.command_arbitration import Arbitration
 from mhseals_hardware.configuration import load_defaults
-from mhseals_hardware.control_validation import validate_controller
+from mhseals_hardware.control_validation import validate_controller, validate_drift_limit
 
 
 def arbitration(**changes):
@@ -15,7 +15,8 @@ def arbitration(**changes):
 def values():
     return dict(kp=[.8]*3, ki=[.6]*3, integral_limit=[.3]*3,
                 drift_time_constant=5., odom_timeout=.3,
-                drift_command_limit=.1, drift_limit=.5, drift_carry=.02, command_timeout=.5, feedback=True)
+                drift_command_limit=.1, drift_limit=.5, drift_carry=.02,
+                command_timeout=.5, feedback=True)
 
 
 @pytest.mark.parametrize('key,bad', [
@@ -73,6 +74,16 @@ def test_stick_pwm_threshold_is_integer(value):
 def test_ros_array_domains_are_not_weakened(bad):
     with pytest.raises(ValueError):
         validate_controller(dict(values(), kp=bad))
+
+
+@pytest.mark.parametrize('drift_limit', [0.4, 0.5, float('inf')])
+def test_drift_limit_at_or_above_the_slower_planar_limit_is_refused(drift_limit):
+    with pytest.raises(ValueError, match='drift_limit'):
+        validate_drift_limit(drift_limit, (0.6, 0.4, 0.3))
+
+
+def test_drift_limit_below_both_planar_limits_ignores_yaw():
+    validate_drift_limit(0.39, (0.6, 0.4, 0.1))
 
 
 def test_ros_startup_array_domain_is_supported():

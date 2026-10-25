@@ -95,7 +95,8 @@ controller:
   drift_command_limit: 0.1
   # m/s: the fastest current and wind drift the observer may believe, a backstop for
   # contact with a dock or buoy, which reads as current. Keep it well below the slowest
-  # axis's full-effort speed (sway, usually), or it can't stop the effort reaching full.
+  # axis's full-effort speed (sway, usually), or it can't stop the effort reaching full;
+  # the controller refuses to start at or above the slower surge or sway velocity limit.
   drift_limit: 0.5
   # m: the estimate grows only after the boat has been carried this far along the
   # supposed current since it last got under way; the boat against a contact is not.

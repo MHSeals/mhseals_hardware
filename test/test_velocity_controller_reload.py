@@ -56,6 +56,19 @@ def test_reload_defers_model_edits_and_keeps_commanding(tmp_path):
         rclpy.shutdown()
 
 
+def test_startup_refuses_a_drift_limit_at_the_sway_limit(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    base = config()
+    save_config(dict(base, controller=dict(base['controller'], drift_limit=0.4)), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=velocity_drift_limit_test',
+                     '-p', f'config_file:={path}'])
+    try:
+        with pytest.raises(ValueError, match='drift_limit'):
+            VelocityController()
+    finally:
+        rclpy.shutdown()
+
+
 def test_unrelated_edit_keeps_the_integrator(tmp_path):
     path = tmp_path / 'hardware.yaml'
     save_config(config(), path)

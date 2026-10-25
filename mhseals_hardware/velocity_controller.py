@@ -27,6 +27,7 @@ from std_msgs.msg import String
 
 from mhseals_hardware.control_validation import (
     GAIN_KEYS, RESTART_KEYS, SCALAR_GAINS, VECTOR_GAINS, validate_controller,
+    validate_drift_limit,
 )
 from mhseals_hardware.configuration import ConfigWatcher, startup_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
@@ -61,6 +62,7 @@ class VelocityController(Node):
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'), value('drift_limit'),
                                 value('drift_carry'))
+        validate_drift_limit(self._law.drift_limit, self._law.plant.limits)
         self._plant_inputs = self._inputs(config)
         self._requested_plant_inputs = self._plant_inputs
         self._reload_error = ''  # deferred file request, distinct from a running-model fault

@@ -29,6 +29,15 @@ def validate_controller(values):
     return values
 
 
+def validate_drift_limit(drift_limit, limits):
+    """Startup: drift_limit must sit below the slower of surge and sway, else contact with a
+    dock can still wind the effort up to full before the backstop bites."""
+    slowest = min(limits[:2])
+    if drift_limit >= slowest:
+        raise ValueError(f'drift_limit {drift_limit} m/s must be below the slowest planar '
+                         f'velocity limit {slowest} m/s')
+
+
 TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic', 'mux_state_topic')
 CONTROLLER_KEYS = GAIN_KEYS + ('command_timeout', 'feedback') + TOPIC_KEYS
 

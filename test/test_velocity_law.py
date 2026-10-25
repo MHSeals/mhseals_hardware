@@ -21,6 +21,8 @@ def config(gain=GAIN, decoupling=None):
     characterization = dict(velocity_gain=mapping(gain),
                             motion_limits={'velocity': dict(surge=0.6, sway=0.4, yaw=0.3)})
     result = dict(load_defaults(), characterization=characterization)
+    # The controller refuses a drift_limit at or above the 0.4 m/s sway limit.
+    result['controller'] = dict(result['controller'], drift_limit=0.3)
     if decoupling is not None:
         result['decoupling'] = decoupling
     return result
