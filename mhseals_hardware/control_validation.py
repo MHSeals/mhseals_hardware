@@ -6,7 +6,7 @@ VECTOR_GAINS = ('kp', 'ki', 'integral_limit')
 SCALAR_GAINS = ('drift_time_constant', 'odom_timeout', 'drift_command_limit', 'drift_limit',
                 'drift_carry')
 GAIN_KEYS = VECTOR_GAINS + SCALAR_GAINS
-RESTART_KEYS = ('config_file', 'input_topic', 'output_topic', 'odom_topic')
+RESTART_KEYS = ('config_file', 'input_topic', 'output_topic', 'odom_topic', 'mux_state_topic')
 
 
 def nonnegative(value, name, positive=False):
@@ -29,7 +29,7 @@ def validate_controller(values):
     return values
 
 
-TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic')
+TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic', 'mux_state_topic')
 CONTROLLER_KEYS = GAIN_KEYS + ('command_timeout', 'feedback') + TOPIC_KEYS
 
 

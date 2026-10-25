@@ -2,6 +2,7 @@
 from array import array
 import ast
 import copy
+import json
 from pathlib import Path
 import threading
 from types import SimpleNamespace as NS
@@ -35,7 +36,8 @@ def node():
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     cls.bases = [ast.Name(id='ParameterOwner', ctx=ast.Load())]
     env = dict(vars(validation),
-               ParameterOwner=ParameterOwner, copy=copy, numpy=numpy,
+               ParameterOwner=ParameterOwner, copy=copy, numpy=numpy, json=json,
+               Twist=lambda: (0., 0., 0.),
                SetParametersResult=lambda **kw: NS(**kw), time=NS(monotonic=lambda: 1.),
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), env)
@@ -47,7 +49,7 @@ def node():
     n.values.update(command_timeout=.5, feedback=True)
     n.get_parameter = lambda key: NS(value=n.values[key])
     n.late = lambda ps: NS(successful=True)
-    n._fault, n.sent = '', []
+    n._fault, n._held, n.sent = '', False, []
     n._pub = NS(publish=n.sent.append)
     return n
 
@@ -175,7 +177,7 @@ def constructor(overrides, resources):
         VelocityLaw=VelocityLaw, startup_config=startup_config,
         ConfigWatcher=ConfigWatcher, PLANT_KEYS=('thruster_matrix', 'characterization',
             'decoupling', 'decoupling_negative'), Twist=lambda: (0., 0., 0.),
-        Vector3Stamped=object, Odometry=object, yaw_of=lambda q: 0.,
+        Vector3Stamped=object, Odometry=object, String=object, STATE_QOS=1, yaw_of=lambda q: 0.,
         SetParametersResult=lambda **kw: NS(**kw),
         time=NS(monotonic=lambda: clock.now), twist_values=lambda x: x,
         twist_from=lambda x: tuple(x))

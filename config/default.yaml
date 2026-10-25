@@ -93,3 +93,5 @@ controller:
   input_topic: /cmd_vel
   output_topic: /cmd_vel_effort
   odom_topic: /odom/local
+  # The command_mux ~/state: while it holds or idles the controller gives neutral effort.
+  mux_state_topic: /command_mux/state
