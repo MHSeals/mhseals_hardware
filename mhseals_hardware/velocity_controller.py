@@ -176,10 +176,18 @@ class VelocityController(Node):
         The mux sends zeros while it holds, which this law would hold position on, with
         the drift feed-forward and the kept integral still pushing. Only auto, manual or
         rc drive; anything else, or a state that can't be read, is neutral at once.
+        A hold placed while one of them drives is neutral too: the mux keeps reporting
+        manual until its last frame times out. A source that took over after the hold
+        started (a stick or key takeover, which outrank holds) still drives.
         """
         try:
-            held = json.loads(message.data)['input'] not in ('auto', 'manual', 'rc')
-        except (ValueError, TypeError, KeyError):
+            state = json.loads(message.data)
+            held = state['input'] not in ('auto', 'manual', 'rc')
+            hold = state.get('hold')
+            if hold is not None and not held:
+                started, since = hold.get('since_ns'), state.get('since_ns')
+                held = started is None or since is None or started >= since
+        except (ValueError, TypeError, KeyError, AttributeError):
             held = True
         with self._law_lock:
             if held and not self._held:

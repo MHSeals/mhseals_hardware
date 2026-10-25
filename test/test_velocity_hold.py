@@ -39,6 +39,29 @@ def test_a_hold_gives_zero_effort_at_once_and_while_it_lasts(source):
     assert n._law.drift == pytest.approx((0.0, 0.1))  # the current estimate is kept
 
 
+def test_a_hold_is_neutral_at_once_while_the_input_still_reads_manual():
+    n = pushing()
+    mux(n, 'manual')
+    n._command((0., 0., 0.))
+    assert any(n.sent[-1])                      # the keyboard drives (station-keeps here)
+    # Space: the hold is set, but manual stays the input until its frames time out.
+    n._mux_state(NS(data=json.dumps({'input': 'manual', 'since_ns': 100,
+                                     'hold': {'cause': 'keys', 'since_ns': 200}})))
+    assert n.sent[-1] == (0., 0., 0.) and not n._law.integral.any()
+    n._command((0., 0., 0.))                    # the first frame of the hold
+    assert n.sent[-1] == (0., 0., 0.)
+
+
+@pytest.mark.parametrize('source', ['manual', 'rc'])
+def test_a_takeover_after_a_hold_still_drives(source):
+    n, plain = pushing(), pushing()
+    n._mux_state(NS(data=json.dumps({'input': source, 'since_ns': 300,
+                                     'hold': {'cause': 'rc_stick', 'since_ns': 200}})))
+    n._command((.12, 0., 0.))
+    plain._command((.12, 0., 0.))
+    assert n.sent[-1] == pytest.approx(plain.sent[-1]) and any(n.sent[-1])
+
+
 def test_release_to_auto_resumes_with_no_stale_integral():
     n = pushing()
     mux(n, 'hold')
