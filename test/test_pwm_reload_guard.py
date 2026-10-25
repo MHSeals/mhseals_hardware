@@ -2,12 +2,14 @@
 import ast
 import copy
 import json
+import time  # noqa: F401  (the extracted node methods read it from this namespace)
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
 
 from mhseals_hardware.configuration import ConfigWatcher, config_sha, load_defaults, save_config, validate_config
+from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
@@ -47,6 +49,7 @@ def pwm():
     node.has_parameter = lambda key: True
     node.get_parameter = lambda key: NS(value=node.config[key])
     node.set_parameters = lambda params: [NS(successful=True) for p in params]
+    node.estop = RemoteEstop(node.outputs, node.config['command_mux'])
     node.apply(node.config)
     return node, env
 
@@ -63,7 +66,7 @@ CHANGES = {
     'reversed': [True] * 4, 'thruster_matrix': [0.5] * 12, 'decoupling': [0.5] * 9,
     'decoupling_negative': [0.4] * 9, 'reverse_thrust_ratio': 0.5,
     'characterization': {'velocity_gain': {'surge': 2}},
-    'hardware_epoch': 1,
+    'hardware_epoch': 1, 'estop_cuts_power': False,
 }
 
 
@@ -139,3 +142,23 @@ def test_settled_watcher_leaves_requested_bytes_and_refusal_visible(tmp_path):
     node.reload_callback()  # unchanged file produces no event
     assert node.error == 'restart required: reversed'
     assert path.read_bytes() == requested_bytes
+
+
+def test_estop_latch_refuses_drive_publishes_and_follows_the_stop_channel():
+    node, _ = pwm()
+    sent = []
+    node.outputs.set_pulse_widths = sent.append
+    node.outputs.neutral = lambda: sent.append('neutral')
+    candidate = copy.deepcopy(node.file_config)
+    candidate['command_mux']['stop_ch'] = 7
+    request(node, candidate)                      # the e-stop moves with the mux live
+    assert node.estop.rule.stop_ch == 7
+    run, stop = [1500] * 6 + [2000, 1000], [1500] * 6 + [1000, 1000]
+    node.rc_callback(NS(channels=run))
+    node.rc_callback(NS(channels=stop))
+    assert sent == ['neutral'] and node.estop.latched
+    estop = node.statuses[-1]['estop']
+    assert estop['latched'] and estop['cause'] == 'rc-stop' and estop['since_ns'] > 0
+    node.drive([1600] * 4)
+    node.rc_callback(NS(channels=run))            # switch back: still latched
+    assert sent == ['neutral'] and node.estop.latched

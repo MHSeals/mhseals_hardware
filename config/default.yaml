@@ -14,6 +14,9 @@ frequency: 50.0
 mosfet_chip: gpio3  # Bank label, NOT the dynamically numbered device node.
 mosfet_line: 29
 mosfet_active_high: true
+# Remote e-stop: the command_mux.stop_ch falling edge also cuts ESC power through
+# the MOSFET and latches it off until the driver is re-armed (restarted).
+estop_cuts_power: true
 command_timeout: 0.5
 # Canonical FL, FR, RR, RL -> physical output (1-based).
 channel_map: [1, 2, 3, 4]

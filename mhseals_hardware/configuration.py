@@ -110,6 +110,8 @@ def validate_config(config):
         raise ValueError('mosfet_line must be a nonnegative integer')
     if type(config['mosfet_active_high']) is not bool:
         raise ValueError('mosfet_active_high must be a boolean')
+    if type(config['estop_cuts_power']) is not bool:
+        raise ValueError('estop_cuts_power must be a boolean')
     if not isinstance(config['mosfet_chip'], str) or not re.fullmatch(
             r'(?:/dev/gpiochip\d+|gpio\d+)', config['mosfet_chip']):
         raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')

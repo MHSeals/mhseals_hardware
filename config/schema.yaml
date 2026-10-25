@@ -6,6 +6,7 @@ pwm_channels: {type: list, units: count, tier: restart, doc: "PWM channel index 
 mosfet_chip: {type: str, units: label, tier: restart, doc: "GPIO bank label (gpio3) or /dev/gpiochipN for the MOSFET enable line."}
 mosfet_line: {type: int, units: count, tier: restart, doc: "GPIO line offset of the MOSFET enable."}
 mosfet_active_high: {type: bool, units: bool, tier: restart, doc: "True when a high level powers the thrusters."}
+estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until re-armed."}
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}

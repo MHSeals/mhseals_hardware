@@ -7,6 +7,8 @@ Test pulses are accepted only while ``pulse_guard_topic`` (the command_mux ``~/s
 reports input ``auto`` or ``idle``, so they never outvote a human; no fresh state, no pulse.
 An empty ``pulse_guard_topic`` disables the guard (bench use without a mux).
 Either goes neutral after ``command_timeout`` without a message. With
+``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
+MOSFET and latches: this process never powers the ESCs again (see estop.py). With
 ``config_file`` set, validated watchdog edits apply live. Structural or coupled model
 edits require an explicit owner-controlled restart; this node never reopens outputs.
 """
@@ -17,15 +19,18 @@ import time
 import uuid
 
 from geometry_msgs.msg import Twist
+from mavros_msgs.msg import RCIn
 from rclpy.node import Node
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.parameter import Parameter
-from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
+                       qos_profile_sensor_data)
 from std_msgs.msg import String, UInt16MultiArray
 
 from mhseals_hardware.configuration import (
     ConfigWatcher, config_sha, startup_config, validate_config,
 )
+from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
@@ -39,8 +44,8 @@ GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
                               'decoupling', 'decoupling_negative', 'reverse_thrust_ratio',
-                              'characterization', 'hardware_epoch')
-LIVE_KEYS = ('command_timeout',)
+                              'characterization', 'hardware_epoch', 'estop_cuts_power')
+LIVE_KEYS = ('command_timeout', 'command_mux')  # command_mux: the e-stop channel follows the mux
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
@@ -75,9 +80,14 @@ class ThrusterPWMNode(Node):
         self.apply(self.config)
         # Opening arms the ESCs at neutral; destroy_node disarms them.
         self.outputs = make_outputs(self.config, node=self).open()
+        self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
+                                 self.config['estop_cuts_power'])
         self.last_command_time = time.monotonic()
         self.timed_out = False
         self.publish_status()
+        if self.estop.enabled:
+            self.create_subscription(RCIn, '/mavros/rc/in', self.rc_callback,
+                                     qos_profile_sensor_data)
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
         self.declare_parameter('pulse_guard_topic', '/command_mux/state')
@@ -103,6 +113,8 @@ class ThrusterPWMNode(Node):
         self.decoupling_negative = validate_decoupling(config['decoupling_negative'])
         self.reversed = validate_reversed(config['reversed'])
         self.reverse_ratio = validate_reverse_ratio(config['reverse_thrust_ratio'])
+        if getattr(self, 'estop', None) is not None:
+            self.estop.configure(config['command_mux'])
 
     def refuse_external(self, parameters):
         """The YAML is the one source of truth: settings written over ROS are refused."""
@@ -121,9 +133,11 @@ class ThrusterPWMNode(Node):
     def publish_status(self):
         """Latched ~/status: what the driver runs, for the TUI's owner and sync checks."""
         mosfet = getattr(self.outputs, 'mosfet', None)
-        state = 'none' if mosfet is None else 'on' if mosfet.request is not None else 'off'
+        state = ('none' if mosfet is None else
+                 'on' if mosfet.request is not None and mosfet.enabled else 'off')
         self.status_pub.publish(String(data=json.dumps({
-            'session': self.session, 'mosfet': state, 'config_sha': config_sha(self.file_config),
+            'session': self.session, 'mosfet': state, 'estop': self.estop.state(),
+            'config_sha': config_sha(self.file_config),
             'requested_config_sha': config_sha(self.requested_config),
             'effective_config_sha': config_sha(self.config),
             'pending_restart_keys': self.pending_restart_keys,
@@ -232,7 +246,20 @@ class ThrusterPWMNode(Node):
             return f'command_mux input is {self.mux_input}'
         return None
 
+    def rc_callback(self, message):
+        """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until re-armed."""
+        try:
+            cut = self.estop.rc(message.channels, time.monotonic(), time.time_ns())
+        except Exception as error:  # latched anyway; report, keep the node (and RC) alive
+            self.get_logger().error(f'remote e-stop cut failed: {error}')
+            cut = True
+        if cut:
+            self.get_logger().error('remote e-stop: ESC power cut and latched; re-arm to restore')
+            self.publish_status()
+
     def drive(self, pulses):
+        if self.estop.latched:
+            return  # cut and neutral; only a new driver (the arm path) powers on again
         self.outputs.set_pulse_widths(pulses)
         self.last_command_time = time.monotonic()
         self.timed_out = False
