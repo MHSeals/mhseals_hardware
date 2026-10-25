@@ -1,6 +1,9 @@
 """Tests for the planar thruster mixer and canonical output mapping."""
 
+from pathlib import Path
+
 import pytest
+import yaml
 
 from mhseals_hardware.keyboard import decode_key
 from mhseals_hardware.thruster_mixer import (
@@ -197,8 +200,10 @@ def test_reverse_ratio_follows_a_flipped_thruster():
 
 def test_reverse_ratio_is_validated():
     from mhseals_hardware.thruster_mixer import validate_reverse_ratio
-    assert validate_reverse_ratio(1) == 1.0
-    for bad in (0.0, -0.5, 1.5, True, float('nan'), '0.8'):
+    assert validate_reverse_ratio(1) == 1.0 and validate_reverse_ratio(0.5) == 0.5
+    schema = yaml.safe_load((Path(__file__).parents[1] / 'config/schema.yaml').read_text())
+    assert schema['reverse_thrust_ratio']['range'] == [0.5, 1.0]
+    for bad in (0.0, 0.49, -0.5, 1.5, True, float('nan'), '0.8'):
         with pytest.raises(ValueError):
             validate_reverse_ratio(bad)
 

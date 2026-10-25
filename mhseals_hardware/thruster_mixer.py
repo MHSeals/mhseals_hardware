@@ -113,9 +113,9 @@ def validate_reversed(values):
 
 
 def validate_reverse_ratio(value):
-    """Full reverse over full forward thrust, in (0, 1]: one ratio for all four thrusters."""
-    if type(value) not in (int, float) or not 0.0 < value <= 1.0:
-        raise ValueError('reverse_thrust_ratio must be a number in (0, 1]')
+    """Full reverse over full forward thrust, in [0.5, 1] (schema.yaml's range): one ratio for all four thrusters."""
+    if type(value) not in (int, float) or not 0.5 <= value <= 1.0:
+        raise ValueError('reverse_thrust_ratio must be a number in [0.5, 1]')
     return float(value)
 
 
