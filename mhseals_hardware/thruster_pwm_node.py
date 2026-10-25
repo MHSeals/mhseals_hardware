@@ -288,7 +288,10 @@ class ThrusterPWMNode(Node):
 
     def heartbeat(self):
         """Flip the enable; a gap long enough for the circuit to drop latches a cut,
-        so power never comes back by itself when a stalled node resumes."""
+        so power never comes back by itself when a stalled node resumes. Latched, it
+        never flips, even when the cut's write failed and the line still reads on."""
+        if self.estop.latched:
+            return
         now = time.monotonic()
         if self.last_beat is not None and now - self.last_beat > HEARTBEAT_STALL:
             self.estop_step(self.estop.trip, 'stall')
@@ -305,12 +308,28 @@ class ThrusterPWMNode(Node):
     def watchdog_callback(self):
         if self.estop.enabled or self.estop.on_rc_loss:
             self.estop_step(self.estop.tick)  # RC gone stale while it controlled the boat
+        self.retry_cut()
         # Fail neutral when the command stream stops (crashed teleop, lost link).
         if (not self.timed_out and time.monotonic() - self.last_command_time >
                 self.command_timeout):
             self.outputs.neutral()
             self.timed_out = True
             self.get_logger().warning('commands timed out; thrusters neutral')
+
+    def retry_cut(self):
+        """Latched but the MOSFET write failed, so the line still powers the ESCs: retry."""
+        mosfet = getattr(self.outputs, 'mosfet', None)
+        if not (self.estop.latched and mosfet is not None and mosfet.request is not None
+                and mosfet.enabled):
+            return
+        try:
+            mosfet.set_enabled(False)
+        except Exception as error:
+            self.get_logger().error(f'e-stop cut retry failed: {error}',
+                                    throttle_duration_sec=1.0)
+            return
+        self.get_logger().error('e-stop cut retry succeeded: ESC power off')
+        self.publish_status()
 
     def destroy_node(self):
         try:

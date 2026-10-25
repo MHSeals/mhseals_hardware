@@ -45,7 +45,8 @@ def pwm():
     node.outputs, node.error, node.session = NS(), '', 'inert'
     node.events, node.statuses = [], []
     node.status_pub = NS(publish=lambda msg: node.statuses.append(json.loads(msg.data)))
-    node.get_logger = lambda: NS(info=node.events.append, error=node.events.append)
+    log = lambda message, **_: node.events.append(message)  # noqa: E731
+    node.get_logger = lambda: NS(info=log, error=log)
     node.declared, node.own_write = set(node.config), False
     node.has_parameter = lambda key: True
     node.get_parameter = lambda key: NS(value=node.config[key])
@@ -220,3 +221,29 @@ def test_heartbeat_gap_latches_instead_of_resuming():
     assert node.estop.cause == 'stall' and node.outputs.mosfet.levels[-1] is False
     node.heartbeat()
     assert node.outputs.mosfet.levels == ['flip', 'flip', False]
+
+
+def test_a_failed_cut_never_beats_and_the_watchdog_retries_it():
+    node = powered_node()
+    node.last_command_time, node.timed_out = time.monotonic(), False
+    attempts = []
+
+    def broken(enabled):
+        attempts.append(enabled)
+        raise OSError('line busy')
+    working, node.outputs.mosfet.set_enabled = node.outputs.mosfet.set_enabled, broken
+    node.last_beat = None
+    node.heartbeat()
+    assert not node.estop_service(None, NS()).success and node.estop.latched
+    assert node.outputs.mosfet.enabled                # the write failed: still powered
+    for _ in range(3):
+        node.heartbeat()                              # latched: never flips the line on
+    assert node.outputs.mosfet.levels == ['flip']
+    node.watchdog_callback()
+    assert attempts == [False, False]                 # the cut, then the watchdog's retry
+    node.outputs.mosfet.set_enabled = working
+    node.watchdog_callback()
+    assert node.outputs.mosfet.levels == ['flip', False] and not node.outputs.mosfet.enabled
+    node.watchdog_callback()
+    node.heartbeat()
+    assert node.outputs.mosfet.levels == ['flip', False]
