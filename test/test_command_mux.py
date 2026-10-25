@@ -101,6 +101,28 @@ def test_rc_switch_hold_is_saved_before_the_command_goes_out(tmp_path):
         rclpy.try_shutdown()
 
 
+def test_a_hold_publishes_its_state_before_its_zeros(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'command_mux: {{state_file: {tmp_path / "mux.json"}}}\n')
+    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_hold_order',
+                     '-p', f'config_file:={path}'])
+    try:
+        node = command_mux.CommandMux()
+        sent = []
+        node.applied.publish = lambda message: sent.append('command')
+        node.state_pub.publish = lambda message: sent.append(json.loads(message.data)['input'])
+        node.forward()
+        del sent[:]
+        node.arbitration.request('hold', 'test', 'tester', command_mux.time.monotonic())
+        node.forward()
+        assert sent == ['hold', 'command']
+        node.forward()                           # held on: the keepalive only
+        assert sent == ['hold', 'command', 'command']
+        node.destroy_node()
+    finally:
+        rclpy.try_shutdown()
+
+
 def test_steady_input_publishes_no_new_seq_until_something_changes():
     rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_steady'])
     try:

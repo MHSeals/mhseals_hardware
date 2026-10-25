@@ -123,8 +123,12 @@ class CommandMux(Node):
     def forward(self):
         """Publish the winning command now; also the 25 Hz keepalive."""
         now = time.monotonic()
-        _, cmd = self.arbitration.select(now)
+        source, cmd = self.arbitration.select(now)
         self.persist_holds()
+        if source == 'hold':
+            # State first (it publishes only on a change): the velocity controller then
+            # goes neutral before it sees the hold's zeros and station-keeps on them.
+            self.publish_state()
         self.applied.publish(twist_from(cmd))
         self.publish_state()
 
