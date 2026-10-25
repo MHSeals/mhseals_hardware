@@ -142,16 +142,21 @@ class Arbitration:
     # Inputs
 
     def update_rc(self, channels, now):
-        """Store an RC frame (empty channels mean no receiver)."""
+        """Store an RC frame (empty channels mean no receiver); True on a stop edge.
+
+        The thruster driver reuses this rule to cut the MOSFET on the same edge.
+        """
         was = self._channel(self.channels, self.stop_ch)
         if self.rc_time is not None and now > self.rc_time:
             self._intervals.append(now - self.rc_time)
         self.channels, self.rc_time = tuple(channels), now
         stop = self._channel(self.channels, self.stop_ch)
-        if (self.valid(now) and was is not None and stop is not None
-                and was >= 1500 > stop):
+        edge = (self.valid(now) and was is not None and stop is not None
+                and was >= 1500 > stop)
+        if edge:
             self._hold('rc_stop', 'rc', now)       # stop switch falling edge
         self._advance(now)
+        return edge
 
     def update_manual(self, cmd, now):
         """Store a manual command; a NaN or inf one is counted and dropped."""
