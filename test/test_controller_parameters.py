@@ -78,6 +78,8 @@ def test_commit_preserves_observer_and_reprojects_integral():
     assert n._law.integral == pytest.approx([.1]*3)
     assert old.integral == pytest.approx([.2]*3)
     assert n._law.drift == pytest.approx([.1, -.2])
+    assert n.set_parameters_atomically(patch(drift_limit=.05 * 5 ** .5)).successful
+    assert n._law.drift == pytest.approx([.05, -.1])  # reprojected onto the lowered limit
     n._law.observe((0, 0, 0), 0, 1.)
     n._command((.12, 0, 0))
     assert n.sent[-1][0] > .2  # actual new PI law consumed

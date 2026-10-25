@@ -114,12 +114,13 @@ class VelocityLaw:
 
     def __init__(self, plant, kp=(0.8, 0.8, 0.6), ki=(0.6, 0.6, 0.4),
                  integral_limit=(0.3, 0.3, 0.3), drift_time_constant=5.0, odom_timeout=0.3,
-                 drift_command_limit=0.1):
+                 drift_command_limit=0.1, drift_limit=0.5):
         self.plant = plant
         self.kp, self.ki = numpy.array(kp, float), numpy.array(ki, float)
         self.integral_limit = numpy.array(integral_limit, float)
         self.drift_time_constant = float(drift_time_constant)
         self.drift_command_limit = float(drift_command_limit)
+        self.drift_limit = float(drift_limit)
         self.odom_timeout = float(odom_timeout)
         self.drift = numpy.zeros(2)  # world frame (x east, y north in odom), m/s
         self.velocity = None
@@ -154,6 +155,13 @@ class VelocityLaw:
         residual = rotate((self.velocity - expected)[:2], self.yaw)
         alpha = dt / (self.drift_time_constant + dt)
         self.drift += alpha * (numpy.array(residual) - self.drift)
+        # Against a dock or a buoy the boat stops while the effort pushes on, and the
+        # observer takes the contact for current: its feed-forward then holds that effort
+        # and every push into the contact adds to it, so it winds up. No real current is
+        # faster than drift_limit, so the estimate stops there.
+        speed = math.hypot(*self.drift)
+        if speed > self.drift_limit:
+            self.drift *= self.drift_limit / speed
 
     def stale(self, now):
         return self.odom_time is None or now - self.odom_time > self.odom_timeout

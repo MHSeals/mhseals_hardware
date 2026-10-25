@@ -52,7 +52,7 @@ class VelocityController(Node):
         validate_controller(config['controller'])
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
-                                value('drift_command_limit'))
+                                value('drift_command_limit'), value('drift_limit'))
         self._plant_inputs = self._inputs(config)
         self._requested_plant_inputs = self._plant_inputs
         self._reload_error = ''  # deferred file request, distinct from a running-model fault
@@ -91,6 +91,9 @@ class VelocityController(Node):
                     else float(value))
         candidate.integral = numpy.clip(self._law.integral,
                                         -candidate.integral_limit, candidate.integral_limit)
+        speed = math.hypot(*self._law.drift)
+        candidate.drift = self._law.drift * min(1.0, candidate.drift_limit / speed) if speed else \
+            self._law.drift.copy()
         self._candidate_law = candidate  # unconsumed if any later callback refuses
         return SetParametersResult(successful=True)
 

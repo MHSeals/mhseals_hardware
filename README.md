@@ -182,8 +182,8 @@ controller:
 ```
 
 Other leaves: `integral_limit`, `feedback`, `drift_time_constant`,
-`command_timeout`, `drift_command_limit`, `input_topic`, `output_topic`,
-`odom_topic`. Vectors are surge, sway, yaw. Unknown leaves and nulls refuse
+`command_timeout`, `drift_command_limit`, `drift_limit`, `input_topic`,
+`output_topic`, `odom_topic`. Vectors are surge, sway, yaw. Unknown leaves and nulls refuse
 startup. Controller changes need a restart. Driver `command_timeout`,
 `controller.command_timeout` and mux `cmd_timeout` are independent watchdogs.
 

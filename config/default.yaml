@@ -83,6 +83,9 @@ controller:
   odom_timeout: 0.3
   command_timeout: 0.5
   drift_command_limit: 0.1
+  # m/s: the fastest current and wind drift the observer may believe. Contact with a dock
+  # or buoy reads as current; past this it would wind the effort up against the contact.
+  drift_limit: 0.5
   input_topic: /cmd_vel
   output_topic: /cmd_vel_effort
   odom_topic: /odom/local
