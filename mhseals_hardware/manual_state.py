@@ -15,6 +15,9 @@ ARROWS = ('up', 'down', 'left', 'right')
 # another is down or after it is released. After a release, the keys still
 # held are trusted for this long without a repeat; their release stops them.
 CHORD_HOLD = 2.0
+# A key reported held (Kitty) that only went quiet, with no release seen, is re-armed by its next
+# repeat within this long: one link stall must not end the hold until the key is pressed again.
+REARM_S = 2.0
 
 
 class ManualState:
@@ -45,12 +48,14 @@ class ManualState:
         self.deadline = 0.0
         self.held = set()   # keys that will report their release
         self.single = None  # the one key that won't: held while it repeats
+        self.lapsed = {}    # held keys the watchdog stopped without a release: name -> when
         self.chords = False
         self.focused = True
         self.command = (0.0, 0.0, 0.0)
 
     def update(self, key, now):
         if now >= self.deadline:
+            self.lapsed.update(dict.fromkeys(self.held, self.deadline))
             self.held.clear()
             self.single = None
         kind, _, name = (key or '').partition(':')
@@ -69,8 +74,10 @@ class ManualState:
             self.focused = True
         if name in ('space', 'focus-out', 'focus-in') and kind != 'release':
             self.held.clear()
+            self.lapsed.clear()   # a stop is never undone by the repeats that follow it
             self.single = None
         elif kind == 'release':
+            self.lapsed.pop(name, None)
             was_held = name in self.held
             self.held.discard(name)
             if name == self.single:
@@ -87,6 +94,9 @@ class ManualState:
                                    (0.05 if name in ('+', '=') else -0.05))), 2)
         elif name in MANUAL_KEYS and self.focused:
             if name in self.held or name == self.single:
+                self.deadline = now + self.repeat_timeout
+            elif kind == 'repeat' and now - self.lapsed.pop(name, -math.inf) <= REARM_S:
+                self.held.add(name)   # still held: a repeat, and no release since it went quiet
                 self.deadline = now + self.repeat_timeout
             elif kind != 'repeat':  # never re-arm a stopped key from repeats alone
                 if self.chords and kind == 'press':

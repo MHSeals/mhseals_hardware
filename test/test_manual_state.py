@@ -58,3 +58,36 @@ def test_non_motion_releases_do_not_keep_a_held_key_alive():
 
 def test_event_mode_alias_is_gone():
     assert not hasattr(ManualState(), 'event_mode')
+
+
+def test_a_reported_hold_survives_a_link_stall_but_input_loss_still_stops():
+    state = ManualState()
+    state.update('press:w', 0)
+    state.update('repeat:w', .5)
+    assert state.update(None, .8) == (0, 0, 0)             # 0.3 s stall: the watchdog stops it
+    assert state.update('repeat:w', .9) == (.25, 0, 0)     # no release seen: its repeat re-arms it
+    assert state.update(None, 1.06) == (0, 0, 0)           # and lost input still stops within the timeout
+
+
+def test_release_space_or_a_long_gap_keep_a_stalled_key_stopped():
+    for stop in ('release:w', 'space', 'focus-out'):
+        state = ManualState()
+        state.update('press:w', 0)
+        state.update(None, .7)                              # stalled
+        state.update(stop, .8)
+        assert state.update('repeat:w', .9) == (0, 0, 0)
+    state = ManualState()
+    state.update('press:w', 0)
+    state.update(None, .7)
+    assert state.update('repeat:w', 3.0) == (0, 0, 0)      # past REARM_S: press again
+
+
+def test_plain_terminal_repeats_never_rearm_a_stopped_key():
+    state = ManualState()
+    state.update('w', 0)
+    state.update(None, .7)
+    assert state.update('w', .8) == (.25, 0, 0) and state.single == 'w'   # a plain key is a new press
+    state = ManualState()
+    state.update('w', 0)
+    state.update(None, .7)
+    assert state.update('repeat:w', .8) == (0, 0, 0)      # it never reported events: no re-arm

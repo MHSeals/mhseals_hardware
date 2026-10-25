@@ -46,8 +46,17 @@ def test_opposites_aliases_yaw_speed_and_releases():
     assert state.update('release:+', .07) == (.3, 0, .15)
 
 
-@pytest.mark.parametrize('stop', ['press:space', 'focus-out', None])
-def test_stop_and_timeout_cannot_rearm_from_repeat(stop):
+def test_a_timeout_without_a_release_rearms_from_the_next_repeat():
+    # Only the watchdog stopped d (a stalled link): its release was never seen, so it is still held.
+    state = ManualState()
+    state.update('press:w', 0)
+    state.update('press:d', .1)
+    assert state.update(None, 1) == (0, 0, 0)
+    assert state.update('repeat:d', 1.01) == (0, -.25, 0)
+
+
+@pytest.mark.parametrize('stop', ['press:space', 'focus-out'])
+def test_stop_cannot_rearm_from_repeat(stop):
     state = ManualState()
     state.update('press:w', 0)
     state.update('press:d', .1)
