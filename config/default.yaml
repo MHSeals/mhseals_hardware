@@ -37,9 +37,10 @@ decoupling: [
 # coupling differs by direction (yaw only when moving forward, say). null
 # means the same as decoupling.
 decoupling_negative: null
-# Full reverse thrust over full forward (below vs above 1500 us), for the mixer's
-# thrust-space sum. T200 at 16 V: 4.1 / 5.25 kgf.
-reverse_thrust_ratio: 0.78
+# Full reverse thrust over full forward, affecting combined commands only (T200
+# datasheet 0.78). Keep 1.0: per-direction asymmetry belongs in decoupling_negative.
+# Go below 1 only after a measured diagonal test on the boat.
+reverse_thrust_ratio: 1.0
 manual_amplitude: 0.25
 # Manual yaw as a fraction of the linear amplitude: turning is far more aggressive.
 manual_yaw_scale: 0.5

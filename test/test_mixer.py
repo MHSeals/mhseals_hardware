@@ -201,3 +201,46 @@ def test_reverse_ratio_is_validated():
     for bad in (0.0, -0.5, 1.5, True, float('nan'), '0.8'):
         with pytest.raises(ValueError):
             validate_reverse_ratio(bad)
+
+
+def _main_pulses(command, mixer, channel_map, reversed, decoupling, negative):
+    """Main's mixing: sum efforts per thruster, desaturate, flip, pulse, route."""
+    from mhseals_hardware.thruster_mixer import decouple, effort_to_pulse, map_channels
+    part = decouple(command, decoupling, negative)
+    efforts = [sum(g * p for g, p in zip(row, part)) for row in mixer]
+    peak = max(1.0, *(abs(e) for e in efforts))
+    efforts = [-e / peak if flip else e / peak for e, flip in zip(efforts, reversed)]
+    return map_channels([effort_to_pulse(e) for e in efforts], channel_map)
+
+
+_COUPLED = ((1.0, 0.1, -0.05), (0.08, 0.9, 0.12), (-0.03, 0.2, 1.1))
+_COUPLED_NEG = ((0.85, -0.1, 0.07), (0.2, 1.2, -0.15), (0.05, 0.04, 0.8))
+_REVERSED = (True, False, True, False)
+_CHANNELS = (3, 1, 4, 2)
+
+
+@pytest.mark.parametrize('ratio', (1.0, 0.78))
+@pytest.mark.parametrize('axis', range(3))
+def test_single_axis_pulses_match_the_sum_before_curve_mix(axis, ratio):
+    from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, thruster_pulses
+    for step in range(-200, 201):
+        command = [0.0, 0.0, 0.0]
+        command[axis] = step / 200 * 1.2
+        assert thruster_pulses(command, THRUSTER_MIXER, _CHANNELS, _REVERSED, _COUPLED,
+                               _COUPLED_NEG, ratio) == _main_pulses(
+            [max(-1.0, min(1.0, c)) for c in command], THRUSTER_MIXER, _CHANNELS, _REVERSED,
+            _COUPLED, _COUPLED_NEG), (axis, command)
+
+
+@pytest.mark.parametrize('zero', (0.0, -0.0))
+def test_zero_command_is_neutral_on_every_channel(zero):
+    from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, thruster_pulses
+    assert thruster_pulses((zero,) * 3, THRUSTER_MIXER, _CHANNELS, _REVERSED, _COUPLED,
+                           _COUPLED_NEG, 0.78) == [1500] * 4
+
+
+def test_shipped_reverse_ratio_is_off():
+    import yaml
+    from pathlib import Path
+    default = Path(__file__).resolve().parent.parent / 'config' / 'default.yaml'
+    assert yaml.safe_load(default.read_text())['reverse_thrust_ratio'] == 1.0
