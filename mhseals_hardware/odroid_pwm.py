@@ -160,6 +160,7 @@ class MosfetEnable:
         self.active_high = bool(active_high)
         self.chip = None
         self.request = None
+        self.enabled = False  # the level last driven; requested lines start inactive
 
     def open(self):
         try:
@@ -203,6 +204,7 @@ class MosfetEnable:
                 self.request.set_value(value)
         else:
             self.request.set_values({self.offset: int(physical_value)})
+        self.enabled = bool(enabled)
 
     def close(self):
         if self.request is not None:
