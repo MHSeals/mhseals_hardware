@@ -4,9 +4,10 @@ import math
 
 VECTOR_GAINS = ('kp', 'ki', 'integral_limit')
 SCALAR_GAINS = ('drift_time_constant', 'odom_timeout', 'drift_command_limit', 'drift_limit',
-                'drift_carry')
+                'drift_carry', 'proximity_distance', 'obstacle_timeout')
 GAIN_KEYS = VECTOR_GAINS + SCALAR_GAINS
-RESTART_KEYS = ('config_file', 'input_topic', 'output_topic', 'odom_topic', 'mux_state_topic')
+RESTART_KEYS = ('config_file', 'input_topic', 'output_topic', 'odom_topic', 'mux_state_topic',
+                'obstacle_topic')
 
 
 def nonnegative(value, name, positive=False):
@@ -38,7 +39,7 @@ def validate_drift_limit(drift_limit, limits):
                          f'velocity limit {slowest} m/s')
 
 
-TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic', 'mux_state_topic')
+TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic', 'mux_state_topic', 'obstacle_topic')
 CONTROLLER_KEYS = GAIN_KEYS + ('command_timeout', 'feedback') + TOPIC_KEYS
 
 

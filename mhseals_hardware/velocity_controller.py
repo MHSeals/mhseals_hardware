@@ -61,7 +61,8 @@ class VelocityController(Node):
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'), value('drift_limit'),
-                                value('drift_carry'))
+                                value('drift_carry'), value('proximity_distance'),
+                                value('obstacle_timeout'))
         validate_drift_limit(self._law.drift_limit, self._law.plant.limits)
         self._plant_inputs = self._inputs(config)
         self._requested_plant_inputs = self._plant_inputs
@@ -75,6 +76,7 @@ class VelocityController(Node):
         self.create_subscription(Twist, value('input_topic'), self._command, 10)
         self.create_subscription(Odometry, value('odom_topic'), self._odom, 10)
         self.create_subscription(String, value('mux_state_topic'), self._mux_state, STATE_QOS)
+        self.create_subscription(Vector3Stamped, value('obstacle_topic'), self._obstacle, 10)
         self.add_on_set_parameters_callback(self._validate_gains)
         self.add_post_set_parameters_callback(self._commit_gains)
         self.create_timer(0.05, self._watchdog)
@@ -155,6 +157,11 @@ class VelocityController(Node):
             self._frame = message.header.frame_id or self._frame
             self._law.observe(twist_values(message.twist.twist), yaw_of(message.pose.pose.orientation),
                               time.monotonic())
+
+    def _obstacle(self, message):
+        """Nearest obstacle from the hull, base frame; NaN when none is near."""
+        with self._law_lock:
+            self._law.observe_obstacle((message.vector.x, message.vector.y), time.monotonic())
 
     def _command(self, message):
         with self._law_lock:

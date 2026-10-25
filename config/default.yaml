@@ -101,8 +101,15 @@ controller:
   # m: the estimate grows only after the boat has been carried this far along the
   # supposed current since it last got under way; the boat against a contact is not.
   drift_carry: 0.02
+  # m: while obstacle_topic puts an obstacle this close to the hull, the estimate doesn't
+  # grow away from it (that could be the obstacle's reaction); 0 turns this off.
+  proximity_distance: 0.5
+  # s: obstacle data older than this (or none) leaves only the carry gate, as without it.
+  obstacle_timeout: 0.5
   input_topic: /cmd_vel
   output_topic: /cmd_vel_effort
   odom_topic: /odom/local
   # The command_mux ~/state: while it holds or idles the controller gives neutral effort.
   mux_state_topic: /command_mux/state
+  # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
+  obstacle_topic: /perception/nearest_obstacle

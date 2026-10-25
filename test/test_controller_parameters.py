@@ -287,3 +287,21 @@ def test_constructor_restart_consumes_fresh_yaml(tmp_path):
     n._watch.seen = n._watch._stat()
     n._reload()
     assert n._reload_error == '' and n._law is law
+
+
+def test_constructor_consumes_obstacle_topic_distance_and_timeout(tmp_path):
+    from mhseals_hardware.configuration import save_config
+    path = tmp_path / 'hardware.yaml'
+    selected = config()
+    selected['controller'].update(obstacle_topic='/selected/obstacle', proximity_distance=.3,
+                                  obstacle_timeout=.2)
+    save_config(selected, path)
+    resources = []
+    cls, clock = constructor(dict(config_file=str(path)), resources)
+    n = cls()
+    assert ('subscription', '/selected/obstacle') in resources
+    n._obstacle(NS(vector=NS(x=0., y=-.25, z=0.)))
+    assert n._law.near_obstacle(clock.now + .2) == pytest.approx((0., -1.))
+    assert n._law.near_obstacle(clock.now + .21) is None  # selected timeout
+    n._obstacle(NS(vector=NS(x=0., y=-.35, z=0.)))
+    assert n._law.near_obstacle(clock.now) is None         # selected distance

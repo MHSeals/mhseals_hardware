@@ -23,3 +23,6 @@ command_mux.stick_takeover: {type: int, units: count, tier: live, doc: "Stick de
 command_mux.stick_time: {type: float, units: s, tier: live, doc: "How long the stick must stay deflected to take over."}
 command_mux.stick_release: {type: float, units: s, tier: live, doc: "How long the stick must stay centered to release."}
 command_mux.ramp: {type: float, units: s, tier: live, doc: "Ramp time when the commanded source changes."}
+controller.proximity_distance: {type: float, units: m, tier: restart, doc: "The drift estimate doesn't grow away from an obstacle this close to the hull (its reaction is not current); 0 turns this off."}
+controller.obstacle_timeout: {type: float, units: s, tier: restart, doc: "Obstacle data older than this, or none, leaves only the carry gate."}
+controller.obstacle_topic: {type: str, units: topic, tier: restart, doc: "Nearest obstacle from the hull (mhseals_nav nearest_obstacle), Vector3Stamped in the base frame."}

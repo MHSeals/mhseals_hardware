@@ -117,7 +117,8 @@ class VelocityLaw:
 
     def __init__(self, plant, kp=(0.8, 0.8, 0.6), ki=(0.6, 0.6, 0.4),
                  integral_limit=(0.3, 0.3, 0.3), drift_time_constant=5.0, odom_timeout=0.3,
-                 drift_command_limit=0.1, drift_limit=0.5, drift_carry=0.02):
+                 drift_command_limit=0.1, drift_limit=0.5, drift_carry=0.02,
+                 proximity_distance=0.5, obstacle_timeout=0.5):
         self.plant = plant
         self.kp, self.ki = numpy.array(kp, float), numpy.array(ki, float)
         self.integral_limit = numpy.array(integral_limit, float)
@@ -126,6 +127,9 @@ class VelocityLaw:
         self.drift_limit = float(drift_limit)
         self.drift_carry = float(drift_carry)
         self.odom_timeout = float(odom_timeout)
+        self.proximity_distance = float(proximity_distance)
+        self.obstacle_timeout = float(obstacle_timeout)
+        self.obstacle, self.obstacle_time = None, None  # body frame, m, from the hull
         self.drift = numpy.zeros(2)  # world frame (x east, y north in odom), m/s
         self.velocity = None
         self.yaw = 0.0
@@ -140,6 +144,25 @@ class VelocityLaw:
         # World frame, m, over the last CARRY_WINDOW or so; a hold or timeout restarts it.
         self.carried = numpy.zeros(2)
         self.current_seen = None  # world unit vector the boat was carried drift_carry along
+
+    def observe_obstacle(self, vector, now):
+        """The nearest obstacle, body frame (m, from the hull); non-finite means none near."""
+        vector = numpy.array(vector[:2], float)
+        self.obstacle = vector if numpy.all(numpy.isfinite(vector)) else None
+        self.obstacle_time = now
+
+    def near_obstacle(self, now):
+        """World unit vector to an obstacle within proximity_distance, or None.
+
+        Missing or stale data is None: the carry latch alone then decides, as before.
+        """
+        if self.obstacle is None or self.obstacle_time is None or \
+                now - self.obstacle_time > self.obstacle_timeout:
+            return None
+        size = numpy.linalg.norm(self.obstacle)
+        if size == 0 or size > self.proximity_distance:
+            return None
+        return numpy.array(rotate(self.obstacle / size, self.yaw))
 
     def observe(self, velocity, yaw, now):
         """Odometry: update the drift estimate from what the model can't explain."""
@@ -175,11 +198,17 @@ class VelocityLaw:
         # within the last CARRY_WINDOW or so (displacement, not speed: the PI soon stops the
         # boat), and then keeps growing along that side until a reset or getting under way;
         # it may always shrink or turn. The window leaks so a slow odometry bias can't add up
-        # to drift_carry over a long hold. drift_limit is the backstop.
+        # to drift_carry over a long hold. Colored odometry noise can still look like a carry,
+        # so while an obstacle is within proximity_distance a residual pointing away from it
+        # (it could be its reaction) doesn't grow the estimate either. drift_limit is the
+        # backstop.
         size = numpy.linalg.norm(residual)
         if size > 0 and self.carried @ residual / size > self.drift_carry:
             self.current_seen = residual / size
         carried = self.current_seen is not None and self.current_seen @ residual > 0
+        near = self.near_obstacle(now)
+        if near is not None and near @ residual < 0:
+            carried = False
         limit = self.drift_limit if carried else min(before, self.drift_limit)
         speed = math.hypot(*self.drift)
         if speed > limit:
