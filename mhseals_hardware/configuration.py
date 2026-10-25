@@ -17,7 +17,8 @@ from mhseals_hardware.resources import config_resource
 from mhseals_hardware.command_arbitration import Arbitration
 from mhseals_hardware.control_validation import controller_section
 from mhseals_hardware.thruster_mixer import (
-    validate_channel_map, validate_decoupling, validate_mixer, validate_reversed,
+    validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
+    validate_reversed,
 )
 
 
@@ -35,6 +36,7 @@ def validate_config(config):
     validate_reversed(config['reversed'])
     validate_mixer(config['thruster_matrix'])
     validate_decoupling(config['decoupling'])
+    validate_reverse_ratio(config['reverse_thrust_ratio'])
     if config.get('decoupling_negative') is not None:
         validate_decoupling(config['decoupling_negative'])
     epoch = config.get('hardware_epoch', 0)

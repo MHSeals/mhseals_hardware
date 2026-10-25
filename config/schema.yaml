@@ -8,6 +8,7 @@ mosfet_line: {type: int, units: count, tier: restart, doc: "GPIO line offset of 
 mosfet_active_high: {type: bool, units: bool, tier: restart, doc: "True when a high level powers the thrusters."}
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
+reverse_thrust_ratio: {type: float, units: "1", range: [0.0, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
 command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "Thrusters go neutral after this long without a command."}
 command_mux.mode_ch: {type: int, units: count, tier: live, doc: "1-based RC channel carrying the FCU mode switch."}
 command_mux.modes: {type: list, units: enum, tier: live, doc: "FCU mode number for each of the six mode switch positions."}

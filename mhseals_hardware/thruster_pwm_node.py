@@ -30,7 +30,7 @@ from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
-    validate_reversed,
+    validate_reverse_ratio, validate_reversed,
 )
 
 RELOAD_PERIOD = 1.0
@@ -38,8 +38,8 @@ PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autono
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
-                              'decoupling', 'decoupling_negative', 'characterization',
-                              'hardware_epoch')
+                              'decoupling', 'decoupling_negative', 'reverse_thrust_ratio',
+                              'characterization', 'hardware_epoch')
 LIVE_KEYS = ('command_timeout',)
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
@@ -102,6 +102,7 @@ class ThrusterPWMNode(Node):
         self.decoupling = validate_decoupling(config['decoupling'])
         self.decoupling_negative = validate_decoupling(config['decoupling_negative'])
         self.reversed = validate_reversed(config['reversed'])
+        self.reverse_ratio = validate_reverse_ratio(config['reverse_thrust_ratio'])
 
     def refuse_external(self, parameters):
         """The YAML is the one source of truth: settings written over ROS are refused."""
@@ -196,7 +197,8 @@ class ThrusterPWMNode(Node):
                                       throttle_duration_sec=1.0)
             return
         self.drive(thruster_pulses(values, self.mixer, self.channel_map,
-                                   self.reversed, self.decoupling, self.decoupling_negative))
+                                   self.reversed, self.decoupling, self.decoupling_negative,
+                                   self.reverse_ratio))
 
     def pulses_callback(self, message):
         """Raw pulses per physical output, for bench tests; validated by the outputs."""

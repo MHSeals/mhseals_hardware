@@ -122,3 +122,82 @@ def test_huge_finite_commands_saturate_instead_of_overflowing_to_nan():
         assert all(isinstance(p, int) and 1100 <= p <= 1900 for p in pulses)
     assert thruster_pulses((1e308, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4)) == \
         thruster_pulses((1, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4))
+
+
+def _wrench(efforts, ratio):
+    """Planar wrench of an X layout matching THRUSTER_MIXER, thrust e|e|, reverse weaker."""
+    return _wrench_of([e * abs(e) * (ratio if e < 0 else 1.0) for e in efforts])
+
+
+def _wrench_of(thrusts):
+    import math
+    # Unit thrust direction (x, y) and position for FL, FR, RR, RL, positive effort.
+    layout = (((-1, 1), (0.27, 0.34)), ((-1, -1), (0.27, -0.34)),
+              ((1, -1), (-0.27, -0.34)), ((1, 1), (-0.27, 0.34)))
+    total = [0.0, 0.0, 0.0]
+    for thrust, ((dx, dy), (px, py)) in zip(thrusts, layout):
+        force = thrust / math.sqrt(2)
+        total[0] += force * dx
+        total[1] += force * dy
+        total[2] += force * (px * dy - py * dx)
+    return total
+
+
+@pytest.mark.parametrize('axis', range(3))
+@pytest.mark.parametrize('value', (-1.0, -0.4, 0.25, 1.0))
+def test_single_axis_output_is_the_linear_mix(axis, value):
+    command = [0.0, 0.0, 0.0]
+    command[axis] = value
+    expected = [sum(gain * part for gain, part in zip(row, command)) for row in
+                __import__('mhseals_hardware.thruster_mixer', fromlist=['x']).THRUSTER_MIXER]
+    assert mix_thrusters(*command, reverse_ratio=(0.78,) * 4) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize('surge,sway', [(0.42, 0.42), (0.52, 0.3), (-0.3, 0.5), (0.2, -0.6)])
+def test_combined_command_is_the_sum_of_single_axis_wrenches(surge, sway):
+    import math
+    ratio = 0.78
+    alone = [_wrench(mix_thrusters(surge, 0, 0, reverse_ratio=(ratio,) * 4), ratio),
+             _wrench(mix_thrusters(0, sway, 0, reverse_ratio=(ratio,) * 4), ratio)]
+    expected = [a + b for a, b in zip(*alone)]
+    wrench = _wrench(mix_thrusters(surge, sway, 0, reverse_ratio=(ratio,) * 4), ratio)
+    assert wrench == pytest.approx(expected, abs=1e-9)
+    assert abs(wrench[2]) < 1e-9  # a diagonal does not turn the boat
+    # Summing efforts (the old mixer) turns the boat and bends the direction.
+    linear = _wrench([sum(g * c for g, c in zip(row, (surge, sway, 0))) for row in
+                      ((-1, 1, 1), (-1, -1, -1), (1, -1, 1), (1, 1, -1))], ratio)
+    assert abs(linear[2]) > 0.01 or abs(math.atan2(linear[1], linear[0]) -
+                                         math.atan2(expected[1], expected[0])) > 0.05
+
+
+def test_saturated_combined_command_keeps_the_wrench_direction():
+    import math
+    ratio = 0.78
+    outputs = mix_thrusters(1.0, 1.0, 0.5, reverse_ratio=(ratio,) * 4)
+    assert max(abs(output) for output in outputs) == pytest.approx(1.0)
+    alone = [_wrench(mix_thrusters(*command, reverse_ratio=(ratio,) * 4), ratio)
+             for command in ((1, 0, 0), (0, 1, 0), (0, 0, 0.5))]
+    expected = [sum(parts) for parts in zip(*alone)]
+    wrench = _wrench(outputs, ratio)
+    scale = wrench[0] / expected[0]
+    assert 0 < scale < 1 and wrench == pytest.approx([scale * v for v in expected])
+
+
+def test_reverse_ratio_follows_a_flipped_thruster():
+    # Mounted backwards, a thruster's weak side (below 1500 us) is its positive effort.
+    from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, thruster_pulses
+    ratio = 0.78
+    pulses = thruster_pulses((0.4, 0.3, 0), THRUSTER_MIXER, (1, 2, 3, 4), (True,) * 4,
+                             reverse_ratio=ratio)
+    # Pulse side sets the strength; the flip sets the canonical direction.
+    thrust = [-(p - 1500) * abs(p - 1500) / 400 ** 2 * (ratio if p < 1500 else 1.0)
+              for p in pulses]
+    assert abs(_wrench_of(thrust)[2]) < 0.01
+
+
+def test_reverse_ratio_is_validated():
+    from mhseals_hardware.thruster_mixer import validate_reverse_ratio
+    assert validate_reverse_ratio(1) == 1.0
+    for bad in (0.0, -0.5, 1.5, True, float('nan'), '0.8'):
+        with pytest.raises(ValueError):
+            validate_reverse_ratio(bad)

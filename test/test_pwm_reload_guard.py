@@ -10,7 +10,8 @@ import pytest
 from mhseals_hardware.configuration import ConfigWatcher, config_sha, load_defaults, save_config, validate_config
 from mhseals_hardware.outputs import OUTPUT_KEYS
 from mhseals_hardware.thruster_mixer import (
-    validate_channel_map, validate_decoupling, validate_mixer, validate_reversed,
+    validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
+    validate_reversed,
 )
 
 
@@ -60,7 +61,8 @@ CHANGES = {
     'pwm_channels': [1, 0, 0, 0], 'mosfet_chip': 'gpio4', 'mosfet_line': 3,
     'mosfet_active_high': False, 'frequency': 60, 'channel_map': [2, 1, 3, 4],
     'reversed': [True] * 4, 'thruster_matrix': [0.5] * 12, 'decoupling': [0.5] * 9,
-    'decoupling_negative': [0.4] * 9, 'characterization': {'velocity_gain': {'surge': 2}},
+    'decoupling_negative': [0.4] * 9, 'reverse_thrust_ratio': 0.5,
+    'characterization': {'velocity_gain': {'surge': 2}},
     'hardware_epoch': 1,
 }
 
