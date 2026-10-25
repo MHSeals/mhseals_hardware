@@ -210,7 +210,8 @@ def test_operator_estop_service_cuts_latches_and_reports():
     node = powered_node()
     response = node.estop_service(None, NS())
     assert response.success and response.message == 'latched (operator)'
-    assert node.outputs.mosfet.levels == [False] and node.statuses[-1]['estop']['cause'] == 'operator'
+    assert node.outputs.mosfet.levels == [False]
+    assert node.statuses[-1]['estop']['cause'] == 'operator'
     assert node.estop_service(None, NS()).success      # repeat: still off, same cause
     assert node.outputs.mosfet.levels == [False]
 
