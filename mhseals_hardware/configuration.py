@@ -1,5 +1,6 @@
 """Shared, validated hardware configuration; loading never opens GPIO/PWM."""
 
+import array
 import contextlib
 import fcntl
 import hashlib
@@ -180,39 +181,82 @@ class ConfigWatcher:
             raise ValueError(f'invalid hardware YAML: {error}') from error
 
 
-def _read_overrides(path):
-    """
-    Parse the operator file's overrides with the core strict resolver.
+def load_strict_yaml(path):
+    """Parse a YAML file, refusing what could silently change meaning.
 
-    Duplicate, merge, recursive and unknown keys are refused with their located
-    source, as in managed startup; every refusal is a ValueError.
+    Duplicate keys, anchors/aliases, merge keys, non-scalar keys and non-finite numbers
+    raise ValueError naming ``file:line``. An empty file is an empty mapping.
     """
+    text = Path(path).read_text()
+
+    def refuse(mark, message):
+        raise ValueError(f'{path}:{mark.line + 1}: {message}')
+
+    def check(node):
+        if isinstance(node, yaml.MappingNode):
+            seen = {}
+            for key, value in node.value:
+                if not isinstance(key, yaml.ScalarNode) or key.tag == 'tag:yaml.org,2002:merge':
+                    refuse(key.start_mark, 'merge and non-scalar keys are not allowed')
+                if key.value in seen:
+                    refuse(key.start_mark, f'duplicate key {key.value!r} (first at '
+                           f'{path}:{seen[key.value].start_mark.line + 1})')
+                seen[key.value] = key
+                check(value)
+        elif isinstance(node, yaml.SequenceNode):
+            for item in node.value:
+                check(item)
+        elif node.tag == 'tag:yaml.org,2002:float' and not math.isfinite(
+                yaml.SafeLoader('').construct_yaml_float(node)):
+            refuse(node.start_mark, f'non-finite number {node.value}')
+
+    try:
+        for event in yaml.parse(text, Loader=yaml.SafeLoader):
+            if getattr(event, 'anchor', None):  # anchors and the aliases that use them
+                refuse(event.start_mark, 'anchors and aliases are not allowed')
+        root = yaml.compose(text, Loader=yaml.SafeLoader)
+        if root is None:
+            return {}
+        check(root)
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        raise ValueError(f'invalid hardware YAML {path}: {error}') from error
+    if not isinstance(data, dict):
+        raise ValueError(f'{path}: hardware YAML must be a mapping')
+    return data
+
+
+def _read_overrides(path):
+    """The operator file's overrides; every refusal is a ValueError naming the file."""
     if not path.exists():
         return {}
-    from mhseals_hardware.startup_config import hardware_fields, parse_layer, plain
-
-    text = path.read_text()
-    try:
-        # An empty or comment-only file is "no overrides", like a missing one.
-        if yaml.compose(text) is None:
-            return {}
-        assignments = parse_layer(text, str(path), 'operator', hardware_fields())
-    except yaml.YAMLError as error:
-        raise ValueError(f'invalid hardware YAML: {error}') from error
-    except ValueError as error:
-        unknown = re.match(r'unknown key (.+?) at (.*)', str(error), re.S)
-        if unknown:  # keep the established wording of this refusal
-            raise ValueError(
-                f'unknown hardware settings: [{unknown[1]!r}] at {unknown[2]}') from error
-        raise
-    overrides = {}
-    for item in assignments:
-        value = plain(item.value)
-        if item.key.startswith('controller.'):
-            overrides.setdefault('controller', {})[item.key[len('controller.'):]] = value
-        else:
-            overrides[item.key] = value
+    overrides = load_strict_yaml(path)
+    unknown = sorted(set(overrides) - set(load_defaults()))
+    if unknown:
+        raise ValueError(f'unknown hardware settings: {unknown} at {path}')
     return overrides
+
+
+def startup_config(node, path, hardware_parameters=True):
+    """Load the YAML at node startup: ``(effective, baseline)``.
+
+    ``baseline`` is the file layer (package defaults, then the operator file);
+    ``effective`` adds the node's launch/CLI parameter overrides. With
+    ``hardware_parameters`` False only controller keys can be overridden (mux, controller).
+    """
+    baseline = load_config(path)
+    defaults = load_defaults()
+    names = defaults if hardware_parameters else defaults['controller']
+    found = {name: _plain(node._parameter_overrides[name].value)
+             for name in names if name in node._parameter_overrides}
+    effective = dict(baseline, **found) if hardware_parameters else dict(
+        baseline, controller=dict(baseline['controller'], **found))
+    return _merge_overrides(effective), baseline
+
+
+def _plain(value):
+    """ROS array parameters arrive as sequences other than list; YAML and validators want lists."""
+    return list(value) if isinstance(value, (tuple, array.array)) else value
 
 
 def _merge_overrides(overrides):

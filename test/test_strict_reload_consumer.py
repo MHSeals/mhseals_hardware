@@ -37,19 +37,17 @@ def config(timeout, mux_timeout, state_file):
 @pytest.fixture
 def fleet(tmp_path):
     env = dict(os.environ, HOME=str(tmp_path), XDG_RUNTIME_DIR=str(tmp_path / 'run'),
-               MHSEALS_CONFIG_ROOT=str(tmp_path / 'snap'),
                ROS_DOMAIN_ID=str(100 + os.getpid() % 100),
                ROS_AUTOMATIC_DISCOVERY_RANGE='LOCALHOST', ROS_LOCALHOST_ONLY='1')
     (tmp_path / 'run').mkdir()
     env.pop('MHSEALS_HARDWARE_CONFIG', None)
-    env.pop('MHSEALS_CONFIG_SCOPE', None)
     path = tmp_path / 'hardware.yaml'
     write(path, config(0.3, 0.7, tmp_path / 'holds.json'))
     procs = []
-    for module, scope in (('thruster_pwm_node', 'pwm'), ('command_mux', 'mux')):
+    for module in ('thruster_pwm_node', 'command_mux'):
         procs.append(subprocess.Popen(
             [sys.executable, '-m', f'mhseals_hardware.{module}', '--ros-args',
-             '-p', f'config_file:={path}', '-p', f'config_scope:={scope}-{os.getpid()}'],
+             '-p', f'config_file:={path}'],
             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True))
     os.environ.update(ROS_DOMAIN_ID=env['ROS_DOMAIN_ID'],
                       ROS_AUTOMATIC_DISCOVERY_RANGE='LOCALHOST')
@@ -90,7 +88,6 @@ def test_duplicate_key_reload_leaves_driver_and_mux_unchanged(fleet):
     first = wait(lambda s: s['pwm']['error'] == '')
     sha0 = first['pwm']['effective_config_sha']
     assert first['mux']['configuration']['effective']['cmd_timeout'] == 0.7
-    assert list((tmp_path / 'snap').rglob('active.json'))  # mux and driver startups recorded
 
     # Positive control: a valid edit is consumed by both nodes.
     write(path, config(0.4, 0.8, state_file))

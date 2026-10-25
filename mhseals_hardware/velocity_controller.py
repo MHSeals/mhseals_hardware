@@ -24,8 +24,7 @@ from rclpy.node import Node
 from mhseals_hardware.control_validation import (
     GAIN_KEYS, RESTART_KEYS, SCALAR_GAINS, VECTOR_GAINS, validate_controller,
 )
-from mhseals_hardware.configuration import ConfigWatcher
-from mhseals_hardware.startup_config import SELECTION_PARAMETERS, node_startup_inputs
+from mhseals_hardware.configuration import ConfigWatcher, startup_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
@@ -46,9 +45,8 @@ class VelocityController(Node):
         super().__init__('calibrated_velocity_controller')
         self.declare_parameter('config_file', '')
         value = lambda name: self.get_parameter(name).value  # noqa: E731
-        config, self.startup_selection = node_startup_inputs(
-            self, value('config_file') or None, hardware_parameters=False)
-        # Selection is authoritative: declaration must not reapply invocation values.
+        config, _ = startup_config(self, value('config_file') or None, hardware_parameters=False)
+        # The loaded config already includes invocation overrides: declare it verbatim.
         for name, selected in config['controller'].items():
             self.declare_parameter(name, selected, ignore_override=True)
         validate_controller(config['controller'])
@@ -78,8 +76,6 @@ class VelocityController(Node):
         values = {name: self.get_parameter(name).value
                   for name in GAIN_KEYS + ('command_timeout', 'feedback')}
         for parameter in parameters:
-            if parameter.name in SELECTION_PARAMETERS:
-                return SetParametersResult(successful=False, reason='startup selection is read-only')
             if parameter.name in RESTART_KEYS:
                 return SetParametersResult(successful=False, reason='restart required: ' + parameter.name)
             if parameter.name in values:

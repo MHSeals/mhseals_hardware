@@ -24,10 +24,9 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String, UInt16MultiArray
 
 from mhseals_hardware.configuration import (
-    ConfigWatcher, config_sha, validate_config,
+    ConfigWatcher, config_sha, startup_config, validate_config,
 )
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
-from mhseals_hardware.startup_config import SELECTION_PARAMETERS, node_startup_inputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
@@ -55,8 +54,7 @@ class ThrusterPWMNode(Node):
         # Every hardware setting is a ROS parameter, defaulting to the YAML config.
         self.declare_parameter('config_file', '')
         self.config_file = self.get_parameter('config_file').value or None
-        config, self.startup_selection = node_startup_inputs(self, self.config_file)
-        file_layer = self.startup_baseline
+        config, file_layer = startup_config(self, self.config_file)
         self.requested_config = file_layer
         self.pending_restart_keys = []
         self.file_config = file_layer  # the YAML as loaded, before any parameters
@@ -68,7 +66,7 @@ class ThrusterPWMNode(Node):
         self.config = validate_config(dict(config, **{key: self.get_parameter(key).value
                                                        for key in keys}))
         if self.config != config:
-            raise ValueError('ROS overrides conflict with immutable startup selection')
+            raise ValueError('ROS overrides conflict with the loaded startup config')
         self.declared = set(keys)
         self.own_write = False  # true only while this node mirrors a reload into parameters
         self.session = uuid.uuid4().hex[:8]
@@ -110,9 +108,9 @@ class ThrusterPWMNode(Node):
         if self.own_write:
             return SetParametersResult(successful=True)
         for parameter in parameters:
-            if parameter.name in self.declared | set(SELECTION_PARAMETERS) | {'config_file', 'pulse_guard_topic'}:
+            if parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
                 reason = 'edit hardware.yaml'
-                if parameter.name in RESTART_KEYS + SELECTION_PARAMETERS + ('config_file', 'pulse_guard_topic'):
+                if parameter.name in RESTART_KEYS + ('config_file', 'pulse_guard_topic'):
                     reason = 'restart required; ' + reason
                 elif parameter.name not in LIVE_KEYS:
                     reason = 'not a driver setting; ' + reason

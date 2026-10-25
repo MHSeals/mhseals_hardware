@@ -261,18 +261,14 @@ and topics are absolute ROS names. Unknown leaves and null values refuse startup
 Driver `command_timeout`, controller `controller.command_timeout`, and mux
 `cmd_timeout` are independent watchdogs.
 
-Startup captures package < profile < operator < explicit ROS invocation into an
-immutable selection. Only supplied ROS parameters override YAML. The controller
-constructs its law and topic resources from that selection. Restarting the same
-scope retains captured values after YAML edits or deletion; a fresh standalone
-scope consumes edited YAML. Old snapshots without the complete section/current
-recipe require a fresh selection. Conflicting ROS overrides on a selected scope
-refuse before topic resources; matching overrides preserve captured authority.
+Startup loads package defaults, then the operator file, then explicit ROS
+parameters, which override the file. Files are read by a strict loader that refuses
+duplicate keys, anchors/aliases, merge keys and non-finite numbers, naming `file:line`.
 
 With `config_file`, YAML edits to the controller section or Plant inputs report
 `restart required` and retain the running law, observer and integrator. Direct ROS
-gain updates retain atomic validation and post-commit law replacement; topics,
-file and selection parameters remain restart-only. No YAML live gains are enabled.
+gain updates retain atomic validation and post-commit law replacement; topics
+and file parameters remain restart-only. No YAML live gains are enabled.
 Managed TUI profile topology capture is a separate integration gate: its captured
 controller input/output/odometry must agree with child argv, driver remaps and
 readiness checks. This hardware packet alone does not qualify that managed path.
@@ -327,32 +323,11 @@ outputs (pins or a simulator topic), the ROS bridge, the mixer, the velocity
 controller, the direct test and identification tools, and their shared
 keyboard/manual control code.
 
-### Initial configuration catalog (read-only)
+### Config schema (read-only)
 
-`mhseals_hardware.catalog.load_catalog` reads installed `config/catalog.yaml`
-against hash-pinned installed `config/default.yaml`. Its explicit registry binds
-`validate_config(complete_config)` and `compile_inputs(operator, profile=..., 
-session=...)`; loading metadata invokes neither. No numeric defaults or ranges
-are copied. Validation remains in configuration/mixer code, including finite
-matrix qualification, four channels, strict integer channels and boolean directions.
-Decoupling is a flat row-major 3x3 surge/sway/yaw correction; channel/reversal
-sequences use FL/FR/RR/RL order. Null negative correction follows the positive
-matrix through `_merge_overrides`; it is independently authorable when non-null,
-so this is not a derived-only leaf. Persistence uses existing `config_path`.
-
-The named closure covers timeout, positive/negative correction, backend, topic,
-PWM paths/channels/frequency, MOSFET fields, channel map and reversals. Every
-other top-level default has an explicit incomplete inventory row; descendants
-of characterization and command_mux are unsupported, not wildcard families.
-All eleven controller leaves have nested default pointers and per-leaf provenance.
-Their startup consumption is covered with inert constructor tests; all YAML edits
-remain pending restart. Controller correction inputs are retained for reload
-comparison; this does not prove correction is applied inside Plant.
-Standalone output tools and downstream simulator consumers remain unqualified.
-
-Only command_timeout declares candidate tier 1. Restart-only output and correction
-consumer tiers are unsupported until owner-controlled restart recipes are qualified.
-Missing runtime safety/state contracts,
-consumer build evidence and recipes block promotion; no recipe or achieved
-behavior verification is claimed. All rows are read-only, including when exact
-consumer revisions are supplied. Existing armed/hold reload guards are unchanged.
+`config/schema.yaml` (installed to the package share) describes the keys the TUI
+shows: pins, channel map, reversals, `command_timeout` and the `command_mux` keys,
+each with type, units, optional range, reload tier and a one-line doc. Validation
+stays in `configuration.validate_config`. Only `command_timeout` and the mux keys
+apply live; everything else needs a node restart. Decoupling is a flat row-major
+3x3 surge/sway/yaw correction; channel/reversal sequences use FL/FR/RR/RL order.

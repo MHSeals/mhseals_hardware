@@ -91,12 +91,3 @@ def test_coupled_request_is_refused_by_both_consumers_and_effort_stays_old():
     assert node._reload_error == 'restart required: characterization, decoupling'
     reload(node, accepted)
     assert not node._reload_error and node._plant_inputs == node._requested_plant_inputs
-
-
-def test_startup_selection_parameters_are_read_only():
-    from mhseals_hardware.startup_config import SELECTION_PARAMETERS
-    from mhseals_hardware.control_validation import GAIN_KEYS
-    node, _ = controller()
-    node._validate_gains.__func__.__globals__['GAIN_KEYS'] = GAIN_KEYS
-    for name in SELECTION_PARAMETERS:
-        assert not node._validate_gains([NS(name=name, value='changed')]).successful

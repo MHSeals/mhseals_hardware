@@ -47,7 +47,7 @@ def mux(section, overrides=None, **replace):
                InertNode=InertNode, Arbitration=Arbitration, RELOAD_PERIOD=1.,
                time=NS(monotonic=lambda: 0., time_ns=lambda: 1), Twist=object, String=lambda **kw: NS(**kw), RCIn=object,
                STATE_QOS=None, qos_profile_sensor_data=None,
-               node_startup_inputs=lambda node, path, **kw: ({'command_mux': full(section)}, None),
+               startup_config=lambda node, path, **kw: ({'command_mux': full(section)}, None),
                ConfigWatcher=lambda path: NS(poll=lambda: None),
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw))

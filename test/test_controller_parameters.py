@@ -10,7 +10,6 @@ import numpy
 import pytest
 
 from mhseals_hardware import control_validation as validation
-from mhseals_hardware.startup_config import SELECTION_PARAMETERS
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 from test_velocity_law import config
 
@@ -35,7 +34,7 @@ def node():
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     cls.bases = [ast.Name(id='ParameterOwner', ctx=ast.Load())]
-    env = dict(vars(validation), SELECTION_PARAMETERS=SELECTION_PARAMETERS,
+    env = dict(vars(validation),
                ParameterOwner=ParameterOwner, copy=copy, numpy=numpy,
                SetParametersResult=lambda **kw: NS(**kw), time=NS(monotonic=lambda: 1.),
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
@@ -132,7 +131,7 @@ def test_ros_service_double_array_consumes_new_law_and_rejection_retains_it():
 def constructor(overrides, resources):
     """Execute the unchanged class body, including __init__, with inert ROS seams."""
     from mhseals_hardware.configuration import ConfigWatcher
-    from mhseals_hardware.startup_config import node_startup_inputs
+    from mhseals_hardware.configuration import startup_config
 
     class InertNode(ParameterOwner):
         def __init__(self, name):
@@ -169,9 +168,9 @@ def constructor(overrides, resources):
     path = Path(__file__).parents[1] / 'mhseals_hardware/velocity_controller.py'
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
     clock = NS(now=1.)
-    env = dict(vars(validation), SELECTION_PARAMETERS=SELECTION_PARAMETERS,
+    env = dict(vars(validation),
         Node=InertNode, copy=copy, numpy=numpy, threading=threading, Plant=Plant,
-        VelocityLaw=VelocityLaw, node_startup_inputs=node_startup_inputs,
+        VelocityLaw=VelocityLaw, startup_config=startup_config,
         ConfigWatcher=ConfigWatcher, PLANT_KEYS=('thruster_matrix', 'characterization',
             'decoupling', 'decoupling_negative'), Twist=lambda: (0., 0., 0.),
         Vector3Stamped=object, Odometry=object, yaw_of=lambda q: 0.,
@@ -191,8 +190,7 @@ def test_actual_constructor_consumes_yaml_and_explicit_invocation(tmp_path):
         input_topic='/selected/input', output_topic='/selected/output', odom_topic='/selected/odom')
     save_config(selected, path)
     resources = []
-    cls, _ = constructor(dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
-        config_scope='yaml', kp=array('d', [3., 0., 0.])), resources)
+    cls, _ = constructor(dict(config_file=str(path), kp=array('d', [3., 0., 0.])), resources)
     n = cls()
     n._law.observe((0., 0., 0.), 0., 1.)
     n._command((.12, 0., 0.))
@@ -200,24 +198,6 @@ def test_actual_constructor_consumes_yaml_and_explicit_invocation(tmp_path):
     assert resources[-1] == ('message', '/selected/output', pytest.approx((.56, 0., 0.)))
     assert ('subscription', '/selected/input') in resources
     assert ('subscription', '/selected/odom') in resources
-    from mhseals_hardware.startup_config import startup_inputs
-    doc, _ = startup_inputs(root=tmp_path / 'snapshots', scope='yaml')
-    assert doc['baseline']['controller']['kp'] == [2., 0., 0.]
-    assert doc['origins']['controller.kp'][-1]['source'] == 'ROS invocation'
-
-
-def test_managed_controller_conflict_refuses_before_resources(tmp_path):
-    from mhseals_hardware.startup_config import startup_inputs
-    from mhseals_hardware.configuration import save_config
-    path = tmp_path / 'hardware.yaml'
-    save_config(config(), path)
-    _, selected = startup_inputs(path, root=tmp_path / 'snapshots', scope='same')
-    resources = []
-    cls, _ = constructor(dict(config_root=str(tmp_path / 'snapshots'), config_scope='same',
-        config_candidate=selected.ticket.candidate, input_topic='/conflict'), resources)
-    with pytest.raises(ValueError, match='conflicts'):
-        cls()
-    assert resources == []
 
 
 def test_constructor_consumes_pi_bounds_feedback_and_both_deadlines(tmp_path):
@@ -229,8 +209,7 @@ def test_constructor_consumes_pi_bounds_feedback_and_both_deadlines(tmp_path):
         command_timeout=.05)
     save_config(selected, path)
     resources = []
-    cls, clock = constructor(dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
-        config_scope='consumption'), resources)
+    cls, clock = constructor(dict(config_file=str(path)), resources)
     n = cls()
     n._law.observe((0., 0., 0.), 0., 1.)
     n._command((.12, 0., 0.))
@@ -261,8 +240,7 @@ def test_constructor_consumes_drift_time_and_command_gate(tmp_path, command_limi
         drift_command_limit=command_limit, odom_timeout=1.)
     save_config(selected, path)
     resources = []
-    cls, clock = constructor(dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
-        config_scope='drift'), resources)
+    cls, clock = constructor(dict(config_file=str(path)), resources)
     n = cls()
     n._law.observe((0., 0., 0.), 0., 1.)
     n._command((.1, 0., 0.))
@@ -274,15 +252,13 @@ def test_constructor_consumes_drift_time_and_command_gate(tmp_path, command_limi
     assert resources[-1][-1] == pytest.approx((expected, 0., 0.))
 
 
-def test_constructor_restart_consumes_snapshot_then_fresh_yaml(tmp_path):
+def test_constructor_restart_consumes_fresh_yaml(tmp_path):
     from mhseals_hardware.configuration import save_config
-    from mhseals_hardware.startup_config import startup_inputs
     path = tmp_path / 'hardware.yaml'
     selected = config()
     selected['controller'].update(kp=[2., 0., 0.], ki=[0.]*3, output_topic='/first')
     save_config(selected, path)
-    overrides = dict(config_file=str(path), config_root=str(tmp_path / 'snapshots'),
-                     config_scope='same')
+    overrides = dict(config_file=str(path))
     resources = []
     cls, _ = constructor(overrides, resources)
     n = cls()
@@ -295,85 +271,15 @@ def test_constructor_restart_consumes_snapshot_then_fresh_yaml(tmp_path):
     n._reload()
     assert n._reload_error == 'restart required: controller'
     assert n._law is law and list(law.integral) == [.1]*3
-    _, snapshot = startup_inputs(root=tmp_path / 'snapshots', scope='same')
-    overrides.update(config_candidate=snapshot.ticket.candidate, kp=[2., 0., 0.])
     cls, _ = constructor(overrides, resources)
-    same = cls()  # matching override retains the original captured authority
-    same._law.observe((0., 0., 0.), 0., 1.)
-    same._command((.12, 0., 0.))
-    assert resources[-1] == ('message', '/first', pytest.approx((.44, 0., 0.)))
-    overrides.pop('config_candidate')
-    overrides.pop('kp')
-    overrides['config_scope'] = 'fresh'
-    cls, _ = constructor(overrides, resources)
-    fresh = cls()
+    fresh = cls()  # a restart consumes the edited YAML
     fresh._law.observe((0., 0., 0.), 0., 1.)
     fresh._command((.12, 0., 0.))
     assert resources[-1] == ('message', '/second', pytest.approx((.56, 0., 0.)))
-    # Returning the desired YAML to the original selected section clears pending state.
+    # Returning the desired YAML to the original running section clears pending state.
     selected['controller'].update(kp=[2., 0., 0.], output_topic='/first')
     save_config(selected, path)
     n._watch.mtime = None
     n._watch.seen = n._watch._stat()
     n._reload()
     assert n._reload_error == '' and n._law is law
-
-
-@pytest.mark.parametrize('fault', ['missing', 'corrupt', 'wrong-candidate'])
-def test_actual_constructor_selection_fault_creates_no_resources(tmp_path, fault):
-    from mhseals_hardware.startup_config import startup_inputs
-    _, selected = startup_inputs(root=tmp_path / 'snapshots', scope='same')
-    overrides = dict(config_root=str(tmp_path / 'snapshots'), config_scope='same',
-                     config_candidate=selected.ticket.candidate)
-    artifact = tmp_path / 'snapshots/same/initializing/hardware-pure.json'
-    if fault == 'missing':
-        artifact.unlink()
-    elif fault == 'corrupt':
-        artifact.write_text('{}')
-    else:
-        overrides['config_candidate'] = 'wrong'
-    resources = []
-    cls, _ = constructor(overrides, resources)
-    with pytest.raises((ValueError, FileNotFoundError)):
-        cls()
-    assert resources == []
-
-
-def test_actual_constructor_rejects_legacy_recipe_before_resources(tmp_path):
-    from mhseals_config._bootstrap import begin_bootstrap, finish_bootstrap
-    from mhseals_config._evidence import Recipe
-    from mhseals_hardware.startup_config import prepare_inputs
-    prepared = prepare_inputs()
-    legacy = 'hardware-pure-startup/v1'
-    evaluators = {legacy: Recipe(legacy, lambda document, evidence: True)}
-    recipes = {p: legacy for p in prepared['documents']}
-    root = tmp_path / 'snapshots'
-    ticket = begin_bootstrap(root, 'legacy', prepared['baseline'], prepared['documents'],
-        recipes, source_identity=prepared['source'], participant_identities=recipes,
-        closure='inert', evaluators=evaluators)
-    observations = {p: dict(scope='legacy', candidate=ticket.candidate,
-        source=prepared['source'], identity=legacy, recipe=legacy, evidence={}) for p in recipes}
-    finish_bootstrap(root, ticket, observations, evaluators=evaluators)
-    resources = []
-    cls, _ = constructor(dict(config_root=str(root), config_scope='legacy'), resources)
-    with pytest.raises(ValueError):
-        cls()
-    assert resources == []
-
-
-@pytest.mark.parametrize('text', [
-    'controller: &x {unknown: *x}',
-    'controller: &x {controller: *x}',
-    'controller: {kp: &x [*x, 0, 0]}',
-    'unknown: &x {unknown: *x}',
-])
-def test_recursive_yaml_refuses_before_constructor_resources(tmp_path, text):
-    path = tmp_path / 'recursive.yaml'
-    path.write_text(text)
-    resources = []
-    cls, _ = constructor(dict(config_file=str(path),
-        config_root=str(tmp_path / 'snapshots'), config_scope='recursive'), resources)
-    with pytest.raises(ValueError) as error:
-        cls()
-    assert str(path) in str(error.value) and 'line=' in str(error.value)
-    assert resources == []

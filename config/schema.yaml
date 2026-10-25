@@ -1,0 +1,20 @@
+# Keys the TUI shows. Dotted paths into hardware.yaml (a plain mapping).
+# tier: live = applied in the running node; restart = needs a node restart.
+pwm_chips: {type: list, units: path, tier: restart, doc: "Four sysfs PWM chip paths for physical outputs 1-4."}
+pwm_channels: {type: list, units: count, range: [0, 15], tier: restart, doc: "PWM channel index on each chip, outputs 1-4."}
+mosfet_chip: {type: str, units: enum, tier: restart, doc: "GPIO bank label (gpio3) or /dev/gpiochipN for the MOSFET enable line."}
+mosfet_line: {type: int, units: count, range: [0, 255], tier: restart, doc: "GPIO line offset of the MOSFET enable."}
+mosfet_active_high: {type: bool, units: bool, tier: restart, doc: "True when a high level powers the thrusters."}
+channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
+reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
+command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "Thrusters go neutral after this long without a command."}
+command_mux.mode_ch: {type: int, units: count, range: [1, 18], tier: live, doc: "1-based RC channel carrying the FCU mode switch."}
+command_mux.modes: {type: list, units: enum, tier: live, doc: "FCU mode number for each of the six mode switch positions."}
+command_mux.stop_ch: {type: int, units: count, range: [1, 18], tier: live, doc: "1-based RC channel of the stop switch."}
+command_mux.rc_scale: {type: list, units: 1, range: [0.0, 1.0], tier: live, doc: "Surge, sway, yaw fraction of full command at full stick."}
+command_mux.rc_max_age: {type: float, units: s, range: [0.0, 5.0], tier: live, doc: "RC frames older than this count as no receiver."}
+command_mux.cmd_timeout: {type: float, units: s, range: [0.0, 5.0], tier: live, doc: "Manual and autonomous commands expire after this long."}
+command_mux.stick_takeover: {type: int, units: count, range: [0, 500], tier: live, doc: "Stick deflection in PWM microseconds past center that takes over."}
+command_mux.stick_time: {type: float, units: s, range: [0.0, 5.0], tier: live, doc: "How long the stick must stay deflected to take over."}
+command_mux.stick_release: {type: float, units: s, range: [0.0, 5.0], tier: live, doc: "How long the stick must stay centered to release."}
+command_mux.ramp: {type: float, units: s, range: [0.0, 10.0], tier: live, doc: "Ramp time when the commanded source changes."}

@@ -9,7 +9,6 @@ import pytest
 
 from mhseals_hardware.configuration import ConfigWatcher, config_sha, load_defaults, save_config, validate_config
 from mhseals_hardware.outputs import OUTPUT_KEYS
-from mhseals_hardware.startup_config import SELECTION_PARAMETERS
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reversed,
 )
@@ -120,7 +119,7 @@ def test_invalid_timeout_preserves_watchdog(value):
 
 def test_parameter_writes_cannot_bypass_guard():
     node, env = pwm()
-    for key in set(env['RESTART_KEYS']) | set(SELECTION_PARAMETERS) | {'config_file', 'pulse_guard_topic'}:
+    for key in set(env['RESTART_KEYS']) | {'config_file', 'pulse_guard_topic'}:
         assert not node.refuse_external([NS(name=key)]).successful
     assert not node.refuse_external([NS(name='command_timeout')]).successful
 

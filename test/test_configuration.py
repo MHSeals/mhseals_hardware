@@ -162,7 +162,8 @@ def test_update_keeps_a_following_negative_following_and_a_real_split(tmp_path):
     import yaml
     path = tmp_path / 'hardware.yaml'
     first, second, split = ([1, 0, 0, 0, 1, 0, x, 0, 1] for x in (.1, .2, 0))
-    path.write_text(yaml.safe_dump({'decoupling': first, 'decoupling_negative': first}))
+    other = list(first)
+    path.write_text(yaml.safe_dump({'decoupling': first, 'decoupling_negative': other}))
     update_config({'decoupling': second}, path)
     assert 'decoupling_negative' not in yaml.safe_load(path.read_text())
     assert load_config(path)['decoupling_negative'] == second

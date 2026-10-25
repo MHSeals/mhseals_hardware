@@ -9,7 +9,7 @@ def config_resource(name):
     and copied colcon installs use share/mhseals_hardware in the code's prefix.
     Missing selected data is an error, not permission to search other installs.
     """
-    if name not in ('default.yaml', 'catalog.yaml'):
+    if name not in ('default.yaml', 'schema.yaml'):
         raise ValueError('unknown hardware configuration resource: ' + name)
     package = Path(__file__).resolve().parent
     root = package.parent

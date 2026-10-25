@@ -38,8 +38,8 @@ def test_copied_colcon_resources_bind_code_prefix(tmp_path, monkeypatch):
     expected.write_text('owned: true')
     monkeypatch.setattr(resources, '__file__', str(package / 'resources.py'))
     assert resources.config_resource('default.yaml') == expected
-    with pytest.raises(FileNotFoundError, match='catalog.yaml'):
-        resources.config_resource('catalog.yaml')
+    with pytest.raises(FileNotFoundError, match='schema.yaml'):
+        resources.config_resource('schema.yaml')
 
 
 def test_installed_wheel_loads_own_data_from_unrelated_cwd(tmp_path):
@@ -57,7 +57,7 @@ def test_installed_wheel_loads_own_data_from_unrelated_cwd(tmp_path):
     target = tmp_path / 'installed'
     subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-deps', '--no-index',
                     '--target', str(target), str(wheel)], check=True, capture_output=True)
-    for name in ('default.yaml', 'catalog.yaml'):
+    for name in ('default.yaml', 'schema.yaml'):
         assert (target / 'share/mhseals_hardware/config' / name).read_bytes() == (root / 'config' / name).read_bytes()
     env = dict(os.environ)
     # Exclude the checkout from subprocess imports, keeping explicit core dependency roots.
@@ -69,16 +69,10 @@ from pathlib import Path
 import sys
 from mhseals_hardware.resources import config_resource
 from mhseals_hardware.configuration import load_defaults
-from mhseals_hardware.catalog import load_catalog
-from mhseals_hardware.startup_config import compile_inputs, observe, evaluate
 assert config_resource('default.yaml') == Path(sys.argv[1]) / 'share/mhseals_hardware/config/default.yaml'
 assert not (Path(sys.argv[1]) / 'mhseals_hardware/config').exists()
 assert load_defaults()['controller']['kp'] == [0.8, 0.8, 0.6]
-assert len(load_catalog().rows) == 41
-compiled = compile_inputs()
-evidence = observe(compiled)
-assert evidence['mixer'][0] == [-.25, -.25, .25, .25]
-assert evaluate(compiled, evidence)
+assert config_resource('schema.yaml').is_file()
 assert 'rclpy' not in sys.modules
 '''
     subprocess.run([sys.executable, '-c', code, str(target)], cwd=tmp_path,

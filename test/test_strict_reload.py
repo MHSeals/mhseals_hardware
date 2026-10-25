@@ -1,8 +1,7 @@
 """Operator YAML is parsed strictly: duplicate/merge/recursive input is refused, last good kept."""
 from mhseals_hardware.configuration import (
-    ConfigWatcher, load_config, update_config,
+    ConfigWatcher, load_config, startup_config, update_config,
 )
-from mhseals_hardware.startup_config import node_startup_inputs
 
 import pytest
 
@@ -14,6 +13,8 @@ BAD = {
     'duplicate-mux': 'command_mux:\n  cmd_timeout: 0.9\n  cmd_timeout: 0.8\n',
     'merge': 'command_mux:\n  <<: {cmd_timeout: 0.9}\n',
     'recursive': 'command_mux:\n  modes: &x [*x]\n',
+    'alias': 'controller:\n  kp: &g [1, 1, 1]\n  ki: *g\n',
+    'nan': 'command_timeout: .nan\n',
     'unknown': 'mosfet_lien: 3\n',
     'syntax': 'command_timeout: [\n',
 }
@@ -33,7 +34,7 @@ def test_load_config_refuses_with_value_error(tmp_path, name):
 def test_duplicate_error_is_located(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text(BAD['duplicate'])
-    with pytest.raises(ValueError, match=r'hardware\.yaml.*line=1.*hardware\.yaml.*line=2'):
+    with pytest.raises(ValueError, match=r'hardware\.yaml:2: duplicate key.*hardware\.yaml:1'):
         load_config(path)
 
 
@@ -88,58 +89,22 @@ def test_watcher_keeps_last_good_and_never_applies_duplicate(tmp_path):
     assert [c['command_timeout'] for c in applied] == [0.2]  # nothing new applied
 
 
-def real_startup(monkeypatch, tmp_path):
-    monkeypatch.setenv('MHSEALS_CONFIG_ROOT', str(tmp_path / 'snap'))
-    monkeypatch.delenv('MHSEALS_CONFIG_SCOPE', raising=False)
-    return lambda section, path: mux(section, {'config_file': str(path)},
-                                     node_startup_inputs=node_startup_inputs)
-
-
-def test_mux_startup_is_managed_and_records_snapshot(tmp_path, monkeypatch):
-    build = real_startup(monkeypatch, tmp_path)
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_mux:\n  cmd_timeout: 0.9\n')
-    node = build({}, path)
-    assert node.arbitration.cmd_timeout == 0.9
-    assert node.startup_selection is not None
-    assert list((tmp_path / 'snap').rglob('active.json'))  # the recorded snapshot
+def build_mux(path):
+    return mux({}, {'config_file': str(path)}, startup_config=startup_config)
 
 
 @pytest.mark.parametrize('name', ['duplicate', 'duplicate-mux', 'merge', 'recursive'])
-def test_mux_startup_refuses_bad_file_without_snapshot(tmp_path, monkeypatch, name):
-    build = real_startup(monkeypatch, tmp_path)
+def test_mux_startup_refuses_bad_file(tmp_path, name):
     path = tmp_path / 'hardware.yaml'
     path.write_text(BAD[name])
     with pytest.raises(ValueError):
-        build({}, path)
-    assert not list((tmp_path / 'snap').rglob('active.json'))
+        build_mux(path)
 
 
-def test_mux_with_selection_args_takes_the_selection_not_a_differing_file(tmp_path, monkeypatch):
-    """
-    A mux given an existing selection's root/scope/candidate reads that snapshot.
-
-    Without those arguments (what the testing arming path passes today) the mux
-    bootstraps a new orphan scope from the operator file instead.
-    """
-    build = real_startup(monkeypatch, tmp_path)
+def test_mux_startup_reads_the_operator_file(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux:\n  cmd_timeout: 0.9\n')
-    first = build({}, path)
-    selection = first.startup_selection
-    root = tmp_path / 'snap'
-    scopes = {p.parent.name for p in root.rglob('active.json')}
-    assert len(scopes) == 1
-    scope = scopes.pop()
-    path.write_text('command_mux:\n  cmd_timeout: 0.4\n')  # the operator file now differs
-    arguments = {'config_file': str(path), 'config_root': str(root), 'config_scope': scope,
-                 'config_candidate': selection.ticket.candidate}
-    node = mux({}, arguments, node_startup_inputs=node_startup_inputs)
-    assert node.arbitration.cmd_timeout == 0.9  # from the selection
-    assert {p.parent.name for p in root.rglob('active.json')} == {scope}  # no orphan scope
-    orphan = mux({}, {'config_file': str(path)}, node_startup_inputs=node_startup_inputs)
-    assert orphan.arbitration.cmd_timeout == 0.4  # no selection args: operator file, new scope
-    assert len({p.parent.name for p in root.rglob('active.json')}) == 2
+    assert build_mux(path).arbitration.cmd_timeout == 0.9
 
 
 def test_unknown_key_keeps_wording_and_origin(tmp_path):

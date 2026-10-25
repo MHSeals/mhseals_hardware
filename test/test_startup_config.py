@@ -1,216 +1,87 @@
-"""Pure compiler probes do not initialize a ROS node or an output driver."""
-from mhseals_hardware.startup_config import compile_inputs, evaluate, observe
+"""Node startup loads package defaults, then the operator file, then launch parameters."""
+from array import array
+from pathlib import Path
+from types import SimpleNamespace as NS
+
 import pytest
+import yaml
+
+from mhseals_hardware.configuration import load_defaults, load_strict_yaml, startup_config
 
 
-def test_baseline_session_and_origins(tmp_path):
-    profile = tmp_path / 'profile.yaml'
-    profile.write_text('command_timeout: 0.4\n')
-    operator = tmp_path / 'hardware.yaml'
-    operator.write_text('command_timeout: 0.5\n')
-    document = compile_inputs(operator, profile=profile,
-                              session=('command_timeout: 0.8\n', 'invocation'))
-    assert document['baseline']['command_timeout'] == 0.5
-    assert document['effective']['command_timeout'] == 0.8
-    assert [o['layer'] for o in document['origins']['command_timeout']] == [
-        'defaults', 'profile', 'operator', 'session']
-    assert document['origins']['command_timeout'][-1]['source'] == 'invocation'
-    assert compile_inputs(operator)['effective']['command_timeout'] == 0.5
-    assert operator.read_text() == 'command_timeout: 0.5\n'
+def node(**overrides):
+    return NS(_parameter_overrides={k: NS(value=v) for k, v in overrides.items()})
 
 
-def test_nondefault_actual_mixer_and_law(tmp_path):
-    operator = tmp_path / 'hardware.yaml'
-    operator.write_text("""command_timeout: 0.7
-thruster_matrix: [0.5, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5]
-characterization:
-  velocity_gain:
-    surge: {surge: 0.5, sway: 0.0, yaw: 0.0}
-    sway: {surge: 0.0, sway: 0.5, yaw: 0.0}
-    yaw: {surge: 0.0, sway: 0.0, yaw: 0.5}
-  motion_limits:
-    velocity: {surge: 0.5, sway: 0.5, yaw: 0.5}
-""")
-    document = compile_inputs(operator)
-    evidence = observe(document)
-    assert evidence['mixer'][0] == [0.125, 0.0, 0.0, 0.125]
-    assert evidence['law'] == pytest.approx([0.28, 0.0, 0.0])
-    assert evidence['timeout'] == 0.7
-    assert evaluate(document, evidence)
-    evidence['mixer'][0][0] = 0.0
-    assert not evaluate(document, evidence)
-    assert not evaluate(document, {'verified': True})
-
-
-@pytest.mark.parametrize('text', ['command_timeout: 0.5\ncommand_timeout: 0.6\n',
-                                  'command_timeout: .nan\n', 'unknown: 1\n'])
-def test_rejects_invalid_sources(tmp_path, text):
-    operator = tmp_path / 'hardware.yaml'
-    operator.write_text(text)
-    with pytest.raises(ValueError):
-        compile_inputs(operator)
-
-
-def test_bootstrap_same_scope_ignores_authoring_edits(tmp_path):
-    from mhseals_hardware.startup_config import startup_inputs
-    operator = tmp_path / 'hardware.yaml'
-    operator.write_text('command_timeout: 0.5\n')
-    root = tmp_path / 'snapshots'
-    first, selected = startup_inputs(operator, root=root, scope='same',
-                                     session=('command_timeout: 0.8\n', 'invocation'))
-    operator.write_text('command_timeout: 0.6\n')
-    restarted, again = startup_inputs(operator, root=root, scope='same')
-    fresh, _ = startup_inputs(operator, root=root, scope='fresh')
-    assert first == restarted
-    assert selected.ticket == again.ticket
-    assert fresh['effective']['command_timeout'] == 0.6
-    assert restarted['baseline']['command_timeout'] == 0.5
-    assert restarted['effective']['command_timeout'] == 0.8
-    assert selected.manifest.baseline.artifacts[0].name == 'hardware-baseline.json'
-
-
-@pytest.mark.parametrize('fault', ['missing', 'corrupt'])
-def test_required_artifact_fault_prevents_actual_pwm_outputs(tmp_path, fault):
-    import ast
-    from pathlib import Path
-    from types import SimpleNamespace
-    from mhseals_hardware.startup_config import node_startup_inputs, startup_inputs
-
-    root = tmp_path / 'snapshots'
-    startup_inputs(root=root, scope='same')
-    artifact = root / 'same/initializing/hardware-pure.json'
-    if fault == 'missing':
-        artifact.unlink()
-    else:
-        artifact.write_text('{}')
-    calls = []
-
-    class Node:
-        def __init__(self, name):
-            self._parameter_overrides = {}
-            self.parameters = {'config_root': str(root), 'config_scope': 'same'}
-
-        def declare_parameter(self, name, value):
-            self.parameters.setdefault(name, value)
-
-        def get_parameter(self, name):
-            return SimpleNamespace(value=self.parameters[name])
-
-    source = Path(__file__).parents[1] / 'mhseals_hardware/thruster_pwm_node.py'
-    tree = ast.parse(source.read_text())
-    cls = next(n for n in tree.body if isinstance(n, ast.ClassDef)
-               and n.name == 'ThrusterPWMNode')
-    cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef)
-                and n.name == '__init__']
-    namespace = dict(Node=Node, node_startup_inputs=node_startup_inputs,  # noqa: C408
-                     make_outputs=lambda *args, **kwargs: calls.append('outputs'))
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
-                 str(source), 'exec'), namespace)
-    with pytest.raises((ValueError, FileNotFoundError)):
-        namespace['ThrusterPWMNode']()
-    assert calls == []
-
-
-@pytest.mark.parametrize('spelling', ['1', '1.0'])
-def test_float_setting_accepts_numeric_yaml_styles(tmp_path, spelling):
-    operator = tmp_path / 'hardware.yaml'
-    operator.write_text('command_timeout: ' + spelling + '\n')
-    document = compile_inputs(operator)
-    assert document['effective']['command_timeout'] == 1.0
-    assert type(document['effective']['command_timeout']) is float
-    operator.write_text('command_timeout: true\n')
-    with pytest.raises(ValueError):
-        compile_inputs(operator)
-
-
-def test_rounding_tolerance_preserves_evidence_shape_and_finiteness(tmp_path):
-    from mhseals_hardware.startup_config import plain, startup_inputs
-    operator = tmp_path / 'hardware.yaml'
-    operator.write_text("""characterization:
-  velocity_gain:
-    surge: {surge: 2.7, sway: 0.0, yaw: 0.0}
-    sway: {surge: 0.0, sway: 2.7, yaw: 0.0}
-    yaw: {surge: 0.0, sway: 0.0, yaw: 2.7}
-  motion_limits:
-    velocity: {surge: 2.7, sway: 2.7, yaw: 2.7}
-""")
-    document, _ = startup_inputs(operator, root=tmp_path / 'snapshots', scope='rounding')
-    evidence = observe(document)
-    assert evaluate(document, evidence)
-    for bad in (float('nan'), float('inf'), True, 0.1):
-        corrupted = plain(evidence)
-        corrupted['law'][0] = bad
-        assert not evaluate(document, corrupted)
-    assert not evaluate(document, dict(evidence, identity='another'))
-    assert not evaluate(document, dict(evidence, law=evidence['law'][:2]))
-
-
-def test_controller_leaf_precedence_and_locations(tmp_path):
-    profile = tmp_path / 'profile.yaml'
-    profile.write_text('controller: {kp: [1, 2, 3], feedback: false}\n')
-    operator = tmp_path / 'operator.yaml'
-    operator.write_text('controller:\n  odom_timeout: 1\n')
-    doc = compile_inputs(operator, profile=profile,
-        session=('controller: {kp: [2, 3, 4]}', 'ROS invocation'))
-    assert doc['baseline']['controller']['kp'] == [1., 2., 3.]
-    assert doc['effective']['controller']['kp'] == [2., 3., 4.]
-    assert doc['effective']['controller']['feedback'] is False
-    assert doc['effective']['controller']['odom_timeout'] == 1.0
-    assert doc['origins']['controller.odom_timeout'][-1]['line'] == 2
-    assert [o['layer'] for o in doc['origins']['controller.kp']] == [
-        'defaults', 'profile', 'session']
-    operator.write_text('{}')
-    assert compile_inputs(operator)['effective']['controller']['odom_timeout'] == .3
-
-
-@pytest.mark.parametrize('text', ['controller: {kp: [1, 2, 3], kp: [2, 3, 4]}',
-    'controller: {<<: {feedback: false}}', 'controller: &self {kp: *self}',
-    'controller: {odom_timeout: true}', 'controller: null'])
-def test_controller_strict_sources(tmp_path, text):
-    path = tmp_path / 'operator.yaml'
-    path.write_text(text)
-    with pytest.raises(ValueError):
-        compile_inputs(path)
-
-
-def test_controller_snapshot_retains_complete_baseline_and_session(tmp_path):
-    from mhseals_hardware.startup_config import startup_inputs
+def test_layers_and_baseline(tmp_path):
     path = tmp_path / 'hardware.yaml'
-    path.write_text('controller: {kp: [2, 3, 4], input_topic: /custom}\n')
-    first, selected = startup_inputs(path, root=tmp_path / 'snapshots', scope='same',
-        session=('controller: {feedback: false}', 'invocation'))
-    path.unlink()
-    again, _ = startup_inputs(path, root=tmp_path / 'snapshots', scope='same')
-    assert first == again
-    baseline = selected.documents['hardware-baseline']['effective']['controller']
-    assert baseline['feedback'] is True
-    assert again['effective']['controller']['feedback'] is False
-    assert again['effective']['controller']['input_topic'] == '/custom'
+    path.write_text('command_timeout: 0.4\ncontroller: {odom_timeout: 1}\n')
+    effective, baseline = startup_config(node(command_timeout=0.8), path)
+    assert baseline['command_timeout'] == 0.4
+    assert effective['command_timeout'] == 0.8
+    assert baseline['controller']['odom_timeout'] == 1.0
+    assert type(baseline['controller']['odom_timeout']) is float
+    assert effective['controller']['kp'] == load_defaults()['controller']['kp']
+
+
+def test_missing_operator_file_is_defaults(monkeypatch, tmp_path):
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
+    effective, baseline = startup_config(node(), None)
+    assert effective == baseline
+
+
+def test_explicit_missing_file_is_an_error(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        startup_config(node(), tmp_path / 'absent.yaml')
+
+
+def test_controller_mode_takes_only_controller_overrides(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('')
+    effective, _ = startup_config(
+        node(kp=array('d', [2., 3., 4.]), pwm_topic='/other'), path, hardware_parameters=False)
+    assert effective['controller']['kp'] == [2., 3., 4.]
+    assert effective['pwm_topic'] == load_defaults()['pwm_topic']  # driver keys are not overridden
 
 
 @pytest.mark.parametrize('text', [
-    'controller: &x {unknown: *x}',
-    'controller: &x {controller: *x}',
-    'controller: {kp: &x [*x, 0, 0]}',
-    'unknown: &x {unknown: *x}',
-    'controller: {kp: [1, 2, 3], kp: [2, 3, 4]}',
-    'controller: {<<: {feedback: false}}',
-    '? [invalid, key]\n: value',
-])
-def test_malformed_graphs_reach_located_strict_parser(tmp_path, text):
-    path = tmp_path / 'malformed.yaml'
+    'controller: {odom_timeout: true}', 'controller: null', 'controller: {nope: 1}',
+    'command_timeout: true', 'unknown: 1'])
+def test_invalid_operator_values_refuse(tmp_path, text):
+    path = tmp_path / 'hardware.yaml'
     path.write_text(text)
-    with pytest.raises(ValueError) as error:
-        compile_inputs(path)
-    assert str(path) in str(error.value)
-    assert 'line=' in str(error.value)
+    with pytest.raises(ValueError):
+        startup_config(node(), path)
 
 
-def test_repeated_nonrecursive_aliases_keep_numeric_normalization(tmp_path):
-    path = tmp_path / 'aliases.yaml'
-    path.write_text('controller:\n  kp: &g [1, 2, 3]\n  ki: *g\n'
-                    '  drift_time_constant: &t 1\n  odom_timeout: *t\n')
-    section = compile_inputs(path)['effective']['controller']
-    assert section['kp'] == section['ki'] == [1., 2., 3.]
-    assert type(section['drift_time_constant']) is float
-    assert type(section['odom_timeout']) is float
+@pytest.mark.parametrize('text', [
+    'a: 1\na: 2', 'a: {<<: {b: 1}}', 'a: &x [1]\nb: *x', 'a: .inf', 'a: -.inf',
+    '? [k]\n: v', '- 1', 'a: [\n'])
+def test_strict_loader_refuses_and_locates(tmp_path, text):
+    path = tmp_path / 'f.yaml'
+    path.write_text(text)
+    with pytest.raises(ValueError, match=r'f\.yaml'):
+        load_strict_yaml(path)
+
+
+def test_strict_loader_accepts_plain_and_empty(tmp_path):
+    path = tmp_path / 'f.yaml'
+    path.write_text('a: 1\nb: {c: [1.5, x]}\n')
+    assert load_strict_yaml(path) == {'a': 1, 'b': {'c': [1.5, 'x']}}
+    path.write_text('# nothing\n')
+    assert load_strict_yaml(path) == {}
+
+
+def test_schema_covers_real_keys_with_required_fields():
+    schema = yaml.safe_load((Path(__file__).parents[1] / 'config/schema.yaml').read_text())
+    defaults = load_defaults()
+    for key, row in schema.items():
+        top, _, leaf = key.partition('.')
+        assert top in defaults and (not leaf or leaf in defaults[top]), key
+        assert row['type'] in ('float', 'int', 'bool', 'str', 'list')
+        assert row['tier'] in ('live', 'reconfigure', 'restart', 'new-session')
+        assert row['units'] and row['doc']
+        if 'range' in row:
+            assert len(row['range']) == 2
+    assert schema['command_timeout']['tier'] == 'live'
