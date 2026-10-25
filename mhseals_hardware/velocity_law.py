@@ -20,6 +20,9 @@ from mhseals_hardware.thruster_mixer import AXES
 
 
 CURVE_KEYS = tuple(axis + sign for axis in AXES for sign in '+-')
+# s: the carried displacement leaks with this time constant, so a small steady odometry
+# bias settles at bias * CARRY_WINDOW (5 mm/s -> 1 cm) instead of growing past drift_carry.
+CARRY_WINDOW = 2.0
 
 
 def gain_matrix(mapping):
@@ -122,7 +125,6 @@ class VelocityLaw:
         self.drift_command_limit = float(drift_command_limit)
         self.drift_limit = float(drift_limit)
         self.drift_carry = float(drift_carry)
-        self.carried = numpy.zeros(2)  # world frame, m, since the boat last got under way
         self.odom_timeout = float(odom_timeout)
         self.drift = numpy.zeros(2)  # world frame (x east, y north in odom), m/s
         self.velocity = None
@@ -135,6 +137,9 @@ class VelocityLaw:
         self.effort = numpy.zeros(3)
         self.target = numpy.zeros(3)
         self.last_step = None
+        # World frame, m, over the last CARRY_WINDOW or so; a hold or timeout restarts it.
+        self.carried = numpy.zeros(2)
+        self.current_seen = None  # world unit vector the boat was carried drift_carry along
 
     def observe(self, velocity, yaw, now):
         """Odometry: update the drift estimate from what the model can't explain."""
@@ -150,7 +155,8 @@ class VelocityLaw:
         # for current and turned with the boat.
         under_way = numpy.any(numpy.abs(self.target) > self.drift_command_limit)
         if under_way:
-            self.carried = numpy.zeros(2)
+            self.carried, self.current_seen = numpy.zeros(2), None
+        self.carried *= 1.0 - dt / CARRY_WINDOW  # dt <= 0.2 s, so this stays positive
         saturated = numpy.any(numpy.abs(self.effort) >= 0.999)
         if self.drift_time_constant <= 0 or dt == 0 or under_way or saturated:
             return
@@ -166,10 +172,14 @@ class VelocityLaw:
         # the push and wind it up. A real current carries the boat along it before the
         # loop catches it, while the boat reached the contact moving the other way. So the
         # estimate grows only once the boat has been carried drift_carry along the residual
-        # since it last got under way (displacement, not speed: the PI soon stops the boat);
-        # it may always shrink or turn. drift_limit is the backstop.
+        # within the last CARRY_WINDOW or so (displacement, not speed: the PI soon stops the
+        # boat), and then keeps growing along that side until a reset or getting under way;
+        # it may always shrink or turn. The window leaks so a slow odometry bias can't add up
+        # to drift_carry over a long hold. drift_limit is the backstop.
         size = numpy.linalg.norm(residual)
-        carried = size > 0 and self.carried @ residual / size > self.drift_carry
+        if size > 0 and self.carried @ residual / size > self.drift_carry:
+            self.current_seen = residual / size
+        carried = self.current_seen is not None and self.current_seen @ residual > 0
         limit = self.drift_limit if carried else min(before, self.drift_limit)
         speed = math.hypot(*self.drift)
         if speed > limit:

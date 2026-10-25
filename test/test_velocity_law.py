@@ -151,6 +151,30 @@ def test_dock_contact_does_not_wind_the_effort_up(drift_limit):
     assert abs(law.effort[0]) < 0.01 and abs(law.effort[2]) < 0.01
 
 
+def test_an_odometry_bias_over_a_long_hold_does_not_open_the_carried_gate():
+    # Odometry reads 5 mm/s off the dock that isn't there. Summed over a 60 s hold that
+    # was 0.3 m "carried", which let the dock reaction of the creep that follows wind up.
+    plant, boat, bias = Plant(config()), Docked(), numpy.array((0.0, 0.005, 0.0))
+    law, now = VelocityLaw(plant, drift_limit=math.inf), 0.0
+    for desired, seconds in (((0.0, 0.0, 0.0), 60), ((0.0, -0.05, 0.0), 300)):
+        for _ in range(int(seconds / 0.05)):
+            law.observe(boat.velocity + bias, boat.yaw, now)
+            boat.advance(law.step(desired, now), 0.05)
+            now += 0.05
+        assert numpy.linalg.norm(law.carried) < law.drift_carry
+    assert numpy.hypot(*law.drift) < 0.01
+    # The creep, P on the creep plus the bias, and the PI ceiling; nothing wound up.
+    assert law.effort[1] >= plant.effort(1, -0.05) - 0.8 * 0.055 - 0.6 * 0.3 - 1e-6
+
+
+def test_reset_restarts_the_carried_window_and_a_real_current_still_opens_it():
+    law = VelocityLaw(Plant(config()))
+    run(law, Boat(current=(0.0, 0.05)), (0.0, 0.0, 0.0), 2)
+    assert law.carried[1] > law.drift_carry  # 5 cm/s carries 2 cm within the window
+    law.reset()                              # a mux hold or a command timeout
+    assert not law.carried.any()
+
+
 def test_a_real_current_is_learned_in_full_and_drift_limit_bounds_it():
     boat = Boat(current=(0.21, 0.21))  # 0.3 m/s toward the north-east
     law = VelocityLaw(Plant(config()))
