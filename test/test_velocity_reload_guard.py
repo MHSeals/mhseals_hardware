@@ -22,7 +22,7 @@ def controller(fault=''):
     node._law = VelocityLaw(Plant(accepted))
     node._plant_inputs = node._inputs(accepted)
     node._requested_plant_inputs, node._reload_error = node._plant_inputs, ''
-    node._fault, node.logs, node.sent = fault, [], []
+    node._fault, node._held, node.logs, node.sent = fault, False, [], []
     node.get_logger = lambda: NS(error=node.logs.append)
     node.get_parameter = lambda name: NS(value=False)
     node._pub = NS(publish=node.sent.append)

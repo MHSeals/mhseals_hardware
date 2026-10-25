@@ -4,13 +4,15 @@ The native PWM node consumes normalized effort, despite its historical
 ``cmd_vel`` topic name. This node is the explicit boundary that accepts SI
 body velocity commands from Nav2 and emits ``cmd_vel_effort`` for that node.
 The control law lives in ``velocity_law``; this node only wires it to ROS and
-publishes its live drift estimate on ``~/drift`` (odom frame, m/s). With
+publishes its live drift estimate on ``~/drift`` (odom frame, m/s). While the
+command_mux state says hold or idle it sends neutral effort, not station-keeping. With
 ``config_file`` edits that change the Plant require an owner-controlled restart.
 The running law retains its accepted model and state while a request is deferred.
 """
 from __future__ import annotations
 
 import copy
+import json
 import math
 import threading
 import time
@@ -20,6 +22,8 @@ from nav_msgs.msg import Odometry
 import numpy
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+from std_msgs.msg import String
 
 from mhseals_hardware.control_validation import (
     GAIN_KEYS, RESTART_KEYS, SCALAR_GAINS, VECTOR_GAINS, validate_controller,
@@ -31,6 +35,9 @@ from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 # The config keys Plant reads; an edit to anything else keeps the model and the integrator.
 PLANT_KEYS = ('thruster_matrix', 'characterization', 'decoupling', 'decoupling_negative')
+# The mux's latched ~/state, so the current hold reaches a controller started late.
+STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def yaw_of(orientation):
@@ -52,17 +59,20 @@ class VelocityController(Node):
         validate_controller(config['controller'])
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
-                                value('drift_command_limit'))
+                                value('drift_command_limit'), value('drift_limit'),
+                                value('drift_carry'))
         self._plant_inputs = self._inputs(config)
         self._requested_plant_inputs = self._plant_inputs
         self._reload_error = ''  # deferred file request, distinct from a running-model fault
         self._fault = ''  # why the model is invalid; neutral effort until it is fixed
+        self._held = False  # the mux holds or idles: neutral effort (no mux: never)
         self._frame = 'odom'
         self._last_command = time.monotonic()
         self._pub = self.create_publisher(Twist, value('output_topic'), 10)
         self._drift = self.create_publisher(Vector3Stamped, '~/drift', 10)
         self.create_subscription(Twist, value('input_topic'), self._command, 10)
         self.create_subscription(Odometry, value('odom_topic'), self._odom, 10)
+        self.create_subscription(String, value('mux_state_topic'), self._mux_state, STATE_QOS)
         self.add_on_set_parameters_callback(self._validate_gains)
         self.add_post_set_parameters_callback(self._commit_gains)
         self.create_timer(0.05, self._watchdog)
@@ -91,6 +101,9 @@ class VelocityController(Node):
                     else float(value))
         candidate.integral = numpy.clip(self._law.integral,
                                         -candidate.integral_limit, candidate.integral_limit)
+        speed = math.hypot(*self._law.drift)
+        candidate.drift = self._law.drift * min(1.0, candidate.drift_limit / speed) if speed else \
+            self._law.drift.copy()
         self._candidate_law = candidate  # unconsumed if any later callback refuses
         return SetParametersResult(successful=True)
 
@@ -144,7 +157,9 @@ class VelocityController(Node):
     def _command(self, message):
         with self._law_lock:
             now = time.monotonic()
-            if self._fault:
+            if self._fault or self._held:
+                if self._held:
+                    self._law.reset()  # no stale integral or effort when driving resumes
                 self._pub.publish(Twist())
                 self._last_command = now
                 return
@@ -152,6 +167,23 @@ class VelocityController(Node):
                                     feedback=bool(self.get_parameter('feedback').value))
             self._pub.publish(twist_from(effort))
             self._last_command = now
+
+    def _mux_state(self, message):
+        """A mux hold (or idle) means neutral thrusters, not station-keeping.
+
+        The mux sends zeros while it holds, which this law would hold position on, with
+        the drift feed-forward and the kept integral still pushing. Only auto, manual or
+        rc drive; anything else, or a state that can't be read, is neutral at once.
+        """
+        try:
+            held = json.loads(message.data)['input'] not in ('auto', 'manual', 'rc')
+        except (ValueError, TypeError, KeyError):
+            held = True
+        with self._law_lock:
+            if held and not self._held:
+                self._law.reset()
+                self._pub.publish(Twist())
+            self._held = held
 
     def _publish_drift(self):
         with self._law_lock:

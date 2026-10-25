@@ -127,6 +127,60 @@ def test_model_error_under_way_is_not_taken_for_current():
     assert boat.velocity[0] == pytest.approx(0.4, abs=0.03)  # feedback still gets there
 
 
+class Docked(Boat):
+    """Pressed against a dock on its world -y side: the dock stops it moving that way."""
+
+    def advance(self, effort, dt=0.05, lag=0.5):
+        super().advance(effort, dt, lag)
+        self.velocity[1] = max(0.0, self.velocity[1])
+
+
+@pytest.mark.parametrize('drift_limit', [0.5, math.inf])
+def test_dock_contact_does_not_wind_the_effort_up(drift_limit):
+    # Asked to creep into the dock (|target| under drift_command_limit, so the observer
+    # learns): the dock's reaction reads as a current pushing the boat off it. Sway is
+    # the slow axis, 0.4 m/s at full effort, so the default 0.5 m/s limit can't catch it.
+    plant, into_dock = Plant(config()), (0.0, -0.05, 0.0)
+    law = VelocityLaw(plant, drift_limit=drift_limit)
+    now = run(law, Docked(), into_dock, 300)
+    assert numpy.hypot(*law.drift) < 0.01  # was full effort before the carried gate
+    # No more than the creep and the PI ceiling.
+    assert law.effort[1] >= plant.effort(1, -0.05) - 0.8 * 0.05 - 0.6 * 0.3 - 1e-6
+    run(law, Docked(), (0.0, 0.0, 0.0), 60, now)
+    assert law.effort[1] >= -0.6 * 0.3 - 0.01  # only the kept integral; a mux hold zeroes it
+    assert abs(law.effort[0]) < 0.01 and abs(law.effort[2]) < 0.01
+
+
+def test_a_real_current_is_learned_in_full_and_drift_limit_bounds_it():
+    boat = Boat(current=(0.21, 0.21))  # 0.3 m/s toward the north-east
+    law = VelocityLaw(Plant(config()))
+    run(law, boat, (0.0, 0.0, 0.0), 40)
+    assert law.drift == pytest.approx((0.21, 0.21), abs=0.01)
+    assert abs(boat.velocity[0]) < 0.01 and abs(boat.velocity[1]) < 0.01
+    boat = Boat(current=(0.0, 0.25))
+    law = VelocityLaw(Plant(config()), drift_limit=0.2)
+    run(law, boat, (0.0, 0.0, 0.0), 40)
+    assert law.drift == pytest.approx((0.0, 0.2), abs=1e-9)  # the backstop
+    assert abs(boat.velocity[1]) < 0.01  # the PI holds the rest
+
+
+def test_a_current_that_changes_under_way_is_held_by_feedback_and_at_rest():
+    boat = Boat(current=(0.0, 0.1))
+    law = VelocityLaw(Plant(config()))
+    now = run(law, boat, (0.0, 0.0, 0.0), 30)
+    assert law.drift == pytest.approx((0.0, 0.1), abs=0.01)
+    now = run(law, boat, (0.4, 0.0, 0.0), 10, now)
+    boat.current = numpy.array((0.0, 0.15))  # stronger cross-current further along
+    now = run(law, boat, (0.4, 0.0, 0.0), 30, now)
+    assert law.drift == pytest.approx((0.0, 0.1), abs=0.01)  # frozen under way
+    assert boat.velocity[:2] == pytest.approx((0.4, 0.0), abs=0.02)  # PI takes the change
+    run(law, boat, (0.0, 0.0, 0.0), 30, now)
+    # The integral kept the boat from being carried, so the estimate takes only part of
+    # the change and the integral holds the rest; a turn or a stop re-learns it.
+    assert 0.1 <= law.drift[1] <= 0.15 + 0.01
+    assert abs(boat.velocity[0]) < 0.02 and abs(boat.velocity[1]) < 0.02
+
+
 def curved(**overrides):
     """A config whose surge+ is a squared-drag curve and the other directions are linear."""
     curves = {key: dict(d1=0.0, d2=1.0 / 0.4 ** 2) for key in CURVE_KEYS}
