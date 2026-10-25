@@ -78,3 +78,26 @@ def test_sigint_exits_on_stalled_sim_clock():
         assert time.monotonic() - start < 1.0
     finally:
         proc.kill()
+
+
+def test_driver_sigterm_runs_the_ctrl_c_shutdown(monkeypatch):
+    """SIGTERM reaches destroy_node (MOSFET off, neutral), and a repeat cannot cut it short."""
+    from mhseals_hardware import thruster_pwm_node
+    node = FakeNode()
+
+    def spin_once(_node, timeout_sec):
+        os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(0.5)  # the handler interrupts this
+
+    monkeypatch.setattr(ros_util.rclpy, 'init', lambda **_: None)
+    monkeypatch.setattr(ros_util.rclpy, 'spin_once', spin_once)
+    monkeypatch.setattr(ros_util.rclpy, 'ok', lambda: True)
+    monkeypatch.setattr(ros_util.rclpy, 'try_shutdown', lambda: None)
+    monkeypatch.setattr(thruster_pwm_node, 'ThrusterPWMNode', lambda: node)
+    previous = signal.getsignal(signal.SIGTERM)
+    try:
+        thruster_pwm_node.main()
+        assert signal.getsignal(signal.SIGTERM) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert node.destroyed

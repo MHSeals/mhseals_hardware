@@ -110,8 +110,12 @@ def validate_config(config):
         raise ValueError('mosfet_line must be a nonnegative integer')
     if type(config['mosfet_active_high']) is not bool:
         raise ValueError('mosfet_active_high must be a boolean')
-    if type(config['estop_cuts_power']) is not bool:
-        raise ValueError('estop_cuts_power must be a boolean')
+    for key in ('estop_cuts_power', 'estop_on_rc_loss'):
+        if type(config[key]) is not bool:
+            raise ValueError(f'{key} must be a boolean')
+    beat = config['mosfet_heartbeat_hz']
+    if type(beat) not in (int, float) or not math.isfinite(beat) or not 0 <= beat <= 100:
+        raise ValueError('mosfet_heartbeat_hz must be within [0, 100] (0 = off)')
     if not isinstance(config['mosfet_chip'], str) or not re.fullmatch(
             r'(?:/dev/gpiochip\d+|gpio\d+)', config['mosfet_chip']):
         raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')

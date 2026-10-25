@@ -8,13 +8,17 @@ reports input ``auto`` or ``idle``, so they never outvote a human; no fresh stat
 An empty ``pulse_guard_topic`` disables the guard (bench use without a mux).
 Either goes neutral after ``command_timeout`` without a message. With
 ``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
-MOSFET and latches: this process never powers the ESCs again (see estop.py). With
+MOSFET and latches: this process never powers the ESCs again (see estop.py);
+``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
+shuts down like Ctrl+C. ``mosfet_heartbeat_hz`` toggles the enable for a
+heartbeat circuit. With
 ``config_file`` set, validated watchdog edits apply live. Structural or coupled model
 edits require an explicit owner-controlled restart; this node never reopens outputs.
 """
 
 import json
 import math
+import signal
 import time
 import uuid
 
@@ -44,7 +48,8 @@ GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
                               'decoupling', 'decoupling_negative', 'reverse_thrust_ratio',
-                              'characterization', 'hardware_epoch', 'estop_cuts_power')
+                              'characterization', 'hardware_epoch', 'estop_cuts_power',
+                              'estop_on_rc_loss', 'mosfet_heartbeat_hz')
 LIVE_KEYS = ('command_timeout', 'command_mux')  # command_mux: the e-stop channel follows the mux
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
@@ -81,11 +86,15 @@ class ThrusterPWMNode(Node):
         # Opening arms the ESCs at neutral; destroy_node disarms them.
         self.outputs = make_outputs(self.config, node=self).open()
         self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
-                                 self.config['estop_cuts_power'])
+                                 self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
+        mosfet = getattr(self.outputs, 'mosfet', None)
+        if self.config['mosfet_heartbeat_hz'] and mosfet is not None:
+            # Two flips per cycle; a stopped, killed or hung node stops the heartbeat.
+            self.create_timer(0.5 / self.config['mosfet_heartbeat_hz'], mosfet.beat)
         self.last_command_time = time.monotonic()
         self.timed_out = False
         self.publish_status()
-        if self.estop.enabled:
+        if self.estop.enabled or self.estop.on_rc_loss:
             self.create_subscription(RCIn, '/mavros/rc/in', self.rc_callback,
                                      qos_profile_sensor_data)
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
@@ -248,13 +257,18 @@ class ThrusterPWMNode(Node):
 
     def rc_callback(self, message):
         """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until re-armed."""
+        self.estop_step(self.estop.rc, message.channels)
+
+    def estop_step(self, step, *args):
+        """One e-stop update (a frame, or the stream aging); report a cut."""
         try:
-            cut = self.estop.rc(message.channels, time.monotonic(), time.time_ns())
-        except Exception as error:  # latched anyway; report, keep the node (and RC) alive
+            cut = step(*args, time.monotonic(), time.time_ns())
+        except Exception as error:  # a failed cut is latched; report, keep the node (and RC) alive
             self.get_logger().error(f'remote e-stop cut failed: {error}')
-            cut = True
+            cut = self.estop.latched
         if cut:
-            self.get_logger().error('remote e-stop: ESC power cut and latched; re-arm to restore')
+            self.get_logger().error(f'remote e-stop ({self.estop.cause}): ESC power cut and '
+                                    'latched; re-arm to restore')
             self.publish_status()
 
     def drive(self, pulses):
@@ -265,6 +279,8 @@ class ThrusterPWMNode(Node):
         self.timed_out = False
 
     def watchdog_callback(self):
+        if self.estop.enabled or self.estop.on_rc_loss:
+            self.estop_step(self.estop.tick)  # RC gone stale while it controlled the boat
         # Fail neutral when the command stream stops (crashed teleop, lost link).
         if (not self.timed_out and time.monotonic() - self.last_command_time >
                 self.command_timeout):
@@ -279,7 +295,17 @@ class ThrusterPWMNode(Node):
             super().destroy_node()
 
 
+def stop_on_sigterm(_signum, _frame):
+    """SIGTERM runs the same shutdown as Ctrl+C (destroy_node: MOSFET off, neutral).
+
+    A repeat is ignored so it cannot interrupt that cleanup; SIGKILL still can.
+    """
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    raise KeyboardInterrupt
+
+
 def main(args=None):
+    signal.signal(signal.SIGTERM, stop_on_sigterm)
     run_node(ThrusterPWMNode, args)
 
 

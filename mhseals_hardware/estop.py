@@ -1,4 +1,5 @@
-"""Remote e-stop: the RC stop-channel edge cuts ESC power through the MOSFET.
+"""Remote e-stop: the RC stop-channel edge (and, optionally, losing RC while it
+controls the boat) cuts ESC power through the MOSFET.
 
 ROS-free and clock-injected. The edge is the command_mux rule itself
 (``Arbitration.update_rc``), fed the same ``command_mux`` section. The cut
@@ -13,9 +14,10 @@ from mhseals_hardware.command_arbitration import Arbitration
 class RemoteEstop:
     """Watch RC frames; on the stop edge cut the MOSFET, go neutral, and latch."""
 
-    def __init__(self, outputs, mux_section, enabled=True):
+    def __init__(self, outputs, mux_section, enabled=True, on_rc_loss=False):
         self.outputs = outputs
         self.enabled = bool(enabled)
+        self.on_rc_loss = bool(on_rc_loss)
         self.section = None
         self.configure(mux_section)
         self.cause = None
@@ -36,6 +38,20 @@ class RemoteEstop:
         edge = self.rule.update_rc(list(channels), now)
         if edge and self.enabled and not self.latched:
             self.cut('rc-stop', wall_ns)
+            return True
+        return self._lost(wall_ns)
+
+    def tick(self, now, wall_ns):
+        """Age the RC stream (no frame arrives to notice it went stale); True on a cut."""
+        self.rule.select(now)
+        return self._lost(wall_ns)
+
+    def _lost(self, wall_ns):
+        """The mux's rc_lost: RC was in control (MANUAL or a stick takeover) and its
+        frames went invalid or stale. Never before a first valid controlling frame."""
+        lost = self.rule.holds.pop('rc_lost', None) is not None  # the private rule only reports
+        if lost and self.on_rc_loss and not self.latched:
+            self.cut('rc-lost', wall_ns)
             return True
         return False
 
@@ -58,5 +74,5 @@ class RemoteEstop:
 
     def state(self):
         """For the driver ~/status: whether the cut is armed, and the latch."""
-        return {'enabled': self.enabled, 'latched': self.latched,
+        return {'enabled': self.enabled, 'on_rc_loss': self.on_rc_loss, 'latched': self.latched,
                 'cause': self.cause or '', 'since_ns': self.since_ns}
