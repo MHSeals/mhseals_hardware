@@ -228,7 +228,7 @@ ros2 run mhseals_hardware keyboard_control        # --dry-run tests your termina
 W/S or Up/Down surge, A/D sway, Left/Right yaw, `+`/`-` change speed in 5%
 steps, Space stops, X exits. Yaw runs at `manual_yaw_scale` (0.5); diagonals are
 normalized. Terminals that report key releases (Kitty protocol, also over SSH)
-combine held keys; otherwise the newest key drives alone and stops when its
+combine held keys (a key still held stops about 2 s after another key's release, so press it again); otherwise the newest key drives alone and stops when its
 repeats stop. See the root
 [hardware and camera setup](../../README.md#hardware-and-cameras) for timeouts.
 
