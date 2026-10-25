@@ -2,6 +2,7 @@
 import ast
 import copy
 import json
+import signal
 import time  # noqa: F401  (the extracted node methods read it from this namespace)
 from pathlib import Path
 from types import SimpleNamespace as NS
@@ -262,3 +263,20 @@ def test_a_failed_cut_never_beats_and_the_watchdog_retries_it():
     node.watchdog_callback()
     node.heartbeat()
     assert node.outputs.mosfet.levels == ['flip', False]
+
+
+def test_destroy_node_ignores_ctrl_c_and_sigterm_while_it_closes_the_outputs():
+    cls, _ = extract('thruster_pwm_node.py', 'ThrusterPWMNode')
+    seen = []
+
+    class Base:
+        def destroy_node(self):
+            seen.append('destroyed')
+
+    node = type('Node', (cls, Base), {})()
+    node.outputs = NS(close=lambda: seen.append(
+        (signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM))))
+    before = signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM)
+    node.destroy_node()
+    assert seen == [(signal.SIG_IGN, signal.SIG_IGN), 'destroyed']
+    assert (signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM)) == before

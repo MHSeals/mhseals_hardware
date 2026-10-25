@@ -51,6 +51,32 @@ def test_correction_requires_restart_and_keeps_manual_pulses(tmp_path, monkeypat
         rclpy.shutdown()
 
 
+def test_a_constructor_failure_after_open_closes_the_outputs(tmp_path, monkeypatch):
+    closed = []
+
+    class Outputs:
+        def open(self):
+            return self
+
+        def close(self):
+            closed.append(True)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError('estop setup failed')
+    monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *args, **kwargs: Outputs())
+    monkeypatch.setattr(thruster_pwm_node, 'RemoteEstop', broken)
+    path = tmp_path / 'hardware.yaml'
+    save_config(load_defaults(), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=ctor_failure_test',
+                     '-p', f'config_file:={path}'])
+    try:
+        with pytest.raises(RuntimeError, match='estop setup failed'):
+            thruster_pwm_node.ThrusterPWMNode()
+        assert closed == [True]  # MOSFET off and neutral: run_node gets no node to destroy
+    finally:
+        rclpy.shutdown()
+
+
 def test_int_edit_of_a_float_setting_reads_back(tmp_path, monkeypatch):
     class Outputs:
         def open(self):

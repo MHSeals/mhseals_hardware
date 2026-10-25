@@ -88,6 +88,14 @@ class ThrusterPWMNode(Node):
         self.apply(self.config)
         # Opening arms the ESCs at neutral; destroy_node disarms them.
         self.outputs = make_outputs(self.config, node=self).open()
+        try:
+            self._start()
+        except BaseException:
+            self.outputs.close()  # run_node never gets a node to destroy
+            raise
+
+    def _start(self):
+        """Everything after the outputs open; a failure here closes them again."""
         self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
                                  self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
         self.last_beat = None
@@ -337,10 +345,21 @@ class ThrusterPWMNode(Node):
         self.publish_status()
 
     def destroy_node(self):
+        # A second Ctrl+C or a SIGTERM must not cut the MOSFET-off and neutral writes short.
+        previous = {}
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            try:
+                previous[signum] = signal.signal(signum, signal.SIG_IGN)
+            except ValueError:  # not the main thread: nothing to ignore there
+                pass
         try:
             self.outputs.close()
         finally:
-            super().destroy_node()
+            try:
+                super().destroy_node()
+            finally:
+                for signum, handler in previous.items():
+                    signal.signal(signum, handler)
 
 
 def stop_on_sigterm(_signum, _frame):
