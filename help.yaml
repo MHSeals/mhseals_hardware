@@ -1,0 +1,56 @@
+# Commands this package provides, for astro_dock's help browser (astro-help).
+package: mhseals_hardware
+summary: Thruster PWM output, manual control and bench tests (ODROID).
+commands:
+  - name: keyboard_control
+    run: ros2 run mhseals_hardware keyboard_control
+    summary: Deadman keyboard driving through cmd_vel; WASD/arrows, Space neutral, X exit.
+    notes: Secure the boat and clear the propellers. Run one command publisher at a time.
+    params:
+      - {name: --speed, type: float, description: 'Initial thrust fraction, 0 to 1.'}
+      - {name: --dry-run, type: bool, description: Test terminal keys and chords without publishing ROS commands.}
+      - {name: --config, type: path, description: Shared hardware YAML (default ~/.config/mhseals/hardware.yaml).}
+    examples:
+      - ros2 run mhseals_hardware keyboard_control --speed 0.3
+
+  - name: thruster_pwm_node
+    run: ros2 run mhseals_hardware thruster_pwm_node
+    summary: Mix cmd_vel effort into thruster pulses on the ODROID PWM pins or a simulator topic.
+    notes: PWM takes normalised effort, not Nav2 velocity; put calibrated_velocity_controller between them.
+    examples:
+      - ros2 run mhseals_hardware thruster_pwm_node --ros-args -p config_file:=$HOME/.config/mhseals/hardware.yaml
+
+  - name: calibrated_velocity_controller
+    run: ros2 run mhseals_hardware calibrated_velocity_controller
+    summary: Turn Nav2 body velocities (SI) into normalised effort for the PWM node.
+
+  - name: command_mux
+    run: ros2 run mhseals_hardware command_mux
+    summary: Choose which command reaches the driver - rc > manual > hold > auto.
+
+  - name: thruster_test
+    run: ros2 run mhseals_hardware thruster_test
+    summary: Interactive four-thruster PWM test straight on the physical outputs.
+    notes: Secure the boat and clear the propellers. Pin defaults come from the hardware YAML.
+    params:
+      - {name: --pulse-step, type: int, default: 10, description: Pulse change per key press (microseconds).}
+      - {name: --pwm-chips, description: Four comma-separated pwmchip paths.}
+      - {name: --pwm-channels, description: Channel within each pwmchip, comma-separated.}
+      - {name: --config, type: path, description: Hardware YAML.}
+      - {name: --save-config, type: bool, description: Persist pin overrides before opening hardware.}
+
+  - name: thruster_identify
+    run: ros2 run mhseals_hardware thruster_identify
+    summary: Pulse each output in turn to map PWM outputs to thrusters; saves channel_map.
+    notes: Boat tied up, propellers clear and submerged; you answer what moved.
+    params:
+      - {name: --manual, type: bool, description: Enter the mapping by hand instead of pulsing outputs.}
+      - {name: --output-backend, choices: [odroid, topic], description: ODROID pins or a simulator topic (default from the config).}
+
+  - name: mosfet_test
+    run: ros2 run mhseals_hardware mosfet_test
+    summary: Bounded MOSFET enable check; writes no PWM.
+    params:
+      - {name: --seconds, type: float, default: 5, description: How long to hold the enable.}
+      - {name: --mosfet-chip, description: Bank label or /dev/gpiochipN.}
+      - {name: --mosfet-line, type: int, description: GPIO line.}
