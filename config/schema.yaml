@@ -13,9 +13,9 @@ channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Cano
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
 command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "Thrusters go neutral after this long without a command."}
-command_mux.mode_ch: {type: int, units: count, tier: live, doc: "1-based RC channel carrying the FCU mode switch."}
+command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch; the driver's e-stop takes it only on a restart."}
 command_mux.modes: {type: list, units: enum, tier: live, doc: "FCU mode number for each of the six mode switch positions."}
-command_mux.stop_ch: {type: int, units: count, tier: live, doc: "1-based RC channel of the stop switch."}
+command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch; the driver's e-stop takes it only on a restart."}
 command_mux.rc_scale: {type: list, units: "1", tier: live, doc: "Surge, sway, yaw fraction of full command at full stick."}
 command_mux.rc_max_age: {type: float, units: s, tier: live, doc: "RC frames older than this count as no receiver."}
 command_mux.cmd_timeout: {type: float, units: s, tier: live, doc: "Manual and autonomous commands expire after this long."}

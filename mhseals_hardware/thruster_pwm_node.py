@@ -53,7 +53,7 @@ RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_
                               'decoupling', 'decoupling_negative', 'reverse_thrust_ratio',
                               'characterization', 'hardware_epoch', 'estop_cuts_power',
                               'estop_on_rc_loss', 'mosfet_heartbeat_hz')
-LIVE_KEYS = ('command_timeout', 'command_mux')  # command_mux: the e-stop channel follows the mux
+LIVE_KEYS = ('command_timeout', 'command_mux')  # command_mux less its channels (see reload)
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
@@ -171,8 +171,13 @@ class ThrusterPWMNode(Node):
         if config is None:
             return
         self.requested_config = config
-        self.pending_restart_keys = sorted(key for key in RESTART_KEYS
-                                           if config.get(key) != self.file_config.get(key))
+        # The mux defers a stop or mode channel remap until nothing drives; this node can't
+        # tell when that is, so the e-stop takes those two only on a restart.
+        mux, old_mux = config.get('command_mux') or {}, self.file_config.get('command_mux') or {}
+        self.pending_restart_keys = sorted(
+            [key for key in RESTART_KEYS if config.get(key) != self.file_config.get(key)] +
+            ['command_mux.' + key for key in ('mode_ch', 'stop_ch')
+             if mux.get(key) != old_mux.get(key)])
         if self.pending_restart_keys:
             self.error = 'restart required: ' + ', '.join(self.pending_restart_keys)
             self.get_logger().error(self.error)

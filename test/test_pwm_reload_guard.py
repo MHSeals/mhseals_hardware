@@ -147,16 +147,31 @@ def test_settled_watcher_leaves_requested_bytes_and_refusal_visible(tmp_path):
     assert path.read_bytes() == requested_bytes
 
 
-def test_estop_latch_refuses_drive_publishes_and_follows_the_stop_channel():
+@pytest.mark.parametrize('key,value', [('stop_ch', 7), ('mode_ch', 7)])
+def test_a_stop_or_mode_channel_remap_waits_for_a_restart(key, value):
+    node, _ = pwm()
+    candidate = copy.deepcopy(node.file_config)
+    candidate['command_mux'][key] = value
+    candidate['command_timeout'] = 1.0
+    request(node, candidate)                      # the mux may not apply it yet: neither do we
+    assert node.pending_restart_keys == ['command_mux.' + key]
+    assert node.error == 'restart required: command_mux.' + key
+    assert getattr(node.estop.rule, key) == {'stop_ch': 6, 'mode_ch': 8}[key]
+    assert node.command_timeout == 0.5
+    request(node, node.file_config)               # reverted: clears
+    assert node.pending_restart_keys == [] and not node.error
+
+
+def test_estop_latch_refuses_drive_publishes_and_follows_the_mux():
     node, _ = pwm()
     sent = []
     node.outputs.set_pulse_widths = sent.append
     node.outputs.neutral = lambda: sent.append('neutral')
     candidate = copy.deepcopy(node.file_config)
-    candidate['command_mux']['stop_ch'] = 7
-    request(node, candidate)                      # the e-stop moves with the mux live
-    assert node.estop.rule.stop_ch == 7
-    run, stop = [1500] * 6 + [2000, 1000], [1500] * 6 + [1000, 1000]
+    candidate['command_mux']['rc_max_age'] = 0.5
+    request(node, candidate)                      # the rest of the section follows live
+    assert node.estop.rule.rc_max_age == 0.5 and not node.pending_restart_keys
+    run, stop = [1500] * 5 + [2000, 1500, 1000], [1500] * 5 + [1000, 1500, 1000]
     node.rc_callback(NS(channels=run))
     node.rc_callback(NS(channels=stop))
     assert sent == ['neutral'] and node.estop.latched
