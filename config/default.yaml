@@ -102,7 +102,8 @@ controller:
   # supposed current since it last got under way; the boat against a contact is not.
   drift_carry: 0.02
   # m: while obstacle_topic puts an obstacle this close to the hull, the estimate doesn't
-  # grow away from it (that could be the obstacle's reaction); 0 turns this off.
+  # grow away from it (that could be the obstacle's reaction); 0 turns this off. A real
+  # current setting off the obstacle is then left to the PI integral (less effort, not more).
   proximity_distance: 0.5
   # s: obstacle data older than this (or none) leaves only the carry gate, as without it.
   obstacle_timeout: 0.5
