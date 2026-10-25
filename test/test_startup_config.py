@@ -6,7 +6,7 @@ from types import SimpleNamespace as NS
 import pytest
 import yaml
 
-from mhseals_hardware.configuration import load_defaults, load_strict_yaml, startup_config
+from mhseals_hardware.configuration import load_config, load_defaults, load_strict_yaml, startup_config
 
 
 def node(**overrides):
@@ -81,7 +81,26 @@ def test_schema_covers_real_keys_with_required_fields():
         assert top in defaults and (not leaf or leaf in defaults[top]), key
         assert row['type'] in ('float', 'int', 'bool', 'str', 'list')
         assert row['tier'] in ('live', 'reconfigure', 'restart', 'new-session')
-        assert row['units'] and row['doc']
+        assert isinstance(row['units'], str) and row['units']
+        assert isinstance(row['doc'], str) and row['doc']
+        value = defaults[top][leaf] if leaf else defaults[top]
+        assert type(value).__name__ == row['type'], key
         if 'range' in row:
             assert len(row['range']) == 2
     assert schema['command_timeout']['tier'] == 'live'
+
+
+def test_default_yaml_is_loaded_strictly(tmp_path, monkeypatch):
+    import mhseals_hardware.configuration as configuration
+    bad = tmp_path / 'default.yaml'
+    bad.write_text('frequency: 50\nfrequency: 50\n')
+    monkeypatch.setattr(configuration, 'config_resource', lambda name: bad)
+    with pytest.raises(ValueError, match=r'default\.yaml:2.*duplicate'):
+        configuration.load_defaults()
+
+
+def test_unknown_key_error_names_line(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('frequency: 50\nbogus_key: 1\n')
+    with pytest.raises(ValueError, match=r'unknown hardware settings.*hardware\.yaml:2'):
+        load_config(path)

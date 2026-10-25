@@ -125,7 +125,7 @@ def validate_config(config):
 def load_defaults():
     """Shipped defaults only; never read per-user overrides at import time."""
     defaults = config_resource('default.yaml')
-    return validate_config(yaml.safe_load(defaults.read_text()))
+    return validate_config(load_strict_yaml(defaults))
 
 
 def load_config(path=None):
@@ -233,7 +233,10 @@ def _read_overrides(path):
     overrides = load_strict_yaml(path)
     unknown = sorted(set(overrides) - set(load_defaults()))
     if unknown:
-        raise ValueError(f'unknown hardware settings: {unknown} at {path}')
+        lines = {key.value: key.start_mark.line + 1 for key, _ in
+                 yaml.compose(path.read_text(), Loader=yaml.SafeLoader).value}
+        where = ', '.join(f'{path}:{lines[key]}' for key in unknown)
+        raise ValueError(f'unknown hardware settings: {unknown} at {where}')
     return overrides
 
 
