@@ -110,3 +110,37 @@ def test_drain_reads_a_whole_stale_burst_before_publishing():
     keys = Keys(['release:w'])
     assert drain(keys, ManualState(), 'press:w', clock=lambda: next(ticks)) == (.25, 0, 0)
     assert keys.queued == ['release:w']
+
+
+class ClockedKeys:
+    """Queued keys on a fake clock: every clock read costs ``cost`` s."""
+
+    def __init__(self, queued, cost=1e-4):
+        self.queued, self.now, self.cost = list(queued), 0.0, cost
+
+    def clock(self):
+        self.now += self.cost
+        return self.now
+
+    def read(self, timeout=None):
+        return self.queued.pop(0) if self.queued else None
+
+
+def test_drain_is_bounded_from_the_last_publish_not_from_the_batch_start():
+    from mhseals_hardware.manual_state import drain
+    keys = ClockedKeys(['repeat:w'] * 5000)
+    keys.now = 0.05                  # the first read waited its 50 ms timeout after the publish at 0
+    drain(keys, ManualState(), 'press:w', keys.clock, since=0.0)
+    assert 0.09 < keys.now < 0.11    # ~DRAIN_S after the publish, not 50 ms wait + 100 ms
+    assert keys.queued               # cut by time: the rest stays queued
+    keys = ClockedKeys(['repeat:w'] * 5000)
+    keys.now = 0.05
+    drain(keys, ManualState(), 'press:w', keys.clock)
+    assert keys.now > 0.149          # without since: the old bound, from the batch start
+
+
+def test_drain_after_a_stall_past_the_budget_still_reads_the_stale_burst_whole():
+    from mhseals_hardware.manual_state import drain
+    keys = ClockedKeys(['repeat:w'] * 200 + ['release:w'], cost=1e-6)
+    keys.now = 30.0                  # the link stalled 30 s after the last publish
+    assert drain(keys, ManualState(), 'press:w', keys.clock, since=0.0) == (0, 0, 0)

@@ -117,19 +117,24 @@ class ManualState:
         return self.command
 
 
-DRAIN_S = 0.1   # s; a whole queued batch is read before publishing, bounded by time, not count
+DRAIN_S = 0.1   # s after the last publish: the queued batch is read before the next, bounded by time, not count
+MIN_DRAIN_S = 0.02   # s; after a long stall the budget is spent already, yet a stale burst must still be read whole
 EXIT_KEYS = ('x', 'm', 'escape', 'press:x', 'press:m', 'press:escape')
 STOP_KEYS = ('space', 'press:space', 'focus-out')
 
 
-def drain(keys, state, key, clock=time.monotonic):
+def drain(keys, state, key, clock=time.monotonic, since=None):
     """Feed ``key`` and everything already queued to ``state``: the command to publish, None to exit.
 
     One coherent command per batch: no intermediate command goes out between a press and its
     release, so a burst of stale repeats after a link stall meets its release first. Stop keys end
-    the batch at once; past DRAIN_S the rest stays queued for the next batch.
+    the batch at once; past the deadline the rest stays queued for the next batch. ``since`` is
+    the last publish: the deadline counts DRAIN_S from it, so the wait for ``key`` is inside the
+    bound and the gap between commands stays under the deadman; MIN_DRAIN_S keeps a stalled
+    link's burst whole. Without ``since`` it counts from now.
     """
-    deadline = clock() + DRAIN_S
+    now = clock()
+    deadline = now + DRAIN_S if since is None else max(since + DRAIN_S, now + MIN_DRAIN_S)
     while True:
         if key and key.lower() in EXIT_KEYS:
             return None

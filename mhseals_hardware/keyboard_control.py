@@ -53,13 +53,15 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
         with KeyReader(report_events=True) as keys, Live(
                 manual_panel(amplitude=amplitude), console=console,
                 refresh_per_second=10) as live:
+            published = time.monotonic()
             while True:
-                command = drain(keys, state, keys.read(timeout=0.05), time.monotonic)
+                command = drain(keys, state, keys.read(timeout=0.05), time.monotonic, published)
                 if command is None:
                     return
                 label = ' '.join(f'{axis} {value:+.2f}' for axis, value in
                                  zip(('SURGE', 'SWAY', 'YAW'), command) if value)
                 publish_manual(message_publisher, command)
+                published = time.monotonic()
                 render = status_panel or manual_panel
                 live.update(render(label or 'NEUTRAL', state.amplitude, state.chords))
     finally:
