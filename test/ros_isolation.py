@@ -18,6 +18,7 @@ def isolate_ros_env(environ=None):
     raw = environ.get('ROS_DOMAIN_ID', '')
     if not (raw.isdigit() and 1 <= int(raw) <= MAX_DOMAIN and int(raw) != BOAT_DOMAIN):
         environ['ROS_DOMAIN_ID'] = str(FIRST_PRIVATE + os.getpid() % 100)
-    environ.pop('ROS_STATIC_PEERS', None)
+    for name in ('ROS_STATIC_PEERS', 'FASTDDS_DEFAULT_PROFILES_FILE', 'FASTRTPS_DEFAULT_PROFILES_FILE'):
+        environ.pop(name, None)
     environ['ROS_AUTOMATIC_DISCOVERY_RANGE'] = 'LOCALHOST'
     return int(environ['ROS_DOMAIN_ID'])
