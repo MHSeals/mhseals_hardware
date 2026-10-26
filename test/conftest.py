@@ -1,5 +1,12 @@
 import pytest
 
+from ros_isolation import isolate_ros_env
+
+
+def pytest_configure(config):
+    """Tests that start nodes never reach the live boat: private domain, no static peers, localhost only."""
+    isolate_ros_env()
+
 
 @pytest.fixture(autouse=True)
 def _private_runtime_dir(tmp_path, monkeypatch):
