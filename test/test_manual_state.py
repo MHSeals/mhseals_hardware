@@ -144,3 +144,15 @@ def test_drain_after_a_stall_past_the_budget_still_reads_the_stale_burst_whole()
     keys = ClockedKeys(['repeat:w'] * 200 + ['release:w'], cost=1e-6)
     keys.now = 30.0                  # the link stalled 30 s after the last publish
     assert drain(keys, ManualState(), 'press:w', keys.clock, since=0.0) == (0, 0, 0)
+
+
+def test_default_manual_yaw_keeps_the_turn_rate_from_before_the_75_percent_default():
+    """Yaw effort at the default amplitude stays the 0.125 of 25 % x 0.5, not 0.375 (turns were too fast)."""
+    import pytest
+    from mhseals_hardware.configuration import load_defaults
+    config = load_defaults()
+    state = ManualState(config['manual_amplitude'], config['manual_repeat_timeout'],
+                        config['manual_initial_timeout'], config['manual_yaw_scale'])
+    yaw = state.update('left', 0)[2]
+    assert yaw == pytest.approx(0.25 * 0.5, abs=0.005)
+    assert state.update('w', 0.01)[0] == config['manual_amplitude']      # surge keeps the amplitude

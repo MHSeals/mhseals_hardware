@@ -54,8 +54,9 @@ reverse_thrust_ratio: 1.0
 # Manual keyboard thrust as a fraction of full effort (0.75 = 75 %). The deadman, the arm and
 # authority interlocks and the output clamps still apply; +/- change it live, 5 % a step.
 manual_amplitude: 0.75
-# Manual yaw as a fraction of the linear amplitude: turning is far more aggressive.
-manual_yaw_scale: 0.5
+# Manual yaw as a fraction of the linear amplitude: turning is far more aggressive. 0.17 at 75 %
+# gives yaw effort 0.13, the turn rate manual had at 25 % with 0.5 (before the 75 % default).
+manual_yaw_scale: 0.17
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
