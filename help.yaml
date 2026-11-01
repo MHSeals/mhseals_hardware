@@ -36,6 +36,8 @@ commands:
       - {name: --pulse-step, type: int, default: 10, description: Pulse change per key press (microseconds).}
       - {name: --pwm-chips, description: Four comma-separated pwmchip paths.}
       - {name: --pwm-channels, description: Channel within each pwmchip, comma-separated.}
+      - {name: --mosfet-chip, description: Bank label or /dev/gpiochipN.}
+      - {name: --mosfet-line, type: int, description: GPIO line.}
       - {name: --config, type: path, description: Hardware YAML.}
       - {name: --save-config, type: bool, description: Persist pin overrides before opening hardware.}
 
@@ -46,6 +48,7 @@ commands:
     params:
       - {name: --manual, type: bool, description: Enter the mapping by hand instead of pulsing outputs.}
       - {name: --output-backend, choices: [odroid, topic], description: ODROID pins or a simulator topic (default from the config).}
+      - {name: --config, type: path, description: Hardware YAML the channel_map is saved to.}
 
   - name: mosfet_test
     run: ros2 run mhseals_hardware mosfet_test
@@ -54,3 +57,9 @@ commands:
       - {name: --seconds, type: float, default: 5, description: How long to hold the enable.}
       - {name: --mosfet-chip, description: Bank label or /dev/gpiochipN.}
       - {name: --mosfet-line, type: int, description: GPIO line.}
+      - {name: --config, type: path, description: Hardware YAML.}
+
+  - name: install_odroid_access.sh
+    run: ~/astro_dock/src/mhseals_hardware/scripts/install_odroid_access.sh
+    summary: Install the ODROID host service that exports the PWM channels and grants access to them and the MOSFET bank.
+    notes: Once per ODROID, on the host (sudo); rerun after moving to another channel or bank, then recreate the container.
