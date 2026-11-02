@@ -1,4 +1,4 @@
-"""Byte-fed terminal probe replies: they set reader state and never become keys."""
+"""Byte-fed terminal replies (the TUI's capability probe, ui/imaging): they never become keys."""
 
 import os
 import time
@@ -23,28 +23,13 @@ def feed():
     os.close(write_fd)
 
 
-def test_kitty_replies_set_graphics_and_cell_size(feed):
+def test_probe_replies_never_become_keys(feed):
     reader, send = feed
     send(APC_OK + XTVERSION + CELL + DA1 + b'w')
     assert reader.read(1) == 'w'
-    assert reader.graphics is True
-    assert reader.cell_px == (19, 38)
-    assert reader.xtversion == 'kitty(0.35.2)'
-    assert reader.probed
-
-
-def test_tmux_answers_only_da1(feed):
-    reader, send = feed
-    send(DA1 + b'a')
-    assert reader.read(1) == 'a'
-    assert reader.graphics is False and reader.cell_px is None and reader.probed
-
-
-def test_graphics_ok_after_da1_does_not_count(feed):
-    reader, send = feed
     send(DA1 + APC_OK + b'a')
     assert reader.read(1) == 'a'
-    assert reader.graphics is False
+    assert reader.read(0.05) is None
 
 
 def test_apc_mid_keystroke_never_becomes_keys(feed):
