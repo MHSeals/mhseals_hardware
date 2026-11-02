@@ -88,14 +88,163 @@ def decode_key(value, report_events=False):
     return value.decode('utf-8', errors='ignore')
 
 
+class Mouse(str):
+    """An SGR mouse report (``CSI < b ; col ; row M|m``) as a key name with its details.
+
+    The name is ``press:mouse-left``, ``release:mouse-left``, ``drag:mouse-left``, ``move:mouse``
+    or ``wheel-up``/``wheel-down``/``wheel-left``/``wheel-right``, so press and release feed
+    `Hold` like keys. ``action``, ``button``, ``col``, ``row`` (1-based cells) and ``mods``
+    (``shift``, ``alt``, ``ctrl``) are attributes. Reports come only once a TUI turns them on
+    (`MOUSE_ON`); nothing does yet.
+    """
+
+    def __new__(cls, action, button, col, row, mods=frozenset()):
+        if action == 'wheel':
+            name = f'wheel-{button}'
+        elif button is None:
+            name = f'{action}:mouse'
+        else:
+            name = f'{action}:mouse-{button}'
+        self = super().__new__(cls, name)
+        self.action, self.button, self.col, self.row, self.mods = action, button, col, row, frozenset(mods)
+        return self
+
+
+MOUSE_ON = '\x1b[?1002h\x1b[?1006h'    # button presses, releases and drags, in SGR form
+MOUSE_OFF = '\x1b[?1002l\x1b[?1006l'
+_BUTTONS = {0: 'left', 1: 'middle', 2: 'right'}
+_WHEEL = {0: 'up', 1: 'down', 2: 'left', 3: 'right'}
+
+
+def decode_mouse(value):
+    """A `Mouse` from one SGR mouse report, or None when ``value`` is not one."""
+    match = re.fullmatch(rb'\x1b\[<(\d+);(\d+);(\d+)([Mm])', value)
+    if not match:
+        return None
+    code, col, row = int(match[1]), int(match[2]), int(match[3])
+    mods = {name for bit, name in ((4, 'shift'), (8, 'alt'), (16, 'ctrl')) if code & bit}
+    low = code & 3
+    if code & 64:
+        return Mouse('wheel', _WHEEL[low], col, row, mods)
+    if code & 32:
+        return Mouse('drag', _BUTTONS.get(low), col, row, mods) if low != 3 else Mouse('move', None, col, row, mods)
+    return Mouse('release' if match[4] == b'm' else 'press', _BUTTONS.get(low), col, row, mods)
+
+
+class Terminal:
+    """What the terminal can report, for the input layer and its indicators.
+
+    ``kitty``: the kitty keyboard protocol (it answered ``CSI ? u``): press, repeat and release
+    events, so held keys chord. ``legacy``: tmux (and cx, which runs on it) forwards plain keys
+    only, so a held key is its auto-repeat stream and only the newest key repeats. ``plain``: a
+    terminal that answered the probe without the protocol. ``unknown``: not probed; manual mode
+    finds out from the keys themselves (ManualState.chords).
+    """
+
+    KINDS = ('kitty', 'legacy', 'plain', 'unknown')
+
+    def __init__(self, kind='unknown'):
+        if kind not in self.KINDS:
+            raise ValueError(f'unknown terminal kind {kind!r}')
+        self.kind = kind
+
+    @property
+    def releases(self):
+        """Key releases are reported (kitty), so holds end at the release, not a repeat gap."""
+        return self.kind == 'kitty'
+
+    @property
+    def chords_unavailable(self):
+        """Why held keys cannot chord here (``tmux``, ``no kitty keys``), or None when they can or may."""
+        return {'legacy': 'tmux', 'plain': 'no kitty keys'}.get(self.kind)
+
+    @classmethod
+    def detect(cls, caps=None, env=None):
+        """From the session probe's replies (``keyboard``: the ``CSI ? u`` flags, ``done``: DA1 seen,
+        ``xtversion``) and the environment (``TMUX``)."""
+        caps = caps or {}
+        env = os.environ if env is None else env
+        if env.get('TMUX') or (caps.get('xtversion') or '').lower().startswith('tmux'):
+            return cls('legacy')
+        if caps.get('keyboard') is not None:
+            return cls('kitty')
+        return cls('plain' if caps.get('done') else 'unknown')
+
+    def __repr__(self):
+        return f'Terminal({self.kind!r})'
+
+
+class Hold:
+    """Hold-to-confirm: ``feed(key, now)`` is True once ``name`` has been held ``hold_s``.
+
+    With release events (kitty keys, any mouse button) a press starts the hold and only its
+    release, or another key, ends it. Without them the key-repeat stream is the hold: the first
+    repeat must come within ``first_gap_s`` (the OS's initial delay) and each next within
+    ``gap_s``. ``tick(now)`` applies the gap with no key; ``progress(now)`` is 0..1 for a bar.
+    """
+
+    def __init__(self, name, hold_s, releases, first_gap_s=0.65, gap_s=0.15):
+        self.name, self.hold_s, self.releases = name, hold_s, releases
+        self.first_gap_s, self.gap_s = first_gap_s, gap_s
+        self.started = self.last = None
+        self.repeated = False
+
+    def reset(self):
+        self.started = self.last = None
+        self.repeated = False
+
+    def tick(self, now):
+        if self.started is not None and not self.releases:
+            if now - self.last > (self.gap_s if self.repeated else self.first_gap_s):
+                self.reset()
+        return self.done(now)
+
+    def feed(self, key, now):
+        self.tick(now)
+        kind, _, name = (key or '').rpartition(':')
+        kind = kind or 'plain'
+        if name != self.name:
+            if key is not None:
+                self.reset()       # any other key cancels
+            return self.done(now)
+        if kind == 'release':
+            self.reset()
+        elif self.started is None:
+            if kind != 'repeat':   # a repeat never starts a hold
+                self.started = self.last = now
+        else:
+            self.repeated, self.last = self.repeated or kind != 'press', now
+        return self.done(now)
+
+    def progress(self, now):
+        return 0.0 if self.started is None else min(1.0, (now - self.started) / self.hold_s)
+
+    def done(self, now):
+        return self.started is not None and now - self.started >= self.hold_s
+
+
 # Terminal replies are never keys: the TUI's capability probe (mhseals_testing ui/imaging/probe.py,
 # the only one) may be answered after it stops listening. Strings end at ST (ESC \); OSC may also end at BEL.
 STRING_INTRODUCERS = (b'_', b'P', b']', b'^', b'X')
 
 
+def string_end(buffer):
+    """The length of the APC/DCS/OSC/PM/SOS string starting ``buffer`` with its terminator, or None."""
+    st = buffer.find(b'\x1b\\', 2)
+    bel = buffer.find(b'\x07', 2) if buffer[1:2] == b']' else -1
+    ends = [i + 2 for i in (st,) if i >= 0] + [i + 1 for i in (bel,) if i >= 0]
+    return min(ends) if ends else None
+
+
 def string_complete(buffer):
     """True once an APC/DCS/OSC/PM/SOS string in ``buffer`` has its terminator."""
-    return buffer.endswith(b'\x1b\\') or (buffer[1:2] == b']' and buffer.endswith(b'\x07'))
+    return string_end(buffer) == len(buffer)
+
+
+# Kitty keyboard protocol (disambiguate, event types, all keys) and focus reports; terminals
+# without it ignore the request and keep sending legacy keys.
+EVENTS_ON = '\x1b[>11u\x1b[?1004h'
+EVENTS_OFF = '\x1b[<u\x1b[?1004l'
 
 
 def terminal_write(sequence):
@@ -118,12 +267,14 @@ class KeyReader:
         self.report_events = report_events
         self.buffer = bytearray()
         self.escape_started = None
+        self.terminal = Terminal()   # what the terminal reports; a TUI's probe tells it (Terminal.detect)
 
     def absorb(self, value):
         """True when ``value`` is a terminal reply, never a key: an APC (kitty graphics), DCS
-        (XTVERSION), OSC, PM or SOS string, ``CSI 6 ; h ; w t`` (cell size) or the DA1 ``CSI ? ... c``."""
+        (XTVERSION), OSC, PM or SOS string, ``CSI 6 ; h ; w t`` (cell size), the DA1 ``CSI ? ... c`` or
+        the kitty keyboard flags ``CSI ? flags u``."""
         return (value[:2] in (b'\x1b_', b'\x1bP', b'\x1b]', b'\x1b^', b'\x1bX')
-                or bool(re.fullmatch(rb'\x1b\[6;\d+;\d+t|\x1b\[\?[\d;]*c', value)))
+                or bool(re.fullmatch(rb'\x1b\[6;\d+;\d+t|\x1b\[\?[\d;]*c|\x1b\[\?\d*u', value)))
 
     def __enter__(self):
         if not sys.stdin.isatty():
@@ -142,44 +293,67 @@ class KeyReader:
         if self.report_events:
             # Kitty keyboard protocol: disambiguate, event types, all keys.
             # Unsupported terminals ignore this request and retain the fallback.
-            terminal_write('\x1b[>11u\x1b[?1004h')
+            terminal_write(EVENTS_ON)
         return self
 
     def __exit__(self, *_):
         try:
             if self.report_events:
-                terminal_write('\x1b[<u\x1b[?1004l')
+                terminal_write(EVENTS_OFF)
         finally:
             if self.settings is not None:
                 termios.tcsetattr(self.fd, termios.TCSANOW, self.settings)
 
+    def events(self):
+        """This reader with key events on (kitty press/repeat/release, focus) until the block ends.
+
+        The same reader, buffer and terminal state: manual mode reuses the session's reader, so
+        bytes queued before it starts are read in order and nothing is lost when it ends."""
+        return _Events(self)
+
+    def _take(self, now):
+        """The first complete sequence in the buffer, removed; None while it is incomplete.
+
+        A lone ESC is the Escape key only 50 ms after it arrived; a CSI/SS3 sequence ends at its
+        final byte (0x40-0x7E); an APC/DCS/OSC/PM/SOS string at ST (OSC also at BEL); a UTF-8
+        character after its last byte."""
+        buffer = self.buffer
+        if buffer[0] != 27:
+            lead = buffer[0]
+            size = 1 if lead < 0xc0 else 2 if lead < 0xe0 else 3 if lead < 0xf0 else 4
+            end = size if len(buffer) >= size or now - self.escape_started >= 0.05 else None
+        elif len(buffer) == 1:
+            end = 1 if now - self.escape_started >= 0.05 else None
+        elif buffer[1:2] in STRING_INTRODUCERS:
+            end = string_end(buffer)
+        elif buffer[1] not in (ord('['), ord('O')):
+            end = 2
+        else:
+            end = next((i + 1 for i in range(2, len(buffer)) if 0x40 <= buffer[i] <= 0x7e), None)
+        if end is None:
+            return None
+        value = bytes(buffer[:end])
+        del buffer[:end]
+        if buffer:
+            self.escape_started = now
+        return value
+
     def read(self, timeout=None):
         """Return a normalized key name, or None when the timeout expires.
 
-        Bytes are buffered until a sequence is complete: a lone ESC counts as
-        the Escape key only after 50 ms without follow-up bytes, and a CSI/SS3
-        sequence ends at its final byte (0x40-0x7E).
+        The terminal is read in bulk; sequences are cut from the buffer one at a time (`_take`).
+        A terminal reply (`absorb`) is never a key, and an SGR mouse report is a `Mouse`.
         """
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             now = time.monotonic()
             if self.buffer:
-                complete = self.buffer[0] != 27
-                if self.buffer[0] == 27:
-                    if len(self.buffer) == 1:
-                        complete = now - self.escape_started >= 0.05
-                    elif self.buffer[1:2] in STRING_INTRODUCERS:
-                        complete = string_complete(self.buffer)
-                    elif self.buffer[1] not in (ord('['), ord('O')):
-                        complete = True
-                    else:
-                        complete = len(self.buffer) > 2 and 0x40 <= self.buffer[-1] <= 0x7e
-                if complete:
-                    value = bytes(self.buffer)
-                    self.buffer.clear()
+                value = self._take(now)
+                if value is not None:
                     if value[0] == 27 and self.absorb(value):
                         continue
-                    return decode_key(value, self.report_events)
+                    mouse = decode_mouse(value)
+                    return mouse if mouse is not None else decode_key(value, self.report_events)
                 string = self.buffer[1:2] in STRING_INTRODUCERS
                 max_len = 512 if string else 64
                 if len(self.buffer) > max_len or now - self.escape_started > 1.0:
@@ -190,17 +364,35 @@ class KeyReader:
                         continue
                     raise ValueError('incomplete or oversized terminal key sequence')
             wait = None if deadline is None else max(0.0, deadline - now)
-            if self.buffer == b'\x1b':
-                escape_wait = max(0.0, .05 - (now - self.escape_started))
-                wait = escape_wait if wait is None else min(wait, escape_wait)
+            if self.buffer and (len(self.buffer) == 1 or self.buffer[0] != 27):
+                pending = max(0.0, .05 - (now - self.escape_started))   # a lone ESC or a partial UTF-8 character
+                wait = pending if wait is None else min(wait, pending)
             ready, _, _ = select.select([self.fd], [], [], wait)
             if not ready:
                 if deadline is not None and time.monotonic() >= deadline:
                     return None
                 continue
-            part = os.read(self.fd, 1)
+            part = os.read(self.fd, 4096)
             if not part:
                 raise EOFError('terminal input disconnected')
             if not self.buffer:
                 self.escape_started = time.monotonic()
             self.buffer.extend(part)
+
+
+class _Events:
+    """`KeyReader.events`: report key events for a block, then restore the reader's mode."""
+
+    def __init__(self, reader):
+        self.reader, self.before = reader, None
+
+    def __enter__(self):
+        self.before, self.reader.report_events = self.reader.report_events, True
+        if not self.before:
+            terminal_write(EVENTS_ON)
+        return self.reader
+
+    def __exit__(self, *_):
+        if not self.before:
+            terminal_write(EVENTS_OFF)
+        self.reader.report_events = self.before
