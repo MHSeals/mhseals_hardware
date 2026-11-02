@@ -43,7 +43,9 @@ def test_c_over_the_service_applies_reads_back_and_refuses_bad(tmp_path, monkeyp
     monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *a, **k: outputs)
     path = tmp_path / 'hardware.yaml'
     save_config(load_defaults(), path)
-    rclpy.init(args=['--ros-args', '-r', '__node:=live_c_test', '-p', f'config_file:={path}'])
+    # Node-scoped remap: a global one renames the caller too, and its parameter service answers.
+    rclpy.init(args=['--ros-args', '-r', 'thruster_pwm_node:__node:=live_c_test',
+                     '-p', f'config_file:={path}'])
     node = caller = None
     try:
         node = thruster_pwm_node.ThrusterPWMNode()
