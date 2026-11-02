@@ -2,9 +2,11 @@
 # The landing gate: python3 -m pytest -q -m smoke test. Cached per working tree when mhseals_agents/tools/tcache exists.
 #   tools/smoke            the smoke tier
 #   tools/smoke --impact   only the tests timpact says the changes affect (ALL runs the full smoke)
+# mhseals_agents: $MHSEALS_AGENTS, else beside the main clone (so a worktree finds it too).
 set -u
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-agents=$repo/../mhseals_agents/tools
+clone=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "$repo/.git")
+agents=${MHSEALS_AGENTS:-$(dirname "$(dirname "$clone")")/mhseals_agents}/tools
 cd "$repo" || exit 1
 args=(test)
 tier=smoke
@@ -12,12 +14,14 @@ if [ "${1:-}" = "--impact" ]; then
   tier=smoke-impact
   if [ -x "$agents/timpact" ]; then
     out=$("$agents/timpact" --repo "$repo") || out=ALL
-    if [ -n "$out" ] && ! printf '%s\n' "$out" | grep -qx ALL; then
+    [ -z "$out" ] && echo 'smoke --impact: no affected tests' && exit 0
+    if ! printf '%s\n' "$out" | grep -qx ALL; then
       mapfile -t args <<<"$out"
     fi
   fi
 fi
-cmd=(python3 -m pytest -q -m smoke "${args[@]}")
+# exit 5 (no smoke-marked test in the selected files) is a pass
+cmd=(bash -c 'python3 -m pytest "$@"; rc=$?; [ $rc = 5 ] && exit 0; exit $rc' smoke -q -m smoke "${args[@]}")
 if [ -x "$agents/tcache" ]; then
   # an impact subset is a different claim from the full smoke, so it caches under its own tier and test list
   [ "$tier" = smoke-impact ] && [ "${args[0]}" != test ] && tier=smoke-impact-$(printf '%s\n' "${args[@]}" | cksum | cut -d' ' -f1)
