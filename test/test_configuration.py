@@ -273,10 +273,21 @@ def test_slow_or_invalid_mosfet_heartbeat_fails(value, tmp_path):
         update_config({'mosfet_heartbeat': value}, str(tmp_path / 'hardware.yaml'))
 
 
-def test_an_operator_file_with_the_old_heartbeat_key_names_the_new_one(tmp_path):
+def test_an_operator_file_with_the_old_heartbeat_key_loads_with_a_warning(tmp_path, caplog):
     path = tmp_path / 'hardware.yaml'
     path.write_text('mosfet_heartbeat_hz: 20\n')
-    with pytest.raises(ValueError, match='mosfet_heartbeat_hz is now mosfet_heartbeat'):
+    with caplog.at_level('WARNING', logger='mhseals_hardware.configuration'):
+        assert load_config(str(path))['mosfet_heartbeat'] == 20
+    assert 'mosfet_heartbeat_hz is deprecated' in caplog.text
+    update_config({'frequency': load_config(str(path))['frequency']}, str(path))
+    assert 'mosfet_heartbeat_hz' not in path.read_text()
+    assert load_config(str(path))['mosfet_heartbeat'] == 20
+
+
+def test_an_operator_file_with_both_heartbeat_names_is_refused(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('mosfet_heartbeat_hz: 20\nmosfet_heartbeat: 30\n')
+    with pytest.raises(ValueError, match='keep mosfet_heartbeat'):
         load_config(str(path))
 
 

@@ -5,6 +5,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -21,8 +22,11 @@ from mhseals_hardware.thruster_mixer import (
     validate_reversed,
 )
 
-# Renamed settings: an operator file still naming the old key is refused with the new name.
+# Renamed settings: an operator file still naming the old key loads it as the new one with a
+# deprecation warning (an operator file on the boat may predate the rename); naming both refuses.
+# The next write of the file (update_config) migrates it to the new name.
 RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
+log = logging.getLogger(__name__)
 
 
 def config_path(path=None):
@@ -244,13 +248,21 @@ def _read_overrides(path):
     if not path.exists():
         return {}
     overrides = load_strict_yaml(path)
+    for old, new in RENAMED.items():
+        if old not in overrides:
+            continue
+        if new in overrides:
+            raise ValueError(f'{path}: {old} and {new} both set; {old} is the old name of {new}, '
+                             f'keep {new}')
+        log.warning('%s: %s is deprecated, read as %s (rename it; the next write does)',
+                    path, old, new)
+        overrides[new] = overrides.pop(old)
     unknown = sorted(set(overrides) - set(load_defaults()))
     if unknown:
         lines = {key.value: key.start_mark.line + 1 for key, _ in
                  yaml.compose(path.read_text(), Loader=yaml.SafeLoader).value}
         where = ', '.join(f'{path}:{lines[key]}' for key in unknown)
-        renamed = ''.join(f'; {old} is now {RENAMED[old]}' for old in unknown if old in RENAMED)
-        raise ValueError(f'unknown hardware settings: {unknown} at {where}{renamed}')
+        raise ValueError(f'unknown hardware settings: {unknown} at {where}')
     return overrides
 
 
