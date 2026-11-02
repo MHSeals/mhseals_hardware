@@ -8,6 +8,8 @@ import yaml
 
 from mhseals_hardware.configuration import load_config, load_defaults, load_strict_yaml, startup_config
 
+pytestmark = pytest.mark.smoke
+
 
 def node(**overrides):
     return NS(_parameter_overrides={k: NS(value=v) for k, v in overrides.items()})
