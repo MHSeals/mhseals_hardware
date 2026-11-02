@@ -17,6 +17,8 @@ from mhseals_hardware.thruster_mixer import (
     validate_reversed,
 )
 
+pytestmark = pytest.mark.smoke
+
 
 def extract(file, name, **extra):
     path = Path(__file__).parents[1] / 'mhseals_hardware' / file

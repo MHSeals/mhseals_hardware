@@ -14,6 +14,8 @@ from mhseals_hardware.thruster_mixer import (
     validate_mixer,
 )
 
+pytestmark = pytest.mark.smoke
+
 
 def test_surge_order():
     assert mix_thrusters(1.0, 0.0, 0.0) == [-1.0, -1.0, 1.0, 1.0]

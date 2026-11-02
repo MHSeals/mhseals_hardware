@@ -8,6 +8,8 @@ from mhseals_hardware.configuration import (
 )
 from mhseals_hardware.keyboard import decode_key
 
+pytestmark = pytest.mark.smoke
+
 
 def test_persistent_mapping_and_pins(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path))

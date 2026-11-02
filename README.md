@@ -245,8 +245,12 @@ repeats stop. See the root
 ## Development
 
 ```bash
-python3 -m pytest -q
+python3 -m pytest -q -m smoke test   # the landing gate, under 60 s
+python3 -m pytest -q                 # the full suite (CI reports it, never blocks)
 ```
+
+The smoke tier covers config loading and the schema, the mixer, the driver reload
+guard and the live parameter callbacks; tests that start nodes skip without rclpy.
 
 The package contains only pin-level and thruster code: PWM outputs, the ROS
 bridge, mixer, velocity controller, command mux, the test and identification
