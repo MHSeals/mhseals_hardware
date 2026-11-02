@@ -7,6 +7,9 @@ set -u
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 clone=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "$repo/.git")
 agents=${MHSEALS_AGENTS:-$(dirname "$(dirname "$clone")")/mhseals_agents}/tools
+# its parent on the path turns on the quarantine plugin (the root conftest.py); this checkout still comes first
+top=$(dirname "$agents")
+[[ $(basename "$top") == mhseals_agents && -d $top ]] && export PYTHONPATH=${PYTHONPATH:+$PYTHONPATH:}$(dirname "$top")
 cd "$repo" || exit 1
 args=(test)
 tier=smoke
