@@ -245,7 +245,7 @@ repeats stop. See the root
 ## Development
 
 ```bash
-python3 -m pytest -q -m smoke test   # the landing gate, under 60 s
+tools/smoke                         # the landing gate (python3 -m pytest -q -m smoke test), under 60 s; --impact runs only affected tests
 python3 -m pytest -q                 # the full suite (CI reports it, never blocks)
 ```
 

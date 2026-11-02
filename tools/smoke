@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# The landing gate: python3 -m pytest -q -m smoke test. Cached per working tree when mhseals_agents/tools/tcache exists.
+#   tools/smoke            the smoke tier
+#   tools/smoke --impact   only the tests timpact says the changes affect (ALL runs the full smoke)
+set -u
+repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+agents=$repo/../mhseals_agents/tools
+cd "$repo" || exit 1
+args=(test)
+tier=smoke
+if [ "${1:-}" = "--impact" ]; then
+  tier=smoke-impact
+  if [ -x "$agents/timpact" ]; then
+    out=$("$agents/timpact" --repo "$repo") || out=ALL
+    if [ -n "$out" ] && ! printf '%s\n' "$out" | grep -qx ALL; then
+      mapfile -t args <<<"$out"
+    fi
+  fi
+fi
+cmd=(python3 -m pytest -q -m smoke "${args[@]}")
+if [ -x "$agents/tcache" ]; then
+  # an impact subset is a different claim from the full smoke, so it caches under its own tier and test list
+  [ "$tier" = smoke-impact ] && [ "${args[0]}" != test ] && tier=smoke-impact-$(printf '%s\n' "${args[@]}" | cksum | cut -d' ' -f1)
+  exec "$agents/tcache" run --repo "$repo" --tier "$tier" -- "${cmd[@]}"
+fi
+exec "${cmd[@]}"
