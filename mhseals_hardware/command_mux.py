@@ -5,6 +5,10 @@
 All rules live in ``command_arbitration.Arbitration``; this node only wires
 topics.  A human input is forwarded in the callback that receives it, and a
 25 Hz timer keeps the output alive between frames.
+
+``rc_scale``, ``cmd_timeout`` and ``ramp`` also change through SetParameters: validated,
+then held as invocation overrides and applied like a YAML edit (at once from idle or a
+hold, else pending until then).
 """
 
 import json
@@ -28,6 +32,7 @@ STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
 
 
 RELOAD_PERIOD = 1.0
+LIVE_PARAMETERS = ('rc_scale', 'cmd_timeout', 'ramp')
 
 
 # Fields that move on every call (ages, rates, wall conversions, timing).
@@ -63,7 +68,7 @@ class CommandMux(Node):
         config, _ = startup_config(self, config_file, hardware_parameters=False)
         section = config.get('command_mux', {})
         self._invocation_overrides = {}
-        for name in ('rc_scale', 'cmd_timeout', 'ramp'):
+        for name in LIVE_PARAMETERS:
             default = section[name]
             self.declare_parameter(name, list(default) if name == 'rc_scale' else default)
             # Pinned Jazzy Node retains explicit CLI/launch overrides in this map.
@@ -76,7 +81,8 @@ class CommandMux(Node):
         effective = self._resolve_section(section)
         self.arbitration = Arbitration.from_config(effective)
         self._effective_section = effective
-        self.add_on_set_parameters_callback(self._reject_parameters)
+        self.add_on_set_parameters_callback(self._check_parameters)
+        self.add_post_set_parameters_callback(self._commit_parameters)
         # Holds survive a restart: re-adopt the saved set (invariant 4).
         self.state_file = section.get('state_file') or hold_store.default_path()
         self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
@@ -101,11 +107,33 @@ class CommandMux(Node):
         """Explicit invocation values win over YAML; omitted YAML uses defaults."""
         return {**section, **self._invocation_overrides}
 
-    def _reject_parameters(self, parameters):
-        names = {'rc_scale', 'cmd_timeout', 'ramp', 'config_file'}
-        changed = sorted(p.name for p in parameters if p.name in names)
-        return SetParametersResult(successful=not changed,
-                                   reason='restart required: ' + ', '.join(changed) if changed else '')
+    @staticmethod
+    def _live_changes(parameters):
+        return {p.name: tuple(p.value) if p.name == 'rc_scale' else p.value
+                for p in parameters if p.name in LIVE_PARAMETERS}
+
+    def _check_parameters(self, parameters):
+        """Live tunables are validated against the section they would join; config_file is fixed."""
+        if any(p.name == 'config_file' for p in parameters):
+            return SetParametersResult(successful=False, reason='restart required: config_file')
+        changes = self._live_changes(parameters)
+        if changes:
+            try:
+                Arbitration.from_config({**(self.pending or self._effective_section), **changes})
+            except (TypeError, ValueError) as error:
+                return SetParametersResult(successful=False, reason=str(error))
+        return SetParametersResult(successful=True)
+
+    def _commit_parameters(self, parameters):
+        """A stored set outlives later YAML edits, like a launch override."""
+        changes = self._live_changes(parameters)
+        if not changes:
+            return
+        self._invocation_overrides.update(changes)
+        self.pending = {**(self.pending or self._effective_section), **changes}
+        self.get_logger().info('command_mux parameters set: ' + ', '.join(
+            f'{key}={value}' for key, value in changes.items()))
+        self._apply_pending()
 
     def check_duplicate(self):
         """Hold at zero while another node also publishes ``/cmd_vel/applied``.
@@ -161,6 +189,9 @@ class CommandMux(Node):
                 self.get_logger().error(self._reload_error)
                 return
             self.pending = section
+        self._apply_pending(announce=config is not None)
+
+    def _apply_pending(self, announce=True):
         if self.pending is None:
             return
         if self.arbitration.apply_config(self.pending, time.monotonic()):
@@ -168,7 +199,7 @@ class CommandMux(Node):
             self._reload_error = ''
             self.get_logger().info('command_mux config applied')
             self.pending = None
-        elif config is not None:
+        elif announce:
             self.get_logger().info('command_mux config pending until idle or hold')
 
     def publish_state(self, force=False):

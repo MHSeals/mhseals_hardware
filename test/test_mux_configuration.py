@@ -7,6 +7,8 @@ from types import SimpleNamespace as NS
 
 import pytest
 
+pytestmark = pytest.mark.smoke
+
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
 from mhseals_hardware.configuration import load_defaults
 
@@ -50,7 +52,8 @@ def mux(section, overrides=None, **replace):
                startup_config=lambda node, path, **kw: ({'command_mux': full(section)}, None),
                ConfigWatcher=lambda path: NS(poll=lambda: None),
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
-               SetParametersResult=lambda **kw: NS(**kw))
+               SetParametersResult=lambda **kw: NS(**kw),
+               LIVE_PARAMETERS=('rc_scale', 'cmd_timeout', 'ramp'))
     env.update(replace)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[change, cls], type_ignores=[])), str(path), 'exec'), env)
     return env['CommandMux']()
@@ -96,10 +99,35 @@ def test_reload_defers_human_then_applies_at_idle_and_state_file_refuses():
     assert n.pending is None and old.cmd_timeout == .9 and n.state_file == '/default'
 
 
-@pytest.mark.parametrize('name', ['rc_scale', 'cmd_timeout', 'ramp', 'config_file'])
-def test_unused_live_parameter_writes_refuse(name):
+def test_config_file_parameter_write_refuses():
     n = mux({})
-    assert not n._reject_parameters([NS(name=name)]).successful
+    assert not n._check_parameters([NS(name='config_file', value='/x')]).successful
+
+
+@pytest.mark.parametrize('name,value', [('rc_scale', [.5, -.1, .3]), ('rc_scale', [.5, .5]),
+                                        ('cmd_timeout', 0.), ('ramp', -1.)])
+def test_bad_live_parameter_writes_refuse_and_keep_the_old(name, value):
+    n = mux({})
+    result = n._check_parameters([NS(name=name, value=value)])
+    assert not result.successful and result.reason
+    assert n.arbitration.cmd_timeout == .5 and n.pending is None
+
+
+def test_live_parameter_set_applies_from_idle_and_waits_while_driving():
+    n = mux({})
+    a = n.arbitration
+    sets = [NS(name='cmd_timeout', value=.9), NS(name='rc_scale', value=array('d', [.2] * 3))]
+    assert n._check_parameters(sets).successful
+    n._commit_parameters(sets)
+    assert a.cmd_timeout == .9 and a.rc_scale == (.2,) * 3 and n.pending is None
+    a.update_manual((.4, 0, 0), 0.)
+    n._commit_parameters([NS(name='ramp', value=2.)])
+    assert a.ramp == 1. and n.pending['ramp'] == 2.
+    n.watch.poll = lambda: {'command_mux': full({'cmd_timeout': .3})}  # an unrelated YAML edit
+    a.manual_time = None
+    n.reload_callback()
+    assert a.ramp == 2. and a.cmd_timeout == .9  # the set outlives the file
+    assert published(n)['invocation_overrides']['rc_scale'] == [.2] * 3
 
 
 def published(n):

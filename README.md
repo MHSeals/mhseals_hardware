@@ -167,9 +167,19 @@ non-finite numbers, naming `file:line`. Python loading needs no ROS.
 
 `config/schema.yaml` lists the keys the TUI shows with type, units, range, reload
 tier and a one-line doc. Validation is `configuration.validate_config`. With
-`config_file` set, only `command_timeout` and the `command_mux` keys apply live;
-everything else, including pins, backend, `channel_map`, `reversed` and the
-mixer, is flagged `restart required` and needs a node restart.
+`config_file` set, `command_timeout`, the correction C (`decoupling`,
+`decoupling_negative`) and the `command_mux` keys apply live; everything else,
+including pins, backend, `channel_map`, `reversed` and the mixer, is flagged
+`restart required` and needs a node restart.
+
+The same keys change live through the standard SetParameters service, refused with
+the old value kept when validation fails and read back with GetParameters: on the
+driver `decoupling`, `decoupling_negative` (a `decoupling` set alone carries it
+along while the two are equal) and `command_timeout`; on `command_mux` `rc_scale`,
+`cmd_timeout` and `ramp` (applied at once from idle or a hold, else when the boat
+next idles or holds); on the velocity controller its gains. The driver's latched
+`~/status` reports what is in force under `live`. Agents set them through
+`boat_agent set`, so the TUI shows and logs the change.
 
 The `controller:` section holds the velocity controller defaults; the operator
 file overrides individual leaves and keeps their siblings:
