@@ -26,7 +26,8 @@ def extract(file, name, **extra):
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     constants = [n for n in tree.body if isinstance(n, ast.Assign) and
                  any(isinstance(t, ast.Name) and t.id in
-                     ('LIVE_KEYS', 'RESTART_KEYS', 'PLANT_KEYS', 'HEARTBEAT_STALL')
+                     ('PARAMETER_KEYS', 'LIVE_KEYS', 'RESTART_KEYS', 'PLANT_KEYS',
+                      'HEARTBEAT_STALL')
                      for t in n.targets)]
     env = dict(globals(), SetParametersResult=lambda **kw: NS(**kw),
                String=lambda **kw: NS(**kw), Parameter=lambda name, **kw: NS(name=name, **kw),
@@ -66,8 +67,7 @@ CHANGES = {
     'output_backend': 'topic', 'pwm_topic': '/other', 'pwm_chips': ['/sys/other'] * 4,
     'pwm_channels': [1, 0, 0, 0], 'mosfet_chip': 'gpio4', 'mosfet_line': 3,
     'mosfet_active_high': False, 'frequency': 60, 'channel_map': [2, 1, 3, 4],
-    'reversed': [True] * 4, 'thruster_matrix': [0.5] * 12, 'decoupling': [0.5] * 9,
-    'decoupling_negative': [0.4] * 9, 'reverse_thrust_ratio': 0.5,
+    'reversed': [True] * 4, 'thruster_matrix': [0.5] * 12, 'reverse_thrust_ratio': 0.5,
     'characterization': {'velocity_gain': {'surge': 2}},
     'hardware_epoch': 1, 'estop_cuts_power': False, 'estop_on_rc_loss': False,
     'mosfet_heartbeat_hz': 20,
@@ -106,7 +106,8 @@ def test_coupled_refusal_then_scalar_correction_and_revert():
     candidate = dict(node.file_config, decoupling=[0.5] * 9, characterization={'metadata': 1})
     for _ in range(2):
         request(node, candidate)
-        assert node.pending_restart_keys == ['characterization', 'decoupling']
+        assert node.pending_restart_keys == ['characterization']
+        assert node.decoupling == ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
     mirrored = []
     node.set_parameters = lambda params: mirrored.extend(params) or [NS(successful=True)]
     request(node, dict(node.file_config, command_timeout=1))
@@ -129,8 +130,8 @@ def test_invalid_timeout_preserves_watchdog(value):
 def test_parameter_writes_cannot_bypass_guard():
     node, env = pwm()
     for key in set(env['RESTART_KEYS']) | {'config_file', 'pulse_guard_topic'}:
-        assert not node.refuse_external([NS(name=key)]).successful
-    assert not node.refuse_external([NS(name='command_timeout')]).successful
+        assert not node.check_parameters([NS(name=key)]).successful
+    assert node.check_parameters([NS(name='command_timeout', value=1.0)]).successful
 
 
 def test_settled_watcher_leaves_requested_bytes_and_refusal_visible(tmp_path):

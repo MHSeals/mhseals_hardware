@@ -12,9 +12,12 @@ MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
 shuts down like Ctrl+C. ``mosfet_heartbeat_hz`` toggles the enable for a
 heartbeat circuit. The ``~/estop`` service (std_srvs/Trigger) is the operator's
-e-stop: the same latched cut. With
-``config_file`` set, validated watchdog edits apply live. Structural or coupled model
-edits require an explicit owner-controlled restart; this node never reopens outputs.
+e-stop: the same latched cut. The correction C (``decoupling``,
+``decoupling_negative``) and ``command_timeout`` apply live, from the YAML (with
+``config_file`` set) or through SetParameters, validated as a batch: a bad value is refused
+and the old one kept. A ``decoupling`` set alone moves ``decoupling_negative`` with it while
+the two are equal (unset in the YAML). Wiring, pins and the mixer need a restart; this node
+never reopens outputs.
 """
 
 import json
@@ -50,10 +53,11 @@ GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s timeout
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
-                              'decoupling', 'decoupling_negative', 'reverse_thrust_ratio',
-                              'characterization', 'hardware_epoch', 'estop_cuts_power',
-                              'estop_on_rc_loss', 'mosfet_heartbeat_hz')
-LIVE_KEYS = ('command_timeout', 'command_mux')  # command_mux less its channels (see reload)
+                              'reverse_thrust_ratio', 'characterization', 'hardware_epoch',
+                              'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat_hz')
+# Settable through SetParameters as well as the YAML.
+PARAMETER_KEYS = ('command_timeout', 'decoupling', 'decoupling_negative')
+LIVE_KEYS = PARAMETER_KEYS + ('command_mux',)  # command_mux less its channels (see reload)
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
@@ -117,7 +121,9 @@ class ThrusterPWMNode(Node):
         self.mux_input, self.mux_time = None, 0.0
         if self.guard_topic:
             self.create_subscription(String, self.guard_topic, self.guard_callback, GUARD_QOS)
-        self.add_on_set_parameters_callback(self.refuse_external)
+        self.add_pre_set_parameters_callback(self.follow_correction)
+        self.add_on_set_parameters_callback(self.check_parameters)
+        self.add_post_set_parameters_callback(self.commit_parameters)
         self.create_timer(0.1, self.watchdog_callback)
         if self.config_file:
             self.watch = ConfigWatcher(self.config_file)
@@ -138,19 +144,60 @@ class ThrusterPWMNode(Node):
         if getattr(self, 'estop', None) is not None:
             self.estop.configure(config['command_mux'])
 
-    def refuse_external(self, parameters):
-        """The YAML is the one source of truth: settings written over ROS are refused."""
+    def follow_correction(self, parameters):
+        """A C set alone carries C- along while C- follows it, as an unset YAML C- does."""
+        names = {parameter.name for parameter in parameters}
+        if (self.own_write or 'decoupling' not in names or 'decoupling_negative' in names
+                or list(self.config['decoupling_negative']) != list(self.config['decoupling'])):
+            return parameters
+        source = next(parameter for parameter in parameters if parameter.name == 'decoupling')
+        return list(parameters) + [Parameter('decoupling_negative', source.type_, source.value)]
+
+    def check_parameters(self, parameters):
+        """Outside writes: live keys are validated as a batch, the rest are refused."""
         if self.own_write:
             return SetParametersResult(successful=True)
+        changes = {}
         for parameter in parameters:
-            if parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
+            if parameter.name in PARAMETER_KEYS:
+                changes[parameter.name] = self._plain(parameter.value)
+            elif parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
                 reason = 'edit hardware.yaml'
                 if parameter.name in RESTART_KEYS + ('config_file', 'pulse_guard_topic'):
                     reason = 'restart required; ' + reason
                 elif parameter.name not in LIVE_KEYS:
                     reason = 'not a driver setting; ' + reason
                 return SetParametersResult(successful=False, reason=reason)
+        try:
+            self.live_config(changes)
+        except (ValueError, TypeError, KeyError) as error:
+            return SetParametersResult(successful=False, reason=str(error))
         return SetParametersResult(successful=True)
+
+    def commit_parameters(self, parameters):
+        """Runs once the batch is stored: the driver uses what GetParameters now reads."""
+        if self.own_write:
+            return
+        changes = {parameter.name: self._plain(parameter.value) for parameter in parameters
+                   if parameter.name in PARAMETER_KEYS}
+        if not changes:
+            return
+        self.config = self.live_config(changes)
+        self.apply(self.config)
+        self.get_logger().info('parameters applied live: ' + ', '.join(
+            f'{key}={value}' for key, value in changes.items()))
+        self.publish_status()
+
+    def live_config(self, changes):
+        """The running config with ``changes``, fully validated; raises on a bad one."""
+        if isinstance(changes.get('command_timeout'), bool):
+            raise ValueError('command_timeout must be numeric, not bool')
+        return validate_config(dict(self.config, **changes))
+
+    @staticmethod
+    def _plain(value):
+        """ROS arrays arrive as array.array; the validators and the YAML want lists."""
+        return value if isinstance(value, (bool, int, float, str)) else list(value)
 
     def publish_status(self):
         """Latched ~/status: what the driver runs, for the TUI's owner and sync checks."""
@@ -163,7 +210,10 @@ class ThrusterPWMNode(Node):
             'requested_config_sha': config_sha(self.requested_config),
             'effective_config_sha': config_sha(self.config),
             'pending_restart_keys': self.pending_restart_keys,
-            'outputs': {key: self.config[key] for key in OUTPUT_KEYS}, 'error': self.error})))
+            'outputs': {key: self.config[key] for key in OUTPUT_KEYS},
+            'live': {key: list(self.config[key]) if isinstance(self.config[key], (list, tuple))
+                     else self.config[key] for key in PARAMETER_KEYS},
+            'error': self.error})))
 
     def reload_callback(self):
         """Apply the YAML's edits; keep running on a bad one."""

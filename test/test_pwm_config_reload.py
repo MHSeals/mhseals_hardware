@@ -9,9 +9,10 @@ from geometry_msgs.msg import Twist
 
 from mhseals_hardware.configuration import load_defaults, save_config
 from mhseals_hardware import outputs as outputs_module, thruster_pwm_node
+from mhseals_hardware.thruster_mixer import thruster_pulses, validate_decoupling
 
 
-def test_correction_requires_restart_and_keeps_manual_pulses(tmp_path, monkeypatch):
+def test_correction_edit_applies_live_to_parameters_and_pulses(tmp_path, monkeypatch):
     class Outputs:
         def open(self):
             return self
@@ -38,13 +39,15 @@ def test_correction_requires_restart_and_keeps_manual_pulses(tmp_path, monkeypat
         node.watch.mtime = None
         node.watch.seen = node.watch._stat()
         node.reload_callback()
-        assert list(node.get_parameter('decoupling').value) == config['decoupling']
-        assert list(node.get_parameter('decoupling_negative').value) == config['decoupling']
+        assert list(node.get_parameter('decoupling').value) == correction
+        assert list(node.get_parameter('decoupling_negative').value) == correction
         message = Twist()
         message.linear.x = .5
         node.cmd_vel_callback(message)
-        assert outputs.pulses == [1300, 1700, 1300, 1700]
-        assert node.pending_restart_keys == ['decoupling', 'decoupling_negative']
+        assert outputs.pulses != [1300, 1700, 1300, 1700]  # the uncorrected surge
+        assert outputs.pulses == thruster_pulses(
+            (.5, 0., 0.), node.mixer, (1, 3, 2, 4), decoupling=validate_decoupling(correction))
+        assert node.pending_restart_keys == [] and node.error == ''
     finally:
         if node is not None:
             node.destroy_node()
@@ -326,13 +329,11 @@ def latest_status(node):
 def test_outside_set_edit_is_refused_with_a_reason(tmp_path, monkeypatch):
     node, path, events = start(tmp_path, monkeypatch, load_defaults())
     try:
-        for name, value in (('frequency', 60.0), ('command_timeout', 1.0)):
-            result = node.set_parameters([thruster_pwm_node.Parameter(name, value=value)])[0]
-            assert not result.successful and 'edit hardware.yaml' in result.reason
-        assert 'not a driver setting' not in result.reason  # command_timeout is a LIVE key
-        assert 'restart required' in node.set_parameters(
-            [thruster_pwm_node.Parameter('frequency', value=60.0)])[0].reason
-        assert node.get_parameter('command_timeout').value == 0.5
+        result = node.set_parameters([thruster_pwm_node.Parameter('frequency', value=60.0)])[0]
+        assert not result.successful and 'restart required' in result.reason
+        result = node.set_parameters([thruster_pwm_node.Parameter('command_timeout', value=1.0)])[0]
+        assert result.successful and node.command_timeout == 1.0
+        assert node.get_parameter('command_timeout').value == 1.0
     finally:
         node.destroy_node()
         rclpy.shutdown()

@@ -35,7 +35,8 @@ from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
 
 # The config keys Plant reads; an edit to anything else keeps the model and the integrator.
-PLANT_KEYS = ('thruster_matrix', 'characterization', 'decoupling', 'decoupling_negative')
+# The correction C acts in the driver ahead of the mixer and changes live there.
+PLANT_KEYS = ('thruster_matrix', 'characterization')
 # The mux's latched ~/state, so the current hold reaches a controller started late.
 STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)

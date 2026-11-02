@@ -34,14 +34,13 @@ def reload(node, candidate):
     node._reload()
 
 
-@pytest.mark.parametrize('change', ['decoupling', 'decoupling_negative', 'thruster_matrix',
-                                   'velocity_gain', 'speed_curves', 'mechanical_bias',
-                                   'motion_limits', 'metadata'])
+@pytest.mark.parametrize('change', ['thruster_matrix', 'velocity_gain', 'speed_curves',
+                                   'mechanical_bias', 'motion_limits', 'metadata'])
 @pytest.mark.parametrize('fault', ['', 'existing fault'])
 def test_plant_edits_preserve_model_and_state(change, fault):
     node, accepted = controller(fault)
     candidate = copy.deepcopy(accepted)
-    if change in ('decoupling', 'decoupling_negative', 'thruster_matrix'):
+    if change == 'thruster_matrix':
         candidate[change] = [v * 0.8 for v in candidate[change]]
     elif change == 'velocity_gain':
         candidate['characterization'][change]['surge']['surge'] *= 2
@@ -87,7 +86,14 @@ def test_coupled_request_is_refused_by_both_consumers_and_effort_stays_old():
     reload(node, candidate)
     node._command((0.12, 0, 0))
     assert node.sent[-1] == pytest.approx(before)
-    assert driver.pending_restart_keys == ['characterization', 'decoupling']
-    assert node._reload_error == 'restart required: characterization, decoupling'
+    assert driver.pending_restart_keys == ['characterization']
+    assert node._reload_error == 'restart required: characterization'
     reload(node, accepted)
     assert not node._reload_error and node._plant_inputs == node._requested_plant_inputs
+
+
+def test_a_correction_edit_keeps_the_controller_running_without_a_restart():
+    node, accepted = controller()
+    law = node._law
+    reload(node, dict(accepted, decoupling=[1, 0, 0, 0, 1, 0, .1, 0, 1]))
+    assert node._reload_error == '' and node._law is law
