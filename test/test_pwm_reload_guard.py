@@ -72,7 +72,7 @@ CHANGES = {
     'reversed': [True] * 4, 'thruster_matrix': [0.5] * 12, 'reverse_thrust_ratio': 0.5,
     'characterization': {'velocity_gain': {'surge': 2}},
     'hardware_epoch': 1, 'estop_cuts_power': False, 'estop_on_rc_loss': False,
-    'mosfet_heartbeat_hz': 20,
+    'mosfet_heartbeat': 20,
 }
 
 

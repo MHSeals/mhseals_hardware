@@ -10,7 +10,7 @@ Either goes neutral after ``command_timeout`` without a message. With
 ``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
 MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
-shuts down like Ctrl+C. ``mosfet_heartbeat_hz`` toggles the enable for a
+shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
 heartbeat circuit. The ``~/estop`` service (std_srvs/Trigger) is the operator's
 e-stop: the same latched cut. The correction C (``decoupling``,
 ``decoupling_negative``) and ``command_timeout`` apply live, from the YAML (with
@@ -54,7 +54,7 @@ HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
                               'reverse_thrust_ratio', 'characterization', 'hardware_epoch',
-                              'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat_hz')
+                              'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat')
 # Settable through SetParameters as well as the YAML.
 PARAMETER_KEYS = ('command_timeout', 'decoupling', 'decoupling_negative')
 LIVE_KEYS = PARAMETER_KEYS + ('command_mux',)  # command_mux less its channels (see reload)
@@ -103,9 +103,9 @@ class ThrusterPWMNode(Node):
         self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
                                  self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
         self.last_beat = None
-        if self.config['mosfet_heartbeat_hz'] and getattr(self.outputs, 'mosfet', None):
+        if self.config['mosfet_heartbeat'] and getattr(self.outputs, 'mosfet', None):
             # Two flips per cycle; a stopped, killed or hung node stops the heartbeat.
-            self.create_timer(0.5 / self.config['mosfet_heartbeat_hz'], self.heartbeat)
+            self.create_timer(0.5 / self.config['mosfet_heartbeat'], self.heartbeat)
         # Operator e-stop (the TUI): the same latched cut, cause 'operator'.
         self.create_service(Trigger, '~/estop', self.estop_service)
         self.last_command_time = time.monotonic()

@@ -23,7 +23,7 @@ estop_on_rc_loss: true
 # Toggle the MOSFET enable at this rate while powered, for a heartbeat circuit
 # that drops the gate when the toggling stops (.handoff/specs/mosfet-heartbeat.md).
 # 0 = steady level (no heartbeat circuit fitted).
-mosfet_heartbeat_hz: 0.0
+mosfet_heartbeat: 0.0
 command_timeout: 0.5
 # Canonical FL, FR, RR, RL -> physical output (1-based).
 channel_map: [1, 2, 3, 4]

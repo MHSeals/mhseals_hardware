@@ -21,6 +21,9 @@ from mhseals_hardware.thruster_mixer import (
     validate_reversed,
 )
 
+# Renamed settings: an operator file still naming the old key is refused with the new name.
+RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
+
 
 def config_path(path=None):
     # An empty variable means unset, not the current directory.
@@ -114,10 +117,10 @@ def validate_config(config):
         if type(config[key]) is not bool:
             raise ValueError(f'{key} must be a boolean')
     # Under 10 Hz a flip is more than the driver's 0.15 s stall threshold away.
-    beat = config['mosfet_heartbeat_hz']
+    beat = config['mosfet_heartbeat']
     if type(beat) not in (int, float) or not math.isfinite(beat) or not (
             beat == 0 or 10 <= beat <= 100):
-        raise ValueError('mosfet_heartbeat_hz must be 0 (off) or within [10, 100]')
+        raise ValueError('mosfet_heartbeat must be 0 (off) or within [10, 100]')
     if not isinstance(config['mosfet_chip'], str) or not re.fullmatch(
             r'(?:/dev/gpiochip\d+|gpio\d+)', config['mosfet_chip']):
         raise ValueError('mosfet_chip must be a bank label (gpio3) or /dev/gpiochipN')
@@ -246,7 +249,8 @@ def _read_overrides(path):
         lines = {key.value: key.start_mark.line + 1 for key, _ in
                  yaml.compose(path.read_text(), Loader=yaml.SafeLoader).value}
         where = ', '.join(f'{path}:{lines[key]}' for key in unknown)
-        raise ValueError(f'unknown hardware settings: {unknown} at {where}')
+        renamed = ''.join(f'; {old} is now {RENAMED[old]}' for old in unknown if old in RENAMED)
+        raise ValueError(f'unknown hardware settings: {unknown} at {where}{renamed}')
     return overrides
 
 
