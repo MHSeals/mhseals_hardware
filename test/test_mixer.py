@@ -101,7 +101,8 @@ def test_decoupling_is_applied_before_the_mix():
     assert decouple((0.25, 0, 0), corrected) == pytest.approx((0.25, 0, -0.05))
     assert thruster_pulses((0.25, 0, 0), THRUSTER_MIXER, (1, 2, 3, 4),
                            decoupling=corrected) == [1380, 1420, 1580, 1620]
-    for bad in ([1] * 8, [float('nan')] + [0] * 8):
+    for bad in ([1] * 8, [float('nan')] + [0] * 8, [1, 0, 0, 0, 1, 0, 2.5, 0, 1],
+                [1, 0, 0, 0, -1, 0, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 0], [True] + [0] * 8):
         with pytest.raises(ValueError):
             validate_decoupling(bad)
 

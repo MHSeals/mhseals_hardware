@@ -28,6 +28,7 @@ THRUSTER_MIXER = (
 )
 # Rows and columns surge, sway, yaw: the fitted correction for cross-coupling.
 IDENTITY = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+DECOUPLING_BOUND = 2.0  # largest |entry| of C; fitted corrections stay near identity
 
 
 def axis_command(axis=None, value=0.0):
@@ -71,7 +72,11 @@ def validate_mixer(values):
 
 
 def validate_decoupling(values):
-    """Return a 3x3 decoupling matrix from a flat, finite 9-value sequence."""
+    """Return a 3x3 decoupling matrix from a flat, finite 9-value sequence.
+
+    Every entry lies within +/-DECOUPLING_BOUND and the diagonal is positive: a zero or
+    negative diagonal would drop or reverse an axis, which no correction means to do.
+    """
     if len(values) != 9:
         raise ValueError('decoupling must contain exactly 9 values')
     if any(type(value) not in (int, float) for value in values):
@@ -79,6 +84,10 @@ def validate_decoupling(values):
     values = tuple(float(value) for value in values)
     if not all(value == value and abs(value) != float('inf') for value in values):
         raise ValueError('decoupling values must be finite')
+    if any(abs(value) > DECOUPLING_BOUND for value in values):
+        raise ValueError(f'decoupling values must be within +/-{DECOUPLING_BOUND:g}')
+    if any(values[index] <= 0 for index in (0, 4, 8)):
+        raise ValueError('decoupling diagonal must be positive')
     return tuple(tuple(values[index:index + 3]) for index in range(0, 9, 3))
 
 

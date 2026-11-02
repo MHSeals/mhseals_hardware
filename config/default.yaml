@@ -37,7 +37,8 @@ thruster_matrix: [
    1.0,  1.0, -1.0,  # RL
 ]
 # Rows and columns surge, sway, yaw, applied before the mixer: cancels the
-# cross-coupling the characterization measured. Identity means none.
+# cross-coupling the characterization measured. Identity means none. Entries within
+# +/-2, diagonal positive. Applies live (this file or SetParameters on the driver).
 decoupling: [
   1.0, 0.0, 0.0,
   0.0, 1.0, 0.0,

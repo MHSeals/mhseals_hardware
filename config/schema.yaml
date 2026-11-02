@@ -12,6 +12,8 @@ mosfet_heartbeat_hz: {type: float, units: Hz, range: [0, 100], tier: restart, do
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
+decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correction C, rows and columns surge, sway, yaw (row-major, 9 values); diagonal positive. Live from the YAML or SetParameters on the driver."}
+decoupling_negative: {type: list, units: "1", range: [-2, 2], tier: live, doc: "C for an axis commanded below zero; follows decoupling while equal to it. Live like decoupling."}
 command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "Thrusters go neutral after this long without a command."}
 command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch; the driver's e-stop takes it only on a restart."}
 command_mux.modes: {type: list, units: enum, tier: live, doc: "FCU mode number for each of the six mode switch positions."}
