@@ -2,6 +2,7 @@
 
 import pytest
 
+from mhseals_hardware import vessel
 from mhseals_hardware.configuration import load_config, update_config
 
 
@@ -86,6 +87,7 @@ def test_a_symlinked_env_reads_the_vessel_it_points_at(boat, tmp_path, monkeypat
     monkeypatch.delenv('ASTRO_NETWORK_ENV')
     monkeypatch.setenv('ROS_WS', str(tmp_path / 'ws'))
     assert load_config(empty(tmp_path))['channel_map'] == [1, 3, 2, 4]
+    assert vessel.directory() == (tmp_path / 'boat').resolve()   # the driver's ready line names the profile
 
 
 def test_update_config_validates_over_the_vessel_layer(boat, tmp_path):

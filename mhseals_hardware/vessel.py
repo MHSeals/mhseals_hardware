@@ -36,6 +36,13 @@ def env_path():
     return Path(workspace) / 'config' / 'boat-network.env' if workspace else None
 
 
+def directory(network_env=None):
+    """The vessel profile directory: the env file's resolved parent (a symlinked legacy ``$ROS_WS/config`` env
+    names its target's vessel), or None without an env file."""
+    env = Path(network_env).expanduser() if network_env else env_path()
+    return env.resolve().parent if env is not None and env.is_file() else None
+
+
 @cache
 def section(name, network_env=None):
     """The vessel profile chain's merged ``name:`` mapping ({} without a vessel profile or that key)."""
@@ -45,16 +52,16 @@ def section(name, network_env=None):
         return {}
     if not env.is_file():
         raise ValueError(f'vessel network env {env} is missing')
-    chain, here = [], env.resolve().parent       # a symlinked env (legacy $ROS_WS/config) names its target's vessel
+    chain, here = [], directory(network_env)
     while here is not None and len(chain) < DEPTH and here not in chain:
         chain.append(here)
         parent = _mapping(here / 'profile.yaml', required=True).get('extends')
         here = here.parent / parent if isinstance(parent, str) else None
     merged = {}
-    for directory in reversed(chain):
-        merged.update(_mapping(directory / f'{name}.yaml'))
-        found = _mapping(directory / 'profile.yaml').get(name, {})
+    for profile in reversed(chain):
+        merged.update(_mapping(profile / f'{name}.yaml'))
+        found = _mapping(profile / 'profile.yaml').get(name, {})
         if not isinstance(found, dict):
-            raise ValueError(f'{directory / "profile.yaml"}: {name}: must be a mapping')
+            raise ValueError(f'{profile / "profile.yaml"}: {name}: must be a mapping')
         merged.update(found)
     return merged

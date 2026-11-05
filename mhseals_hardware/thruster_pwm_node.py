@@ -125,7 +125,7 @@ class ThrusterPWMNode(Node):
         self.add_on_set_parameters_callback(self.check_parameters)
         self.add_post_set_parameters_callback(self.commit_parameters)
         self.create_timer(0.1, self.watchdog_callback)
-        source = vessel.env_path().parent if vessel.section('thrusters') else 'none'
+        source = vessel.directory() if vessel.section('thrusters') else 'none'
         self.get_logger().info(
             f"thruster control ready ({self.config['output_backend']} outputs, channel_map "
             f"{self.config['channel_map']}, vessel thrusters: {source})")
