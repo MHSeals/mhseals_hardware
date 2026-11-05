@@ -1,4 +1,4 @@
-"""Actual mux initialization/reload against inert ROS bindings and real arbitration."""
+"""Actual mux startup and live sets against inert ROS bindings and real arbitration."""
 from array import array
 import ast
 import json
@@ -10,7 +10,7 @@ import pytest
 pytestmark = pytest.mark.smoke
 
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
-from mhseals_hardware.configuration import load_defaults
+from mhseals_hardware.configuration import declared, load_defaults
 
 
 def full(section):
@@ -20,11 +20,10 @@ def full(section):
 class InertNode:
     overrides = {}
     def __init__(self, name):
-        self._parameter_overrides = self.overrides
         self.parameters, self.logs = {}, []
 
     def declare_parameter(self, name, value):
-        self.parameters[name] = self._parameter_overrides.get(name, value)
+        self.parameters[name] = self.overrides.get(name, value)  # a -p override wins
 
     def get_parameter(self, name):
         return NS(value=self.parameters[name])
@@ -46,11 +45,10 @@ def mux(section, overrides=None, **replace):
     InertNode.overrides = overrides or {}
     change = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'change_key')
     env = dict(json=json, INIT_KEYS=INIT_KEYS, VOLATILE_RC=('age_s', 'rate_hz', 'interval_p95_s'),
-               InertNode=InertNode, Arbitration=Arbitration, RELOAD_PERIOD=1.,
+               InertNode=InertNode, Arbitration=Arbitration,
                time=NS(monotonic=lambda: 0., time_ns=lambda: 1), Twist=object, String=lambda **kw: NS(**kw), RCIn=object,
                STATE_QOS=None, qos_profile_sensor_data=None,
-               startup_config=lambda node, path, **kw: ({'command_mux': full(section)}, None),
-               ConfigWatcher=lambda path: NS(poll=lambda: None),
+               load_config=lambda path: {'command_mux': full(section)}, declared=declared,
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw),
                LIVE_PARAMETERS=('rc_scale', 'cmd_timeout', 'ramp'))
@@ -79,24 +77,6 @@ def test_yaml_fallback_and_explicit_invocation_precedence():
     n = mux({'rc_scale': [.2]*3, 'cmd_timeout': .7, 'ramp': 0.}, {'cmd_timeout': .9})
     assert n.arbitration.rc_scale == (.2,)*3
     assert n.arbitration.cmd_timeout == .9
-    assert n._resolve_section({'cmd_timeout': .1})['cmd_timeout'] == .9
-
-
-def test_reload_defers_human_then_applies_at_idle_and_state_file_refuses():
-    n = mux({})
-    old = n.arbitration
-    old.update_manual((.4, 0, 0), 0.)
-    n.watch.poll = lambda: {'command_mux': full({'rc_scale': [.2]*3, 'cmd_timeout': .9})}
-    n.reload_callback()
-    assert n.pending and old.cmd_timeout == .5
-    old.manual_time = None
-    n.watch.poll = lambda: None
-    n.reload_callback()
-    assert n.pending is None and old.cmd_timeout == .9 and old.rc_scale == (.2,)*3
-    n.watch.poll = lambda: {'command_mux': full({'state_file': '/other', 'cmd_timeout': .2})}
-    n.reload_callback()
-    assert n._reload_error == 'restart required: state_file'
-    assert n.pending is None and old.cmd_timeout == .9 and n.state_file == '/default'
 
 
 def test_config_file_parameter_write_refuses():
@@ -110,24 +90,20 @@ def test_bad_live_parameter_writes_refuse_and_keep_the_old(name, value):
     n = mux({})
     result = n._check_parameters([NS(name=name, value=value)])
     assert not result.successful and result.reason
-    assert n.arbitration.cmd_timeout == .5 and n.pending is None
+    assert n.arbitration.cmd_timeout == .5
 
 
-def test_live_parameter_set_applies_from_idle_and_waits_while_driving():
+def test_live_parameter_set_applies_at_once_even_while_driving():
     n = mux({})
     a = n.arbitration
     sets = [NS(name='cmd_timeout', value=.9), NS(name='rc_scale', value=array('d', [.2] * 3))]
     assert n._check_parameters(sets).successful
     n._commit_parameters(sets)
-    assert a.cmd_timeout == .9 and a.rc_scale == (.2,) * 3 and n.pending is None
+    assert a.cmd_timeout == .9 and a.rc_scale == (.2,) * 3
     a.update_manual((.4, 0, 0), 0.)
     n._commit_parameters([NS(name='ramp', value=2.)])
-    assert a.ramp == 1. and n.pending['ramp'] == 2.
-    n.watch.poll = lambda: {'command_mux': full({'cmd_timeout': .3})}  # an unrelated YAML edit
-    a.manual_time = None
-    n.reload_callback()
-    assert a.ramp == 2. and a.cmd_timeout == .9  # the set outlives the file
-    assert published(n)['invocation_overrides']['rc_scale'] == [.2] * 3
+    assert a.ramp == 2. and n.arbitration is a  # tuning never remaps a channel, so no wait
+    assert published(n)['effective']['rc_scale'] == [.2] * 3
 
 
 def published(n):
@@ -137,28 +113,9 @@ def published(n):
     return json.loads(sent[-1].data)['configuration']
 
 
-def test_ros_array_override_status_and_pending_are_json_safe_and_detached():
+def test_ros_array_override_is_json_safe_and_detached():
     scale = array('d', [.1, .2, .1])
     n = mux({}, {'rc_scale': scale})
     scale[0] = .9
-    assert published(n)['invocation_overrides']['rc_scale'] == [.1, .2, .1]
-    n.arbitration.update_manual((.4, 0, 0), 0.)
-    n.watch.poll = lambda: {'command_mux': full({'ramp': 2.})}
-    n.reload_callback()
-    assert published(n)['pending']['rc_scale'] == [.1, .2, .1]
+    assert published(n)['effective']['rc_scale'] == [.1, .2, .1]
     assert n.arbitration.rc_scale == (.1, .2, .1)
-
-
-def test_reload_error_is_current_and_clears_only_after_valid_acceptance():
-    n = mux({})
-    n._reload_error = 'restart required: state_file'
-    old = n.arbitration
-    def bad():
-        raise ValueError('bad rc_scale')
-    n.watch.poll = bad
-    n.reload_callback()
-    assert published(n)['error'] == 'config reload rejected: bad rc_scale'
-    assert n.arbitration is old and old.cmd_timeout == .5
-    n.watch.poll = lambda: {'command_mux': full({'cmd_timeout': .9})}
-    n.reload_callback()
-    assert published(n)['error'] == '' and old.cmd_timeout == .9
