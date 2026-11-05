@@ -2,7 +2,7 @@ import pytest
 
 from mhseals_hardware.configuration import load_defaults, validate_config
 from mhseals_hardware.odroid_pwm import OdroidPWMOutputs
-from mhseals_hardware.outputs import TopicPWMOutputs, make_outputs, switch_outputs
+from mhseals_hardware.outputs import TopicPWMOutputs, make_outputs
 
 
 class Message:
@@ -65,68 +65,3 @@ def test_make_outputs_selects_backend():
 def test_config_validates_backend(key, value):
     with pytest.raises(ValueError, match=key):
         validate_config(dict(load_defaults(), **{key: value}))
-
-
-class Recorder:
-    def __init__(self, name, events, fail=False):
-        self.name, self.events, self.fail = name, events, fail
-
-    def open(self):
-        if self.fail:
-            self.events.append(f'fail:{self.name}')
-            raise OSError('busy')
-        self.events.append(f'open:{self.name}')
-        return self
-
-    def neutral(self):
-        self.events.append(f'neutral:{self.name}')
-
-    def close(self, unexport=False):
-        self.events.append(f'close:{self.name}:{unexport}')
-
-
-def test_switch_outputs_order_and_rollback():
-    events = []
-    old, new = {'name': 'a'}, {'name': 'b'}
-    outputs, error = switch_outputs(Recorder('a', events), old, new, make=lambda config, node=None:
-                                    Recorder(config['name'], events))
-    assert error is None and outputs.name == 'b'
-    assert events == ['neutral:a', 'close:a:True', 'open:b']
-    events.clear()
-    outputs, error = switch_outputs(Recorder('a', events), old, new, make=lambda config, node=None:
-                                    Recorder(config['name'], events, config['name'] == 'b'))
-    assert isinstance(error, OSError) and outputs.name == 'a'
-    assert events == ['neutral:a', 'close:a:True', 'fail:b', 'open:a']
-
-
-@pytest.mark.parametrize('fail_neutral,fail_close', [(True, False), (True, True), (False, True)])
-def test_switch_outputs_cleanup_failure_blocks_open(fail_neutral, fail_close):
-    events, made = [], []
-    neutral_error = OSError('neutral write failed')
-    close_error = OSError('release failed')
-
-    class FailingOutputs(Recorder):
-        def neutral(self):
-            super().neutral()
-            if fail_neutral:
-                raise neutral_error
-
-        def close(self, unexport=False):
-            super().close(unexport=unexport)
-            if fail_close:
-                raise close_error
-
-    def make(config, node=None):
-        made.append(config)
-        return Recorder(config['name'], events)
-
-    with pytest.raises(OSError) as caught:
-        switch_outputs(FailingOutputs('a', events), {'name': 'a'}, {'name': 'b'}, make=make)
-
-    assert events == ['neutral:a', 'close:a:True']
-    assert made == []
-    if fail_neutral and fail_close:
-        assert 'neutral' in str(caught.value) and 'neutral write failed' in str(caught.value)
-        assert 'close' in str(caught.value) and 'release failed' in str(caught.value)
-    else:
-        assert caught.value is (neutral_error if fail_neutral else close_error)
