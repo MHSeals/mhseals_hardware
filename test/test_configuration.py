@@ -90,6 +90,8 @@ def test_a_board_address_is_set_only_in_the_defaults(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match='mosfet_line'):
         configure_args(bench(), ['--mosfet-line', '5', '--save-config'])
     assert not config_path().exists()
+    configure_args(bench(), ['--save-config'])   # no override: no empty operator file
+    assert not config_path().exists()
 
 
 @pytest.mark.parametrize(('sequence', 'key'), [

@@ -437,7 +437,7 @@ def configure_args(parser, args=None):
     """
     parser.add_argument('--config', help='hardware YAML (or MHSEALS_HARDWARE_CONFIG)')
     parser.add_argument('--save-config', action='store_true',
-                        help='persist pin/mixer overrides before opening hardware')
+                        help='persist the non-board overrides given before opening hardware')
     preliminary, _ = parser.parse_known_args(args)
     config = load_config(preliminary.config)
     parser.set_defaults(**config)
@@ -450,7 +450,7 @@ def configure_args(parser, args=None):
                 changes[key] = plain(value)
             config[key] = value
     validate_config(config)
-    if parsed.save_config:
+    if parsed.save_config and changes:   # board addresses refuse; nothing given writes nothing
         update_config(changes, parsed.config)  # only the flags given, not every default
     parsed.hardware_config = config
     return parsed
