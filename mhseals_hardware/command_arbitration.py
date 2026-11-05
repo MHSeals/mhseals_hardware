@@ -127,19 +127,6 @@ class Arbitration:
                 type(mode) is int and mode >= 0 for mode in self.modes):
             raise ValueError('modes must be %d FCU mode numbers' % (len(MODE_BANDS) + 1))
 
-    def apply_config(self, section, now):
-        """Apply a ``command_mux`` section only while nothing is being driven.
-
-        Returns False (and changes nothing) in rc, manual or auto, so a remap
-        never lands mid-drive; the caller keeps the section pending and retries.
-        """
-        fresh = self.from_config(section)
-        if self.select(now)[0] not in ('idle', 'hold'):
-            return False
-        for key in INIT_KEYS:
-            setattr(self, key, getattr(fresh, key))
-        return True
-
     # Inputs
 
     def update_rc(self, channels, now):

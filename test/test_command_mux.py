@@ -40,26 +40,16 @@ def test_remote_controller_is_gone():
     assert not Path(command_mux.__file__).with_name('remote_controller.py').exists()
 
 
-def test_reload_during_rc_pends_until_idle(tmp_path):
+def test_a_yaml_edit_waits_for_the_next_arm(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux: {mode_ch: 8}\n')
-    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_reload',
-                     '-p', f'config_file:={path}'])
+    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_snapshot',
+                     '-p', f'config_file:={path}', '-p', 'ramp:=2.0'])
     try:
         node = command_mux.CommandMux()
-        node.applied.publish = lambda message: None
-        frame = RCIn()
-        frame.channels = [1500, 2000, 1500, 1500, 1500, 1800, 1500, 1100]
-        node._rc(frame)
-        # ConfigWatcher.poll returns the full merged section, as load_config does.
-        section = dict(node._effective_section, mode_ch=7)
-        node.watch.poll = lambda: {'command_mux': section}
-        node.reload_callback()
-        assert node.arbitration.mode_ch == 8 and node.pending == section
-        node.arbitration.rc_time = -10        # the frame goes stale
-        node.watch.poll = lambda: None
-        node.reload_callback()
-        assert node.arbitration.mode_ch == 7 and node.pending is None
+        assert node.arbitration.ramp == 2.0  # a -p override wins over the YAML
+        path.write_text('command_mux: {mode_ch: 7}\n')
+        assert not hasattr(node, 'reload_callback') and node.arbitration.mode_ch == 8
         node.destroy_node()
     finally:
         rclpy.try_shutdown()

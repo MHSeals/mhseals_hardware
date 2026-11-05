@@ -343,21 +343,10 @@ def test_hold_needs_a_named_cause(cause):
     assert not a.holds
 
 
-def test_config_applies_when_idle_and_pends_during_rc():
-    a = boat()
-    a.update_rc(frame(mode=LOW, sticks=(1500, 1900, 1500, 1500)), 0)
-    assert a.select(0.01)[0] == 'rc'
-    assert a.apply_config(section(mode_ch=7, stop_ch=5), 0.01) is False
-    assert (a.mode_ch, a.stop_ch) == (8, 6)
-    assert a.select(5)[0] in ('idle', 'hold')      # the frame went stale
-    assert a.apply_config(section(mode_ch=7, stop_ch=5), 5) is True
-    assert (a.mode_ch, a.stop_ch) == (7, 5)
-
-
 def test_bad_layout_is_rejected():
     for bad in (section(mode_ch=0), section(modes=[0, 4]), section(bogus=1), {'mode_ch': 7}):
         with pytest.raises((ValueError, TypeError)):
-            boat().apply_config(bad, 0)
+            Arbitration.from_config(bad)
 
 
 def test_first_auto_after_start_ramps_in():

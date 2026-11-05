@@ -1,7 +1,5 @@
-"""Operator YAML is parsed strictly: duplicate/merge/recursive input is refused, last good kept."""
-from mhseals_hardware.configuration import (
-    ConfigWatcher, load_config, startup_config, update_config,
-)
+"""Operator YAML is parsed strictly: duplicate/merge/recursive input is refused."""
+from mhseals_hardware.configuration import load_config, update_config
 
 import pytest
 
@@ -53,44 +51,8 @@ def load_defaults_merged():
     return _merge_overrides({})
 
 
-def settle(watch):
-    assert watch.poll() is None  # first sight of a change
-    return watch.poll
-
-
-def test_watcher_keeps_last_good_and_never_applies_duplicate(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.3\n')
-    watch = ConfigWatcher(path)
-    path.write_text('command_timeout: 0.4\n')
-    settle(watch)
-    applied = []
-
-    def tick():  # the callback shape shared by driver, controller and mux
-        try:
-            config = watch.poll()
-        except ValueError as error:
-            return str(error)
-        if config is not None:
-            applied.append(config)
-
-    path.write_text('command_timeout: 0.5\n')
-    path.write_text('command_timeout: 0.6\ncommand_timeout: 0.7\n')
-    assert tick() is None  # settling
-    assert 'duplicate' in tick()
-    assert applied == []
-    path.write_text('command_timeout: 0.2\n')
-    tick()
-    tick()
-    assert [c['command_timeout'] for c in applied] == [0.2]
-    path.write_text(BAD['duplicate'])
-    tick()
-    assert 'duplicate' in tick()
-    assert [c['command_timeout'] for c in applied] == [0.2]  # nothing new applied
-
-
 def build_mux(path):
-    return mux({}, {'config_file': str(path)}, startup_config=startup_config)
+    return mux({}, {'config_file': str(path)}, load_config=load_config)
 
 
 @pytest.mark.parametrize('name', ['duplicate', 'duplicate-mux', 'merge', 'recursive'])
