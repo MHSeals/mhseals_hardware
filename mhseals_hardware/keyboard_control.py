@@ -1,4 +1,4 @@
-"""Deadman keyboard control for an omni boat through ``cmd_vel``."""
+"""Deadman keyboard control for an omni boat on the manual lane ``/cmd_vel/manual``."""
 
 import argparse
 import sys
@@ -96,7 +96,7 @@ def main(args=None):
         return
     rclpy.init(args=args)
     node = Node('keyboard_control')
-    publisher = node.create_publisher(Twist, '/cmd_vel', 10)
+    publisher = node.create_publisher(Twist, '/cmd_vel/manual', 10)
     spinning = True
 
     def spin():
