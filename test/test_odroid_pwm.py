@@ -135,6 +135,7 @@ def test_four_outputs_neutralize_on_close(tmp_path):
     chips = [fake_chip(tmp_path, number) for number in range(4)]
     outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
     outputs.set_pulse_widths([1600, 1400, 1550, 1450])
+    assert outputs.readback() == [1600, 1400, 1550, 1450]   # read back from duty_cycle
     outputs.close()
     for channel in outputs.channels:
         assert (channel.path / 'duty_cycle').read_text() == '1500000'

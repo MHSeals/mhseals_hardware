@@ -139,6 +139,10 @@ class SysfsPWMChannel:
         self._write(self.path / 'duty_cycle',
                     round(float(pulse_width_us) * 1000))
 
+    def pulse_width(self):
+        """The pulse width the kernel holds now (duty_cycle read back), in µs."""
+        return round(int((self.path / 'duty_cycle').read_text(encoding='ascii')) / 1000)
+
     def close(self, unexport=False):
         try:
             if self.path.exists():
@@ -294,6 +298,10 @@ class OdroidPWMOutputs:
 
     def neutral(self):
         self.set_pulse_widths([self.neutral_us] * 4)
+
+    def readback(self):
+        """Each output's pulse width as read back from sysfs, µs."""
+        return [channel.pulse_width() for channel in self.channels]
 
     def close(self, unexport=False):
         # Cut ESC power first, then neutralize and disable each channel. Keep

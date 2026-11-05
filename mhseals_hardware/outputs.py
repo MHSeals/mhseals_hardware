@@ -4,7 +4,7 @@
 pulse widths on a ROS topic for a simulator (crane_ml), so the simulated boat
 receives exactly what the pins would: after the mixer, the channel map and the
 calibration. Both share one interface: ``open``, ``set_pulse_widths``,
-``neutral``, ``close``.
+``neutral``, ``readback`` (what the outputs hold now), ``close``.
 """
 
 import threading
@@ -71,6 +71,10 @@ class TopicPWMOutputs:
 
     def neutral(self):
         self.set_pulse_widths([self.neutral_us] * 4)
+
+    def readback(self):
+        """The pulse widths the topic carries now, µs."""
+        return list(self.pulses)
 
     def close(self, unexport=False):
         if self.publisher is None:
