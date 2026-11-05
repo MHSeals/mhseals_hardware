@@ -49,7 +49,9 @@ from std_srvs.srv import Trigger
 
 from mhseals_hardware import vessel
 from mhseals_hardware.command_arbitration import mux_input
-from mhseals_hardware.configuration import config_sha, declared, load_config, validate_config
+from mhseals_hardware.configuration import (
+    channel_map_source, config_sha, declared, load_config, validate_config,
+)
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
@@ -78,8 +80,8 @@ class ThrusterPWMNode(Node):
         # Every flat hardware setting is a ROS parameter defaulting to the arm snapshot; the
         # mappings (command_mux, controller, characterization) come from the YAML only.
         self.declare_parameter('config_file', '')
-        self.config = validate_config(declared(
-            self, load_config(self.get_parameter('config_file').value or None)))
+        config_file = self.get_parameter('config_file').value or None
+        self.config = validate_config(declared(self, load_config(config_file)))
         self.declared = {key for key, value in self.config.items() if not isinstance(value, dict)}
         self.session = uuid.uuid4().hex[:8]
         self.status_pub = self.create_publisher(String, '~/status', STATUS_QOS)
@@ -125,10 +127,11 @@ class ThrusterPWMNode(Node):
         self.add_on_set_parameters_callback(self.check_parameters)
         self.add_post_set_parameters_callback(self.commit_parameters)
         self.create_timer(0.1, self.watchdog_callback)
-        source = vessel.directory() if vessel.section('thrusters') else 'none'
+        profile = vessel.directory() if vessel.section('thrusters') else 'none'
         self.get_logger().info(
             f"thruster control ready ({self.config['output_backend']} outputs, channel_map "
-            f"{self.config['channel_map']}, vessel thrusters: {source})")
+            f"{self.config['channel_map']} from {channel_map_source(config_file)}, "
+            f"vessel thrusters: {profile})")
 
     def apply(self, config):
         if isinstance(config['command_timeout'], bool):
