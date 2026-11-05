@@ -63,7 +63,7 @@ def fake_chip(root, number):
 def arm(tmp_path, enabled=True, on_rc_loss=False):
     """What the arm path does: open fresh outputs (MOSFET on at neutral), a new e-stop."""
     chips = [fake_chip(tmp_path / str(len(list(tmp_path.iterdir()))), n) for n in range(4)]
-    outputs = OdroidPWMOutputs(chips, mosfet_chip='/dev/gpiochip5', mosfet_line=29).open()
+    outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True).open()
     return outputs, RemoteEstop(outputs, load_defaults()['command_mux'], enabled, on_rc_loss)
 
 

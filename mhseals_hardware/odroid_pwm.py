@@ -3,24 +3,18 @@
 from pathlib import Path
 import glob
 import time
-from mhseals_hardware.configuration import load_defaults
+from mhseals_hardware.thruster_mixer import NEUTRAL_PWM
 
 
-# pwmchip numbers are allocated dynamically. Platform-address globs remain
-# stable; J2_PINS below maps each output to its pin and glob.
-_DEFAULTS = load_defaults()
-DEFAULT_PWM_CHIPS = tuple(_DEFAULTS['pwm_chips'])
-DEFAULT_MOSFET_CHIP = _DEFAULTS['mosfet_chip']
-DEFAULT_MOSFET_LINE = _DEFAULTS['mosfet_line']
-DEFAULT_MOSFET_ACTIVE_HIGH = _DEFAULTS['mosfet_active_high']
-
-# Single source for the README pin table and the TUI:
-# output -> (J2 pin, pad, PWM controller, platform path glob).
+# Header labels for the README pin table and the TUI:
+# output -> (J2 pin, pad, PWM controller). The addresses (stable platform
+# globs; pwmchip numbers are allocated at boot) live only in default.yaml
+# pwm_chips, in the same output order.
 J2_PINS = {
-    1: (7, 'GPIO0_D0', 'PWM7', '/sys/devices/platform/febd0030.pwm/pwm/pwmchip*'),
-    2: (12, 'GPIO3_B2', 'PWM3', '/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*'),
-    3: (15, 'GPIO4_B3', 'PWM15', '/sys/devices/platform/febf0030.pwm/pwm/pwmchip*'),
-    4: (33, 'GPIO3_D0', 'PWM8', '/sys/devices/platform/febe0000.pwm/pwm/pwmchip*'),
+    1: (7, 'GPIO0_D0', 'PWM7'),
+    2: (12, 'GPIO3_B2', 'PWM3'),
+    3: (15, 'GPIO4_B3', 'PWM15'),
+    4: (33, 'GPIO3_D0', 'PWM8'),
     # MOSFET enable: (J2 pin, pad, GPIO bank label, line); moved from pin 11.
     'mosfet': (13, 'GPIO3_D5', 'gpio3', 29),
 }
@@ -157,8 +151,7 @@ class SysfsPWMChannel:
 class MosfetEnable:
     """Hold the configured MOSFET enable line active while outputs are armed."""
 
-    def __init__(self, chip=DEFAULT_MOSFET_CHIP,
-                 line=DEFAULT_MOSFET_LINE, active_high=DEFAULT_MOSFET_ACTIVE_HIGH):
+    def __init__(self, chip, line, active_high):
         self.chip_path = str(chip)
         self.offset = int(line)
         self.active_high = bool(active_high)
@@ -236,14 +229,11 @@ class MosfetEnable:
 class OdroidPWMOutputs:
     """Four ESC outputs with neutral-on-open and neutral-on-close safety."""
 
-    def __init__(self, chips=DEFAULT_PWM_CHIPS, channels=None,
-                 frequency_hz=50.0, neutral_us=1500,
-                 mosfet_chip=DEFAULT_MOSFET_CHIP,
-                 mosfet_line=DEFAULT_MOSFET_LINE,
-                 mosfet_active_high=DEFAULT_MOSFET_ACTIVE_HIGH):
+    def __init__(self, chips, channels, mosfet_chip, mosfet_line, mosfet_active_high,
+                 frequency_hz=50.0, neutral_us=NEUTRAL_PWM):
+        """A falsy ``mosfet_chip`` means no MOSFET enable (bench use)."""
         if len(chips) != 4:
             raise ValueError('exactly four PWM chip paths are required')
-        channels = channels or (0, 0, 0, 0)
         if len(channels) != 4:
             raise ValueError('exactly four PWM channel numbers are required')
         self.channels = [SysfsPWMChannel(chip, channel)
@@ -258,22 +248,26 @@ class OdroidPWMOutputs:
     @classmethod
     def from_config(cls, config):
         """Build outputs from a hardware config mapping (see configuration.py)."""
-        return cls(config['pwm_chips'], config['pwm_channels'], config['frequency'],
-                   mosfet_chip=config['mosfet_chip'], mosfet_line=config['mosfet_line'],
-                   mosfet_active_high=config['mosfet_active_high'])
+        return cls(config['pwm_chips'], config['pwm_channels'], config['mosfet_chip'],
+                   config['mosfet_line'], config['mosfet_active_high'],
+                   frequency_hz=config['frequency'])
 
     def open(self):
-        # Order matters for safety: every channel is at neutral before the
-        # MOSFET powers the ESCs, and any failure leaves everything disabled.
+        # Order matters for safety. The MOSFET line request (requested inactive,
+        # ESCs unpowered) is the exclusive resource the kernel grants one process,
+        # so take it first: a second driver fails here before writing any PWM
+        # file. Then every channel goes to neutral, then the MOSFET powers the
+        # ESCs. Any failure leaves everything disabled.
         opened = []
         try:
+            if self.mosfet is not None:
+                self.mosfet.open()
             for channel in self.channels:
                 # Track before open so a half-exported channel is rolled back too.
                 opened.append(channel)
                 channel.open()
                 channel.configure(self.frequency_hz, self.neutral_us)
             if self.mosfet is not None:
-                self.mosfet.open()
                 self.mosfet.set_enabled(True)
         except Exception:
             if self.mosfet is not None:

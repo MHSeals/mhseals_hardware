@@ -34,7 +34,7 @@ class Rig:
         save_config(load_defaults(), path)
         chips = [fake_chip(tmp_path / 'pwm', n) for n in range(4)]
         monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda cfg, node=None:
-                            OdroidPWMOutputs(chips, mosfet_chip='/dev/gpiochip5', mosfet_line=29))
+                            OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True))
         monkeypatch.setenv('ROS_DOMAIN_ID', '196')
         rclpy.init(args=['--ros-args', '-p', f'config_file:={path}',
                          '-r', 'thruster_pwm_node:cmd_vel:=/cmd_vel/applied'])
