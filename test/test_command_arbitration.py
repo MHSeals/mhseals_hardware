@@ -3,6 +3,8 @@ import pytest
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, mode_from_pwm
 from mhseals_hardware.configuration import load_defaults
 
+pytestmark = pytest.mark.smoke
+
 
 MODES = (0, 0, 0, 4, 0, 15)
 
