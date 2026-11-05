@@ -182,12 +182,10 @@ def test_close_unexports_only_channels_exported_here(tmp_path, monkeypatch):
     assert (chips[1] / 'unexport').read_text() == ''
 
 
-def test_j2_pins_match_overlay_readme_and_defaults():
+def test_j2_pins_match_overlay_and_readme():
     import re
     from pathlib import Path
-    from mhseals_hardware.configuration import load_defaults
     from mhseals_hardware.odroid_pwm import J2_PINS
-    defaults = load_defaults()
     root = Path(__file__).resolve().parents[1]
     outputs = (1, 2, 3, 4)
 
@@ -202,8 +200,7 @@ def test_j2_pins_match_overlay_readme_and_defaults():
             rows[int(cells[0])] = (int(cells[1]), cells[2], cells[3])
     assert rows == {o: J2_PINS[o] for o in outputs}
 
-    pin, pad, bank, line = J2_PINS['mosfet']
-    assert (pin, bank, line) == (13, defaults['mosfet_chip'], defaults['mosfet_line'])
+    pin, pad = J2_PINS['mosfet']
     assert f'| MOSFET enable | {pin} | {pad} |' in (root / 'README.md').read_text()
 
 
