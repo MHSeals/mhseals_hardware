@@ -9,6 +9,9 @@ from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.odroid_pwm import OdroidPWMOutputs
 
+pytestmark = pytest.mark.smoke
+
+
 ON, OFF = 2000, 1000      # stop channel: run, stop
 
 
