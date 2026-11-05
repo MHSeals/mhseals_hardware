@@ -28,6 +28,7 @@ from mhseals_hardware.thruster_mixer import (
 # deprecation warning (an operator file on the boat may predate the rename); naming both refuses.
 # The next write of the file (update_config) migrates it to the new name.
 RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
+WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
 log = logging.getLogger(__name__)
 
 
@@ -157,7 +158,16 @@ def load_config(path=None):
     selected = config_path(path)
     if not selected.exists() and (path or os.environ.get('MHSEALS_HARDWARE_CONFIG')):
         raise FileNotFoundError(selected)
-    return _merge_overrides({**copy.deepcopy(vessel.section('thrusters')), **_read_overrides(selected)})
+    return _layered(_read_overrides(selected))
+
+
+def _layered(overrides):
+    """The operator overrides merged over the vessel profile's thrusters: wiring and the defaults."""
+    wiring = vessel.section('thrusters')
+    extra = sorted(set(wiring) - set(WIRING))
+    if extra:
+        raise ValueError(f'vessel profile thrusters: takes {", ".join(WIRING)}, not {extra}')
+    return _merge_overrides({**copy.deepcopy(wiring), **overrides})
 
 
 def config_sha(config):
@@ -368,7 +378,7 @@ def _update_locked(changes, target):
     overrides.update(changes)
     if _follows(overrides.get('decoupling_negative'), _merge_overrides(overrides)['decoupling']):
         overrides.pop('decoupling_negative', None)
-    _merge_overrides(overrides)
+    _layered(overrides)
     return _write_config(overrides, target)
 
 
