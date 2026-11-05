@@ -66,27 +66,49 @@ def test_stop_cannot_rearm_from_repeat(stop):
     assert state.update('press:w', 1.03) == (.25, 0, 0)
 
 
-def test_plain_keys_replace_each_other_because_only_the_newest_repeats():
+def test_plain_keys_on_different_axes_combine_and_expire_separately():
+    # No releases: the newest key lives while it repeats; a key it took over keeps chord_hold.
     state = ManualState()
+    diagonal = (.25 / math.sqrt(2), -.25 / math.sqrt(2), 0)
     state.update('w', 0)
-    assert state.update('d', .1) == (0, -.25, 0)
-    assert state.update('d', .5) == (0, -.25, 0)
-    assert state.update('left', .6) == (0, 0, .125)
-    assert state.update('s', .65) == (-.25, 0, 0)
-    assert state.update(None, 1.31) == (0, 0, 0)  # repeats stopped
+    assert state.update('d', .1) == diagonal
+    assert state.update(None, .64) == diagonal               # w: its press's initial timeout
+    assert state.update('d', .7) == (0, -.25, 0)             # w went first, on its own; d repeats
+    assert state.update(None, .86) == (0, 0, 0)              # then d's repeats stopped
     assert not state.chords
 
 
-def test_tmux_yaw_stops_when_another_key_takes_over():
+def test_plain_keys_on_one_axis_replace_each_other():
+    state = ManualState()
+    state.update('w', 0)
+    assert state.update('s', .1) == (-.25, 0, 0)             # newest on surge wins, never a cancel
+    assert state.update('left', .2) == (-.25, 0, .125)
+    assert state.update('right', .3) == (-.25, 0, -.125)
+
+
+def test_plain_chord_lasts_while_both_keys_keep_coming():
+    # Held yaw with forward re-tapped: each tap renews forward and the yaw it took over.
+    state = ManualState()
+    state.update('left', 0)
+    for t in (.6, .65, .7):
+        state.update('left', t)
+    for t in (.75, 1.1, 1.45):
+        assert state.update('w', t)[0] == .25
+        assert state.update('left', t + .01)[2] == .125
+    assert state.update(None, 2.2) == (0, 0, 0)
+
+
+def test_tmux_yaw_stops_within_chord_hold_when_another_key_takes_over():
     # tmux forwards no Kitty events: arrows arrive bare, so every repeat
     # decodes as a press, letters arrive plain, and no release ever comes.
     state = ManualState()
     left = decode_key(b'\x1b[D', True)
     for tick in range(0, 50, 5):
         assert state.update(left, tick / 100) == (0, 0, .125)
-    assert state.update(decode_key(b'w', True), .5) == (.25, 0, 0)
+    assert state.update(decode_key(b'w', True), .5) == (.25, 0, .125)
     for tick in range(55, 150, 5):  # the left arrow was let go; only w repeats
-        assert state.update(decode_key(b'w', True), tick / 100) == (.25, 0, 0)
+        expected = (.25, 0, .125) if tick < 95 else (.25, 0, 0)
+        assert state.update(decode_key(b'w', True), tick / 100) == expected
     assert not state.chords
 
 
@@ -94,11 +116,11 @@ def test_tmux_yaw_stops_when_another_key_takes_over():
     (b'w', (.25, 0, 0)), (b's', (-.25, 0, 0)),
     (b'a', (0, .25, 0)), (b'd', (0, -.25, 0)),
 ])
-def test_plain_wasd_replaces_an_unconfirmed_arrow(key, expected):
+def test_plain_wasd_joins_an_unconfirmed_arrow_until_its_release(key, expected):
     # Before any event, a bare arrow may be tmux's plain key with no release.
     state = ManualState()
     assert state.update(decode_key(b'\x1b[D', True), 0) == (0, 0, .125)
-    assert state.update(decode_key(key, True), .05) == expected
+    assert state.update(decode_key(key, True), .05) == (expected[0], expected[1], .125)
     assert state.update('release:left', .1) == expected
     assert state.update(None, .76) == (0, 0, 0)
 

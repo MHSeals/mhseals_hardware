@@ -1,3 +1,5 @@
+import pytest
+
 from mhseals_hardware.manual_state import ManualState
 
 
@@ -86,7 +88,7 @@ def test_plain_terminal_repeats_never_rearm_a_stopped_key():
     state = ManualState()
     state.update('w', 0)
     state.update(None, .7)
-    assert state.update('w', .8) == (.25, 0, 0) and state.single == 'w'   # a plain key is a new press
+    assert state.update('w', .8) == (.25, 0, 0) and state.newest == 'w'   # a plain key is a new press
     state = ManualState()
     state.update('w', 0)
     state.update(None, .7)
@@ -144,3 +146,43 @@ def test_drain_after_a_stall_past_the_budget_still_reads_the_stale_burst_whole()
     keys = ClockedKeys(['repeat:w'] * 200 + ['release:w'], cost=1e-6)
     keys.now = 30.0                  # the link stalled 30 s after the last publish
     assert drain(keys, ManualState(), 'press:w', keys.clock, since=0.0) == (0, 0, 0)
+
+
+def test_plain_combo_stops_on_focus_loss_space_and_staleness():
+    for stop in ('focus-out', 'space'):
+        state = ManualState()
+        state.update('w', 0)
+        state.update('left', .1)
+        assert state.update(stop, .2) == (0, 0, 0)
+        assert not state.recent and not state.held
+        assert state.update('left', .25) == ((0, 0, .125) if stop == 'space' else (0, 0, 0))
+    state = ManualState()
+    state.update('w', 0)
+    state.update('left', .1)
+    assert state.update(None, .76) == (0, 0, 0)            # a stale combo: no key outlives its timeout
+    assert not state.recent
+
+
+def test_kitty_combo_holds_until_each_release():
+    state = ManualState()
+    state.update('press:w', 0)
+    state.update('press:left', .1)
+    state.update('repeat:left', .7)                       # the arrow proves events: held
+    for t in range(75, 300, 5):
+        assert state.update('repeat:left', t / 100) == (.25, 0, .125)
+    assert state.update('release:left', 3.0) == (.25, 0, 0)
+    assert state.update('release:w', 3.1) == (0, 0, 0)
+
+
+def test_bindings_and_chord_hold_come_from_config():
+    state = ManualState(bindings={'surge_fwd': ['i'], 'yaw_left': ['j'], 'speed_up': [']']}, chord_hold=1.0)
+    assert state.update('w', 0) == (0, 0, 0)               # unbound now
+    state.update('i', 0)
+    assert state.update('j', .1) == (.25, 0, .125)
+    assert state.update('j', .75) == (.25, 0, .125)        # i kept 1.0 s: chord_hold
+    assert state.update('j', .8) == (.25, 0, .125)
+    assert state.update('j', 1.01) == (0, 0, .125)
+    assert state.update(']', 1.02) == (0, 0, .15)
+    for bad in (0, 2.5, float('nan')):
+        with pytest.raises(ValueError):
+            ManualState(chord_hold=bad)

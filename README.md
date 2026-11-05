@@ -237,9 +237,13 @@ ros2 run mhseals_hardware keyboard_control        # --dry-run tests your termina
 
 W/S or Up/Down surge, A/D sway, Left/Right yaw, `+`/`-` change speed in 5%
 steps, Space stops, X exits. Yaw runs at `manual_yaw_scale` (0.5); diagonals are
-normalized. Terminals that report key releases (Kitty protocol, also over SSH)
-combine held keys (a key still held stops about 2 s after another key's release, so press it again); otherwise the newest key drives alone and stops when its
-repeats stop. See the root
+normalized. Terminals that report key releases (Kitty protocol, also over SSH, and through
+tmux once its terminal speaks the protocol and `allow-passthrough` is on) combine held keys
+and stop each on its release (a key still held stops about 2 s after another key's release,
+so press it again). Without releases (xterm, VTE, nested tmux) each key keeps its own
+deadline: the newest drives while it repeats, and a key it took over stays `chord_hold`
+(0.5 s) after its last event, so recent presses on different axes combine; on one axis the
+newest replaces the older. See the root
 [hardware and camera setup](../../README.md#hardware-and-cameras) for timeouts.
 
 ## Development
