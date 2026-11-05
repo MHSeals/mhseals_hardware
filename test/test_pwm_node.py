@@ -1,6 +1,4 @@
-"""Config reload must agree with telemetry and the manual Twist output path."""
-
-import types
+"""The driver reads its arm snapshot once; only C changes live (SetParameters)."""
 
 import pytest
 
@@ -12,7 +10,7 @@ from mhseals_hardware import outputs as outputs_module, thruster_pwm_node
 from mhseals_hardware.thruster_mixer import thruster_pulses, validate_decoupling
 
 
-def test_correction_edit_applies_live_to_parameters_and_pulses(tmp_path, monkeypatch):
+def test_a_correction_set_applies_live_to_parameters_and_pulses(tmp_path, monkeypatch):
     class Outputs:
         def open(self):
             return self
@@ -35,10 +33,8 @@ def test_correction_edit_applies_live_to_parameters_and_pulses(tmp_path, monkeyp
     try:
         node = thruster_pwm_node.ThrusterPWMNode()
         correction = [1., 0., 0., 0., 1., 0., -.1, 0., 1.]
-        save_config(dict(config, decoupling=correction), path)
-        node.watch.mtime = None
-        node.watch.seen = node.watch._stat()
-        node.reload_callback()
+        result = node.set_parameters([thruster_pwm_node.Parameter('decoupling', value=correction)])[0]
+        assert result.successful
         assert list(node.get_parameter('decoupling').value) == correction
         assert list(node.get_parameter('decoupling_negative').value) == correction
         message = Twist()
@@ -47,7 +43,6 @@ def test_correction_edit_applies_live_to_parameters_and_pulses(tmp_path, monkeyp
         assert outputs.pulses != [1300, 1700, 1300, 1700]  # the uncorrected surge
         assert outputs.pulses == thruster_pulses(
             (.5, 0., 0.), node.mixer, (1, 3, 2, 4), decoupling=validate_decoupling(correction))
-        assert node.pending_restart_keys == [] and node.error == ''
     finally:
         if node is not None:
             node.destroy_node()
@@ -80,28 +75,27 @@ def test_a_constructor_failure_after_open_closes_the_outputs(tmp_path, monkeypat
         rclpy.shutdown()
 
 
-def test_int_edit_of_a_float_setting_reads_back(tmp_path, monkeypatch):
+def test_the_code_version_is_read_before_the_outputs_open(tmp_path, monkeypatch):
+    events = []
+
     class Outputs:
         def open(self):
+            events.append('open')
             return self
 
         def close(self):
             pass
 
     monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *args, **kwargs: Outputs())
-    config = dict(load_defaults(), command_timeout=0.5)
+    monkeypatch.setattr(thruster_pwm_node, 'code_version',
+                        lambda: events.append('version') or {'digest': 'x'})
     path = tmp_path / 'hardware.yaml'
-    save_config(config, path)
-    rclpy.init(args=['--ros-args', '-r', '__node:=int_edit_test', '-p', f'config_file:={path}'])
+    save_config(load_defaults(), path)
+    rclpy.init(args=['--ros-args', '-r', '__node:=version_order_test', '-p', f'config_file:={path}'])
     node = None
     try:
         node = thruster_pwm_node.ThrusterPWMNode()
-        save_config(dict(config, command_timeout=1), path)
-        node.watch.mtime = None
-        node.watch.seen = node.watch._stat()
-        node.reload_callback()
-        assert node.command_timeout == 1.0
-        assert node.get_parameter('command_timeout').value == 1.0
+        assert events == ['version', 'open']  # nothing slow between power and the deadman
     finally:
         if node is not None:
             node.destroy_node()
@@ -143,109 +137,32 @@ def start(tmp_path, monkeypatch, config, args=(), fail_on=None):
     return thruster_pwm_node.ThrusterPWMNode(), path, events
 
 
-def reload(node, path, config):
-    save_config(config, path)
-    node.watch.mtime = None  # reload now, even within one mtime tick
-    node.watch.seen = node.watch._stat()
-    node.reload_callback()
-
-
-def test_pin_change_requires_restart(tmp_path, monkeypatch):
-    config = load_defaults()
-    node, path, events = start(tmp_path, monkeypatch, config)
+def test_a_p_override_wins_and_a_yaml_edit_waits_for_the_next_arm(tmp_path, monkeypatch):
+    config = dict(load_defaults(), output_backend='odroid')
+    node, path, events = start(tmp_path, monkeypatch, config,
+                               args=['-p', 'output_backend:=topic', '-p', 'command_timeout:=1.0',
+                                     '-p', 'channel_map:=[2, 1, 3, 4]'])
     try:
+        assert node.get_parameter('output_backend').value == 'topic'
+        assert node.config['channel_map'] == [2, 1, 3, 4] and node.map_source == '-p channel_map'
+        assert node.config['output_backend'] == 'topic' and node.command_timeout == 1.0
         events.clear()
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
-        assert events == []
-        assert list(node.get_parameter('pwm_channels').value) == [0, 0, 0, 0]
-        assert 'restart required' in node.error
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-def test_mixed_structural_edits_keep_all_parameters(tmp_path, monkeypatch):
-    config = load_defaults()
-    node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
-    try:
-        events.clear()
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0], reversed=[True] * 4))
-        assert events == []
-        assert list(node.get_parameter('pwm_channels').value) == [0, 0, 0, 0]
+        save_config(dict(config, reverse_thrust_ratio=0.5, reversed=[True] * 4), path)
+        assert not hasattr(node, 'watch') and events == []
+        assert node.get_parameter('reverse_thrust_ratio').value == config['reverse_thrust_ratio']
         assert list(node.get_parameter('reversed').value) == [False] * 4
     finally:
         node.destroy_node()
         rclpy.shutdown()
 
 
-def test_repeated_structural_edit_stays_pending(tmp_path, monkeypatch):
-    config = load_defaults()
-    node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
+def test_a_p_board_address_refuses_at_start(tmp_path, monkeypatch):
+    """The boot service prepares default.yaml's files only, so -p cannot move the driver off them."""
+    line = load_defaults()['mosfet_line'] + 1
     try:
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
-        assert node.file_config['pwm_channels'] == [0, 0, 0, 0]  # the last applied state
-        events.clear()
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))  # unchanged file, retried
-        assert events == [] and node.pending_restart_keys == ['pwm_channels']
+        with pytest.raises(ValueError, match='mosfet_line'):
+            start(tmp_path, monkeypatch, load_defaults(), args=['-p', f'mosfet_line:={line}'])
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-def test_refused_structural_edit_is_not_logged_as_reloaded(tmp_path, monkeypatch):
-    config = load_defaults()
-    node, path, events = start(tmp_path, monkeypatch, config, fail_on=[1, 0, 0, 0])
-    try:
-        lines = []
-        logger = types.SimpleNamespace(
-            **{level: (lambda text, **kw: lines.append(text)) for level in
-               ('info', 'warning', 'error')})
-        monkeypatch.setattr(node, 'get_logger', lambda: logger)
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
-        assert any('restart required' in line for line in lines)
-        assert not any('pwm_channels=' in line for line in lines)  # nothing applied, no 'reloaded'
-        lines.clear()
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0], reversed=[True] * 4))
-        reloaded = [line for line in lines if line.startswith('config reloaded')]
-        assert reloaded == []
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-def test_launch_override_survives_an_unrelated_edit(tmp_path, monkeypatch):
-    config = dict(load_defaults(), output_backend='odroid')
-    node, path, events = start(tmp_path, monkeypatch, config,
-                               args=['-p', 'output_backend:=topic'])
-    try:
-        events.clear()
-        reload(node, path, dict(config, command_timeout=1.0))
-        assert events == []
-        assert node.get_parameter('output_backend').value == 'topic'
-        assert node.command_timeout == 1.0
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-@pytest.mark.parametrize('text', ['reversed: [true, false', 'manual_amplitude: "x"\n'])
-def test_reload_survives_a_syntax_or_type_error(text, tmp_path, monkeypatch):
-    monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *a, **k: Recorder(
-        load_defaults(), []))
-    path = tmp_path / 'hardware.yaml'
-    save_config(load_defaults(), path)
-    rclpy.init(args=['--ros-args', '-r', '__node:=bad_reload_test',
-                    '-p', f'config_file:={path}'])
-    node = None
-    try:
-        node = thruster_pwm_node.ThrusterPWMNode()
-        path.write_text(text)
-        node.watch.mtime = None
-        node.reload_callback()  # must log and keep the old config, not raise
-        assert node.config['manual_amplitude'] == load_defaults()['manual_amplitude']
-    finally:
-        if node is not None:
-            node.destroy_node()
         rclpy.shutdown()
 
 
@@ -296,7 +213,7 @@ def test_test_pulses_only_when_the_mux_is_idle(tmp_path, monkeypatch):
         for mux_input, accepted in (('hold', False), ('rc', False), ('manual', False),
                                     ('auto', False), ('idle', True)):
             sent.clear()
-            node.guard_callback(String(data=f'{{"input": "{mux_input}"}}'))
+            node.guard_callback(String(data=f'{{"schema": "mhseals.mux/1", "input": "{mux_input}"}}'))
             node.pulses_callback(pulses)
             assert bool(sent) is accepted, mux_input
         node.mux_time -= 10                    # a dead mux is not autonomy
@@ -330,46 +247,23 @@ def test_outside_set_edit_is_refused_with_a_reason(tmp_path, monkeypatch):
     node, path, events = start(tmp_path, monkeypatch, load_defaults())
     try:
         result = node.set_parameters([thruster_pwm_node.Parameter('frequency', value=60.0)])[0]
-        assert not result.successful and 'restart required' in result.reason
+        assert not result.successful and 'next arm' in result.reason
         result = node.set_parameters([thruster_pwm_node.Parameter('command_timeout', value=1.0)])[0]
-        assert result.successful and node.command_timeout == 1.0
-        assert node.get_parameter('command_timeout').value == 1.0
+        assert not result.successful and 'next arm' in result.reason
+        assert node.command_timeout == node.get_parameter('command_timeout').value != 1.0
     finally:
         node.destroy_node()
         rclpy.shutdown()
 
 
-def test_status_is_latched_and_reports_pending_restart(tmp_path, monkeypatch):
-    config = load_defaults()
-    node, path, events = start(tmp_path, monkeypatch, config)
+def test_status_is_latched_and_names_one_snapshot_sha(tmp_path, monkeypatch):
+    from mhseals_hardware.configuration import config_sha, load_config
+    node, path, events = start(tmp_path, monkeypatch, load_defaults())
     try:
         first = latest_status(node)
-        assert first['outputs']['pwm_channels'] == [0, 0, 0, 0] and first['error'] == ''
-        assert first['mosfet'] == 'none' and len(first['config_sha']) == 12
-        reload(node, path, dict(config, pwm_channels=[1, 0, 0, 0]))
-        second = latest_status(node)
-        assert second['outputs']['pwm_channels'] == [0, 0, 0, 0]
-        assert second['pending_restart_keys'] == ['pwm_channels']
-        assert second['requested_config_sha'] != first['requested_config_sha']
-        assert second['session'] == first['session'] and second['config_sha'] == first['config_sha']
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-def test_invalid_edit_is_reported_in_the_status(tmp_path, monkeypatch):
-    config = load_defaults()
-    node, path, events = start(tmp_path, monkeypatch, config)
-    try:
-        sha = latest_status(node)['config_sha']
-        # A syntactically fine edit that validation refuses (save_config would refuse it too).
-        path.write_text(path.read_text().replace('command_timeout: 0.5', 'command_timeout: 9'))
-        node.watch.mtime = None
-        node.watch.seen = node.watch._stat()
-        node.reload_callback()
-        status = latest_status(node)
-        assert status['error'] and status['config_sha'] == sha
-        assert node.config['command_timeout'] == config['command_timeout']
+        assert first['outputs']['pwm_channels'] == [0, 0, 0, 0] and first['mosfet'] == 'none'
+        assert first['config_sha'] == config_sha(load_config(path))
+        assert not {'pending_restart_keys', 'requested_config_sha', 'effective_config_sha'} & set(first)
     finally:
         node.destroy_node()
         rclpy.shutdown()

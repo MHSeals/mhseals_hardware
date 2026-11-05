@@ -1,29 +1,32 @@
 # Keys the TUI shows. Dotted paths into hardware.yaml (a plain mapping).
 # range appears only where validate_config enforces it; the mux values are checked as non-negative by Arbitration.
-# tier: live = applied in the running node; restart = needs a node restart.
-pwm_chips: {type: list, units: path, tier: restart, doc: "Four sysfs PWM chip paths for physical outputs 1-4."}
-pwm_channels: {type: list, units: count, tier: restart, doc: "PWM channel index on each chip, outputs 1-4."}
-mosfet_chip: {type: str, units: label, tier: restart, doc: "GPIO bank label (gpio3) or /dev/gpiochipN for the MOSFET enable line."}
-mosfet_line: {type: int, units: count, tier: restart, doc: "GPIO line offset of the MOSFET enable."}
-mosfet_active_high: {type: bool, units: bool, tier: restart, doc: "True when a high level powers the thrusters."}
+# tier: live = changes in the running node through SetParameters; restart = applies at the next arm
+# (every node reads the arm snapshot once and never watches this file).
 estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until re-armed."}
 estop_on_rc_loss: {type: bool, units: bool, tier: restart, doc: "Losing RC while it controls the boat cuts the MOSFET and latches it off until re-armed."}
 mosfet_heartbeat: {type: float, units: Hz, range: [0, 100], tier: restart, doc: "Toggle rate of the MOSFET enable for a heartbeat circuit: 0 holds a steady level, otherwise 10-100 (slower stalls the driver's 0.15 s heartbeat check)."}
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
-decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correction C, rows and columns surge, sway, yaw (row-major, 9 values); diagonal positive. Live from the YAML or SetParameters on the driver; decoupling_negative (C for an axis commanded below zero, null = follow C) takes the same rules."}
-command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "Thrusters go neutral after this long without a command."}
-command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch; the driver's e-stop takes it only on a restart."}
-command_mux.modes: {type: list, units: enum, tier: live, doc: "FCU mode number for each of the six mode switch positions."}
-command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch; the driver's e-stop takes it only on a restart."}
+decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correction C, rows and columns surge, sway, yaw (row-major, 9 values); diagonal positive. Live through SetParameters on the driver; decoupling_negative (C for an axis commanded below zero, null = follow C) takes the same rules."}
+command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: restart, doc: "The one watchdog of all three stages: the velocity controller resets without topics.auto, the mux drops a manual or auto lane, and the driver puts the thrusters at neutral without topics.applied, each after this long. Read once per arm by all three, so they never diverge."}
+command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch."}
+command_mux.modes: {type: list, units: enum, tier: restart, doc: "FCU mode number for each of the six mode switch positions."}
+command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch: a mux hold, and with estop_cuts_power also the driver's latched power cut."}
 command_mux.rc_scale: {type: list, units: "1", tier: live, doc: "Surge, sway, yaw fraction of full command at full stick."}
-command_mux.rc_max_age: {type: float, units: s, tier: live, doc: "RC frames older than this count as no receiver."}
-command_mux.cmd_timeout: {type: float, units: s, tier: live, doc: "Manual and autonomous commands expire after this long."}
-command_mux.stick_takeover: {type: int, units: count, tier: live, doc: "Stick deflection in PWM microseconds past center that takes over."}
-command_mux.stick_time: {type: float, units: s, tier: live, doc: "How long the stick must stay deflected to take over."}
-command_mux.stick_release: {type: float, units: s, tier: live, doc: "How long the stick must stay centered to release."}
-command_mux.ramp: {type: float, units: s, tier: live, doc: "Ramp time when the commanded source changes."}
-controller.proximity_distance: {type: float, units: m, tier: restart, doc: "The drift estimate doesn't grow away from an obstacle this close to the hull (its reaction is not current); 0 turns this off."}
-controller.obstacle_timeout: {type: float, units: s, tier: restart, doc: "Obstacle data older than this, or none, leaves only the carry gate."}
-controller.obstacle_topic: {type: str, units: topic, tier: restart, doc: "Nearest obstacle from the hull (mhseals_nav nearest_obstacle), Vector3Stamped in the base frame."}
+command_mux.rc_max_age: {type: float, units: s, tier: restart, doc: "RC frames older than this count as no receiver."}
+command_mux.stick_takeover: {type: int, units: count, tier: restart, doc: "Stick deflection in PWM microseconds past center that takes over."}
+command_mux.stick_time: {type: float, units: s, tier: restart, doc: "How long the stick must stay deflected to take over."}
+command_mux.stick_release: {type: float, units: s, tier: restart, doc: "How long the stick must stay centered to release."}
+command_mux.state_file: {type: str, units: path, nullable: true, tier: restart, doc: "Where the mux saves its holds so a restart keeps them; null = the runtime dir default (hold_store.path)."}
+command_mux.ramp: {type: float, units: s, tier: live, doc: "Seconds to ramp the auto lane in from zero, after a start, a hold, rc or manual."}
+topics.auto: {type: str, units: topic, tier: restart, doc: "SI body velocity from Nav2 (the only velocity lane); only the velocity controller reads it."}
+topics.effort: {type: str, units: topic, tier: restart, doc: "The mux auto input, effort: the velocity controller's output, or an effort publisher."}
+topics.manual: {type: str, units: topic, tier: restart, doc: "The mux manual input, effort (the TUI keys, a deadman lane)."}
+topics.rc: {type: str, units: topic, tier: restart, doc: "RC frames (mavros RCIn): the mux rc input, and the driver's stop channel."}
+topics.applied: {type: str, units: topic, tier: restart, doc: "The mux output, effort, which the driver mixes."}
+topics.mux_state: {type: str, units: topic, tier: restart, doc: "The mux state, latched (contract in command_mux): the driver pulses only while idle, the controller drives only while auto."}
+topics.odom: {type: str, units: topic, tier: restart, doc: "Odometry the velocity controller feeds back on (and its drift observer reads)."}
+topics.obstacle: {type: str, units: topic, tier: restart, doc: "Nearest obstacle from the hull (mhseals_nav nearest_obstacle), Vector3Stamped in the base frame."}
+controller.proximity_distance: {type: float, units: m, tier: live, doc: "The drift estimate doesn't grow away from an obstacle this close to the hull (its reaction is not current); 0 turns this off."}
+controller.obstacle_timeout: {type: float, units: s, tier: live, doc: "Obstacle data older than this, or none, leaves only the carry gate."}

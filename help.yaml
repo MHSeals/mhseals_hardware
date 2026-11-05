@@ -4,7 +4,7 @@ summary: Thruster PWM output, manual control and bench tests (ODROID).
 commands:
   - name: keyboard_control
     run: ros2 run mhseals_hardware keyboard_control
-    summary: Deadman keyboard driving through cmd_vel; WASD/arrows, Space neutral, X exit.
+    summary: Deadman keyboard driving on the manual lane (topics.manual); WASD/arrows, Space neutral, X exit.
     notes: Secure the boat and clear the propellers. Run one command publisher at a time.
     params:
       - {name: --speed, type: float, description: 'Initial thrust fraction, 0 to 1.'}
@@ -15,7 +15,7 @@ commands:
 
   - name: thruster_pwm_node
     run: ros2 run mhseals_hardware thruster_pwm_node
-    summary: Mix cmd_vel effort into thruster pulses on the ODROID PWM pins or a simulator topic.
+    summary: Mix the applied effort (topics.applied) into thruster pulses on the ODROID PWM pins or a simulator topic.
     notes: PWM takes normalised effort, not Nav2 velocity; put calibrated_velocity_controller between them.
     examples:
       - ros2 run mhseals_hardware thruster_pwm_node --ros-args -p config_file:=$HOME/.config/mhseals/hardware.yaml
@@ -26,7 +26,7 @@ commands:
 
   - name: command_mux
     run: ros2 run mhseals_hardware command_mux
-    summary: Choose which command reaches the driver - rc > manual > hold > auto.
+    summary: Choose which command reaches the driver - duplicate > rc > manual > hold > auto (docs/authority.md 2.2).
 
   - name: thruster_test
     run: ros2 run mhseals_hardware thruster_test
@@ -39,7 +39,6 @@ commands:
       - {name: --mosfet-chip, description: Bank label or /dev/gpiochipN.}
       - {name: --mosfet-line, type: int, description: GPIO line.}
       - {name: --config, type: path, description: Hardware YAML.}
-      - {name: --save-config, type: bool, description: Persist pin overrides before opening hardware.}
 
   - name: thruster_identify
     run: ros2 run mhseals_hardware thruster_identify

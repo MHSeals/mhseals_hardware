@@ -140,14 +140,17 @@ def test_choose_mapping_assigns_each_output_once():
     assert seen[-1] == ('3',)  # each output can only be chosen once
 
 
-def test_save_mapping_persists_only_the_channel_map(tmp_path):
+@pytest.mark.parametrize('existing', ['', 'frequency: 50.0\n'])
+def test_save_mapping_persists_only_the_channel_map(tmp_path, existing):
     import yaml
     from mhseals_hardware.identification import save_mapping
     path = tmp_path / 'hardware.yaml'
-    path.write_text('frequency: 50.0\n')
+    path.write_text(existing)
     console = type('Console', (), {'print': lambda self, *a: None,
                                     'input': lambda self, prompt: 'y'})()
     save_mapping(console, (2, 1, 4, 3), path, (True, False, False, False))
-    saved = yaml.safe_load(path.read_text())
-    assert saved['channel_map'] == [2, 1, 4, 3] and saved['output_backend'] == 'odroid'
-    assert saved['reversed'] == [True, False, False, False]
+    # No default is frozen into the operator file, so the vessel profile and later
+    # default.yaml changes still apply underneath.
+    assert yaml.safe_load(path.read_text()) == dict(
+        yaml.safe_load(existing) or {}, channel_map=[2, 1, 4, 3],
+        reversed=[True, False, False, False])

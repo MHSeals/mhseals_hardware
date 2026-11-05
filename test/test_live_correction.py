@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from test_pwm_reload_guard import pwm
+from test_pwm_guard import pwm
 
 pytestmark = pytest.mark.smoke
 
@@ -64,17 +64,8 @@ def test_a_bad_correction_is_refused_and_the_old_one_kept(bad):
     assert (node.decoupling, node.config) == before and not node.statuses
 
 
-def test_restart_keys_stay_refused_in_a_batch_with_c():
+def test_arm_keys_stay_refused_in_a_batch_with_c():
     node = live_node()
     result, _ = set_live(node, parameter('decoupling', CORRECTION), NS(name='channel_map', value=[2, 1, 3, 4]))
-    assert not result.successful and 'restart required' in result.reason
-    assert node.config['decoupling'] == IDENTITY
-
-
-def test_own_mirroring_writes_skip_the_live_path():
-    node = live_node()
-    node.own_write = True
-    sent = node.follow_correction([parameter('decoupling', CORRECTION)])
-    assert len(sent) == 1 and node.check_parameters(sent).successful
-    node.commit_parameters(sent)
+    assert not result.successful and 'next arm' in result.reason
     assert node.config['decoupling'] == IDENTITY

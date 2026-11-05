@@ -3,12 +3,12 @@
 import pytest
 
 from mhseals_hardware import hold_store
-from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.command_arbitration import Arbitration, mux_section
 from mhseals_hardware.configuration import load_defaults
 
 
 def arbitration(**changes):
-    return Arbitration(**{**load_defaults()['command_mux'], **changes})
+    return Arbitration(**{**mux_section(load_defaults()), **changes})
 
 
 def restarted(path, now):

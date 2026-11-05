@@ -5,7 +5,8 @@ on:
 permissions:
   contents: read
 jobs:
-  # The smoke tier gates landing (<60 s): config load and schema, the mixer, live parameters.
+  # The smoke tier gates landing (<60 s): config load and schema, the mixer, live parameters,
+  # mux arbitration and the e-stop.
   smoke:
     runs-on: ubuntu-latest
     steps:

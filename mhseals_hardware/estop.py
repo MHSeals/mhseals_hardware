@@ -3,36 +3,30 @@ controls the boat), the operator's e-stop or a stalled heartbeat cuts ESC power
 through the MOSFET.
 
 ROS-free and clock-injected. The edge is the command_mux rule itself
-(``Arbitration.update_rc``), fed the same ``command_mux`` section. The cut
+(``Arbitration.update_rc``), built once from the arm snapshot's ``mux_section``, the
+same one the mux reads, so the two never disagree on the stop or mode channel. The cut
 latches for the life of the driver: nothing here powers the ESCs again. Power
 returns only through the arm path, which starts a new driver whose
 ``outputs.open()`` re-enables the MOSFET with every channel at neutral.
 """
 
-from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.command_arbitration import Arbitration, mux_section
 
 
 class RemoteEstop:
     """Watch RC frames; on the stop edge cut the MOSFET, go neutral, and latch."""
 
-    def __init__(self, outputs, mux_section, enabled=True, on_rc_loss=False):
+    def __init__(self, outputs, config, enabled=True, on_rc_loss=False):
         self.outputs = outputs
         self.enabled = bool(enabled)
         self.on_rc_loss = bool(on_rc_loss)
-        self.section = None
-        self.configure(mux_section)
+        self.rule = Arbitration.from_config(mux_section(config))
         self.cause = None
         self.since_ns = None
 
     @property
     def latched(self):
         return self.cause is not None
-
-    def configure(self, mux_section):
-        """Follow command_mux edits; an unchanged section keeps the previous frame."""
-        if mux_section != self.section:
-            self.rule = Arbitration.from_config(mux_section)
-            self.section = mux_section
 
     def rc(self, channels, now, wall_ns):
         """Feed one RC frame; True when this frame cut the power."""

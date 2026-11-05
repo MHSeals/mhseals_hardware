@@ -40,26 +40,16 @@ def test_remote_controller_is_gone():
     assert not Path(command_mux.__file__).with_name('remote_controller.py').exists()
 
 
-def test_reload_during_rc_pends_until_idle(tmp_path):
+def test_a_yaml_edit_waits_for_the_next_arm(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux: {mode_ch: 8}\n')
-    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_reload',
-                     '-p', f'config_file:={path}'])
+    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_snapshot',
+                     '-p', f'config_file:={path}', '-p', 'ramp:=2.0'])
     try:
         node = command_mux.CommandMux()
-        node.applied.publish = lambda message: None
-        frame = RCIn()
-        frame.channels = [1500, 2000, 1500, 1500, 1500, 1800, 1500, 1100]
-        node._rc(frame)
-        # ConfigWatcher.poll returns the full merged section, as load_config does.
-        section = dict(node._effective_section, mode_ch=7)
-        node.watch.poll = lambda: {'command_mux': section}
-        node.reload_callback()
-        assert node.arbitration.mode_ch == 8 and node.pending == section
-        node.arbitration.rc_time = -10        # the frame goes stale
-        node.watch.poll = lambda: None
-        node.reload_callback()
-        assert node.arbitration.mode_ch == 7 and node.pending is None
+        assert node.arbitration.ramp == 2.0  # a -p override wins over the YAML
+        path.write_text('command_mux: {mode_ch: 7}\n')
+        assert not hasattr(node, 'reload_callback') and node.arbitration.mode_ch == 8
         node.destroy_node()
     finally:
         rclpy.try_shutdown()
@@ -101,28 +91,6 @@ def test_rc_switch_hold_is_saved_before_the_command_goes_out(tmp_path):
         rclpy.try_shutdown()
 
 
-def test_a_hold_publishes_its_state_before_its_zeros(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text(f'command_mux: {{state_file: {tmp_path / "mux.json"}}}\n')
-    rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_hold_order',
-                     '-p', f'config_file:={path}'])
-    try:
-        node = command_mux.CommandMux()
-        sent = []
-        node.applied.publish = lambda message: sent.append('command')
-        node.state_pub.publish = lambda message: sent.append(json.loads(message.data)['input'])
-        node.forward()
-        del sent[:]
-        node.arbitration.request('hold', 'test', 'tester', command_mux.time.monotonic())
-        node.forward()
-        assert sent == ['hold', 'command']
-        node.forward()                           # held on: the keepalive only
-        assert sent == ['hold', 'command', 'command']
-        node.destroy_node()
-    finally:
-        rclpy.try_shutdown()
-
-
 def test_steady_input_publishes_no_new_seq_until_something_changes():
     rclpy.init(args=['--ros-args', '-r', '__node:=command_mux_steady'])
     try:
@@ -157,9 +125,10 @@ def test_live_parameter_set_reaches_the_arbitration():
         node = command_mux.CommandMux()
         assert node.set_parameters([Parameter('ramp', value=2.0)])[0].successful
         assert node.arbitration.ramp == 2.0 and node.get_parameter('ramp').value == 2.0
-        bad = node.set_parameters([Parameter('cmd_timeout', value=0.0)])[0]
-        assert not bad.successful and node.arbitration.cmd_timeout == 0.5
-        assert node.get_parameter('cmd_timeout').value == 0.5
+        bad = node.set_parameters([Parameter('command_timeout', value=0.9)])[0]
+        assert not bad.successful and 'next arm' in bad.reason
+        assert node.arbitration.command_timeout == 0.5
+        assert node.get_parameter('command_timeout').value == 0.5
         node.destroy_node()
     finally:
         rclpy.try_shutdown()

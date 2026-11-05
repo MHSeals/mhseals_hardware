@@ -2,9 +2,11 @@ import argparse
 import os
 
 import pytest
+import yaml
 
 from mhseals_hardware.configuration import (
-    ConfigWatcher, configure_args, load_config, load_defaults, save_config, update_config, validate_config,
+    config_path, configure_args, load_config, load_defaults, save_config, update_config,
+    validate_config,
 )
 from mhseals_hardware.keyboard import decode_key
 
@@ -16,8 +18,8 @@ def test_persistent_mapping_and_pins(tmp_path, monkeypatch):
     monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
     config = load_config()
     config['channel_map'] = [4, 3, 2, 1]
-    config['mosfet_line'] = 12
-    target = save_config(config)
+    config['reversed'] = [True, False, False, False]
+    target = save_config(config)   # every key, board addresses included, as an arm snapshot does
     assert target.exists()
     assert load_config() == config
 
@@ -58,10 +60,38 @@ def test_cli_overrides_then_saves(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mosfet-line', type=int)
-    args = configure_args(parser, ['--mosfet-line', '5', '--save-config'])
-    assert args.mosfet_line == 5
-    assert load_config()['mosfet_line'] == 5
+    parser.add_argument('--reverse-thrust-ratio', type=float)
+    args = configure_args(parser, ['--reverse-thrust-ratio', '0.8', '--save-config'])
+    assert args.reverse_thrust_ratio == 0.8
+    assert load_config()['reverse_thrust_ratio'] == 0.8
+    assert yaml.safe_load(config_path().read_text()) == {'reverse_thrust_ratio': 0.8}  # only the flag
+
+
+def test_a_board_address_is_set_only_in_the_defaults(tmp_path, monkeypatch):
+    """The boot access service prepares default.yaml's PWM and MOSFET files, so no other layer moves them."""
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'mosfet_line: {load_defaults()["mosfet_line"] + 1}\n')
+    with pytest.raises(ValueError, match='default.yaml'):
+        load_config(path)
+    chips = load_defaults()['pwm_chips']
+    with pytest.raises(ValueError, match='pwm_chips'):
+        update_config({'pwm_chips': chips[1:] + chips[:1]}, tmp_path / 'other.yaml')
+    with pytest.raises(ValueError, match='mosfet_chip'):   # a snapshot writer refuses at save, not at arm
+        save_config(dict(load_defaults(), mosfet_chip='other'), tmp_path / 'other.yaml')
+    assert not (tmp_path / 'other.yaml').exists()
+    # A bench tool may still open another line for one run, but --save-config never persists it.
+    def bench():
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--mosfet-line', type=int)
+        return parser
+    assert configure_args(bench(), ['--mosfet-line', '5']).mosfet_line == 5
+    with pytest.raises(ValueError, match='mosfet_line'):
+        configure_args(bench(), ['--mosfet-line', '5', '--save-config'])
+    assert not config_path().exists()
+    configure_args(bench(), ['--save-config'])   # no override: no empty operator file
+    assert not config_path().exists()
 
 
 @pytest.mark.parametrize(('sequence', 'key'), [
@@ -87,67 +117,14 @@ def test_update_only_persists_explicit_settings(tmp_path):
     import yaml
     from mhseals_hardware.configuration import update_config
     path = tmp_path / 'hardware.yaml'
-    path.write_text('mosfet_line: 12\n')
+    path.write_text('reverse_thrust_ratio: 0.8\n')
     update_config({'channel_map': [2, 1, 3, 4]}, path)
-    assert yaml.safe_load(path.read_text()) == {'mosfet_line': 12, 'channel_map': [2, 1, 3, 4]}
+    assert yaml.safe_load(path.read_text()) == {'reverse_thrust_ratio': 0.8, 'channel_map': [2, 1, 3, 4]}
     assert load_config(path)['command_timeout'] > 0
     before = path.read_text()
     with pytest.raises(ValueError):
         update_config({'channel_map': [1]}, path)
     assert path.read_text() == before
-
-
-def test_watcher_reports_an_edit_once_and_rejects_a_bad_one(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-
-    def edit(text, tick):
-        path.write_text(text)
-        os.utime(path, ns=(tick, tick))  # a coarse filesystem clock could repeat an mtime
-
-    edit('command_timeout: 0.4\n', 1)
-    watch = ConfigWatcher(path)
-    assert watch.poll() is None
-    edit('command_timeout: 0.3\n', 2)
-    assert watch.poll() is None  # first sight of a change: wait for it to settle
-    assert watch.poll()['command_timeout'] == 0.3
-    assert watch.poll() is None
-    edit('command_timeout: -1\n', 3)
-    assert watch.poll() is None
-    with pytest.raises(ValueError):
-        watch.poll()
-    assert watch.poll() is None  # a bad edit is reported once, not every tick
-
-
-def test_watcher_ignores_a_half_written_file(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, true]\n')
-    watch = ConfigWatcher(path)
-    path.write_text('channel_map: [3, 1, 2, 4]\n')  # first chunk of an in-place rewrite
-    assert watch.poll() is None
-    path.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, false]\n')
-    assert watch.poll() is None  # still changing between ticks
-    config = watch.poll()
-    assert config['channel_map'] == [3, 1, 2, 4]
-    assert config['reversed'] == [True, False, False, False]
-
-
-@pytest.mark.parametrize('text', [
-    'reversed: [true, false\n',  # unterminated flow sequence: a half-saved file
-    'channel_map: 5\n',
-    'pwm_channels: 5\n',
-    'characterization: {motion_limits: [\n',
-])
-def test_watcher_reports_yaml_and_type_errors_as_value_error(tmp_path, text):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.4\n')
-    os.utime(path, ns=(1, 1))
-    watch = ConfigWatcher(path)
-    path.write_text(text)
-    os.utime(path, ns=(2, 2))
-    assert watch.poll() is None
-    with pytest.raises(ValueError):
-        watch.poll()
-    assert watch.poll() is None
 
 
 def test_unset_negative_decoupling_follows_decoupling_and_is_not_frozen_on_save(tmp_path):
@@ -224,27 +201,26 @@ def test_concurrent_updates_do_not_lose_edits(tmp_path):
     assert config['decoupling'][6] == 0.3 and config['manual_amplitude'] == 0.4
 
 
-@pytest.mark.parametrize('text', ['reversed: [true, false', 'manual_amplitude: "x"\n'])
-def test_watcher_turns_a_syntax_or_type_error_into_value_error(text, tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.4\n')
-    os.utime(path, ns=(1, 1))
-    watch = ConfigWatcher(path)
-    path.write_text(text)
-    os.utime(path, ns=(2, 2))
-    assert watch.poll() is None
-    with pytest.raises(ValueError):
-        watch.poll()
-
-
 def test_command_mux_section_is_validated(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux: {mode_ch: 7}\n')
     assert load_config(path)['command_mux'] == dict(load_defaults()['command_mux'], mode_ch=7)
-    for text in ('command_mux: {bogus: 1}\n', 'command_mux: {modes: [0]}\n', 'command_mux: 3\n'):
+    for text in ('command_mux: {bogus: 1}\n', 'command_mux: {modes: [0]}\n', 'command_mux: 3\n',
+                 'command_mux: {state_file: ""}\n', 'command_mux: {state_file: 3}\n'):
         path.write_text(text)
         with pytest.raises(ValueError):
             load_config(path)
+
+
+def test_mux_state_file_is_declared_and_resolved_once(tmp_path, monkeypatch):
+    from mhseals_hardware import hold_store
+    from mhseals_hardware.command_arbitration import mux_section
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    defaults = load_defaults()
+    assert defaults['command_mux']['state_file'] is None
+    assert 'state_file' not in mux_section(defaults)   # the node's key, not Arbitration's
+    assert hold_store.path(defaults['command_mux']) == hold_store.default_path()
+    assert hold_store.path({'state_file': 'x.json'}) == 'x.json'
 
 
 def test_hardware_epoch_defaults_to_zero_and_can_be_bumped(tmp_path):
@@ -284,6 +260,105 @@ def test_an_operator_file_with_the_old_heartbeat_key_loads_with_a_warning(tmp_pa
     assert load_config(str(path))['mosfet_heartbeat'] == 20
 
 
+def test_old_controller_topic_keys_still_arm_with_one_warning(tmp_path, monkeypatch):
+    from mhseals_hardware import configuration
+    warned = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda text, *args: warned.append(text % args))
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('controller: {input_topic: /cmd_vel, kp: [1, 2, 3]}\n')
+    config = load_config(str(path))
+    assert 'input_topic' not in config['controller'] and config['controller']['kp'] == [1, 2, 3]
+    assert len(warned) == 1 and 'controller.input_topic no longer exist' in warned[0]
+
+
+@pytest.mark.parametrize('topics', ['{odom: relative}', '{obstacle: /bad//topic}',
+                                    '{odom: /cmd_vel}'])
+def test_controller_input_topics_are_checked_in_topics(tmp_path, topics):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('topics: ' + topics + '\n')
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_old_controller_input_topics_move_to_topics_and_still_arm(tmp_path, monkeypatch):
+    from mhseals_hardware import configuration
+    warned = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda text, *args: warned.append(text % args))
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('controller: {odom_topic: /old/odom, obstacle_topic: /old/obstacle}\n')
+    config = load_config(str(path))
+    assert config['topics']['odom'] == '/old/odom' and config['topics']['obstacle'] == '/old/obstacle'
+    assert 'odom_topic' not in config['controller'] and len(warned) == 2
+    update_config({'controller': {'kp': [1, 2, 3]}}, path)
+    assert 'odom_topic' not in path.read_text() and load_config(str(path))['topics']['odom'] == '/old/odom'
+    path.write_text('controller: {odom_topic: /a}\ntopics: {odom: /b}\n')
+    with pytest.raises(ValueError, match='both set'):
+        load_config(str(path))
+
+
+class ArgvNode:
+    """Stand-in for an rclpy node started with ``-p`` overrides (rclpy drops undeclared ones)."""
+    def __init__(self, overrides):
+        self.overrides, self.declared, self.warned = overrides, {}, []
+
+    def declare_parameter(self, name, default):
+        self.declared[name] = self.overrides.get(name, default)
+
+    def get_parameter(self, name):
+        return type('Parameter', (), {'value': self.declared[name]})
+
+    def undeclare_parameter(self, name):
+        del self.declared[name]
+
+    def get_logger(self):
+        return type('Logger', (), {'warning': staticmethod(self.warned.append)})
+
+
+def test_an_old_arming_odom_topic_override_lands_in_topics_not_dropped():
+    from mhseals_hardware.configuration import moved_parameters
+    node = ArgvNode({'odom_topic': '/sim/odom'})
+    config = moved_parameters(node, load_defaults())
+    assert config['topics']['odom'] == '/sim/odom' and len(node.warned) == 1
+    assert node.declared == {}  # the old names leave no parameter behind
+    quiet = ArgvNode({})
+    assert moved_parameters(quiet, load_defaults())['topics'] == load_defaults()['topics']
+    assert not quiet.warned
+    with pytest.raises(ValueError, match='both name'):
+        moved_parameters(ArgvNode({'odom_topic': load_defaults()['topics']['auto']}), load_defaults())
+
+
+def test_old_stage_timeouts_migrate_with_one_line_and_still_arm(tmp_path, monkeypatch):
+    from mhseals_hardware import configuration
+    warned = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda text, *args: warned.append(text % args))
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_timeout: 0.4\ncommand_mux: {cmd_timeout: 0.9, ramp: 2.0}\n'
+                    'controller: {command_timeout: 1}\n')
+    config = load_config(str(path))
+    assert config['command_timeout'] == 0.4 and config['command_mux']['ramp'] == 2.0
+    assert 'cmd_timeout' not in config['command_mux']
+    assert 'command_timeout' not in config['controller']
+    assert len(warned) == 1
+    assert 'controller.command_timeout' in warned[0] and 'command_mux.cmd_timeout' in warned[0]
+    update_config({'manual_amplitude': 0.5}, path)  # the next write drops them
+    assert 'cmd_timeout' not in path.read_text() and path.read_text().count('command_timeout') == 1
+
+
+def test_command_timeout_inside_command_mux_refuses(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_mux: {command_timeout: 0.9}\n')
+    with pytest.raises(ValueError, match='top-level'):
+        load_config(path)
+
+
+@pytest.mark.parametrize('section', ['{auto: relative}', '{extra: /a}', '[1]'])
+def test_a_bad_topics_section_is_refused(tmp_path, section):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('topics: ' + section + '\n')
+    with pytest.raises(ValueError, match='topics'):
+        load_config(path)
+
+
 def test_an_operator_file_with_both_heartbeat_names_is_refused(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('mosfet_heartbeat_hz: 20\nmosfet_heartbeat: 30\n')
@@ -299,20 +374,17 @@ def test_schema_documents_the_mosfet_heartbeat_floor():
     assert '10-100' in schema['mosfet_heartbeat']['doc']
 
 
-def test_controller_partial_merge_and_independent_deadline(tmp_path):
+def test_controller_partial_merge(tmp_path):
     path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.4\ncontroller: {kp: [1, 2, 3], command_timeout: 1}\n')
+    path.write_text('controller: {kp: [1, 2, 3]}\n')
     selected = load_config(path)
-    assert selected['command_timeout'] == 0.4
-    assert selected['controller']['command_timeout'] == 1.0
-    assert type(selected['controller']['command_timeout']) is float
     assert selected['controller']['kp'] == [1., 2., 3.]
     assert selected['controller']['ki'] == load_defaults()['controller']['ki']
 
 
 @pytest.mark.parametrize('section', ['null', '{unknown: 1}', '{kp: [1, 2]}',
     '{ki: [true, 0, 0]}', '{feedback: 1}', '{odom_timeout: 0}',
-    '{command_timeout: .inf}', '{input_topic: relative}', '{output_topic: /bad//topic}'])
+    '{odom_timeout: .inf}'])
 def test_controller_invalid_section(tmp_path, section):
     path = tmp_path / 'hardware.yaml'
     path.write_text('controller: ' + section + '\n')
@@ -353,3 +425,12 @@ def test_saved_shared_lists_reload_without_aliases(tmp_path):
     text = path.read_text()
     assert '&' not in text and '*id' not in text
     assert load_config(path)['controller']['ki'] == gains
+
+
+def test_one_topic_on_two_lanes_is_refused(tmp_path):
+    """applied == effort would feed the mux its own output as the auto lane, so command_timeout never fires."""
+    topics = dict(load_defaults()['topics'], applied='/cmd_vel_effort')
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('topics: {' + ', '.join(f'{k}: {v}' for k, v in topics.items()) + '}\n')
+    with pytest.raises(ValueError, match='topics.effort and topics.applied both name /cmd_vel_effort'):
+        load_config(path)

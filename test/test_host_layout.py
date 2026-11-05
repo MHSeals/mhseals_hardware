@@ -3,6 +3,10 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
+pytestmark = pytest.mark.smoke
+
 
 def test_host_installer_sources_and_syntax(tmp_path):
     root = Path(__file__).resolve().parents[1]
@@ -23,3 +27,16 @@ def test_host_installer_sources_and_syntax(tmp_path):
         assert (root / 'host' / name).is_file()
     assert str(root / 'scripts/../config/default.yaml') in calls
     assert not (root / 'config/mhseals-thruster-access').exists()
+
+
+def test_thruster_access_parses_defaults_like_python():
+    from mhseals_hardware.configuration import load_defaults
+    root = Path(__file__).resolve().parents[1]
+    env = dict(os.environ, MHSEALS_HARDWARE_DEFAULTS=str(root / 'config/default.yaml'))
+    out = subprocess.run(['bash', str(root / 'host/mhseals-thruster-access'), '--print'],
+                         env=env, check=True, capture_output=True, text=True).stdout
+    *globs, channels, bank = out.splitlines()
+    defaults = load_defaults()
+    assert globs == defaults['pwm_chips']
+    assert [int(c) for c in channels.split()] == defaults['pwm_channels']
+    assert bank == defaults['mosfet_chip']

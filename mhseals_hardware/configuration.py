@@ -2,6 +2,7 @@
 
 import array
 import contextlib
+import copy
 import fcntl
 import hashlib
 import json
@@ -14,9 +15,10 @@ import re
 
 import yaml
 
+from mhseals_hardware import vessel
 from mhseals_hardware.resources import config_resource
-from mhseals_hardware.command_arbitration import Arbitration
-from mhseals_hardware.control_validation import controller_section
+from mhseals_hardware.command_arbitration import Arbitration, mux_section
+from mhseals_hardware.control_validation import controller_section, topics_section
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
     validate_reversed,
@@ -26,6 +28,19 @@ from mhseals_hardware.thruster_mixer import (
 # deprecation warning (an operator file on the boat may predate the rename); naming both refuses.
 # The next write of the file (update_config) migrates it to the new name.
 RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
+# Settings moved to another section, (section, key): (section, key); read and migrated like RENAMED.
+MOVED = {('controller', 'odom_topic'): ('topics', 'odom'),
+         ('controller', 'obstacle_topic'): ('topics', 'obstacle')}
+# Removed settings an older operator file may still name: dropped on read with one warning, so
+# the file still arms. The next write of the file drops them.
+# The topic keys are now topics:, the two stage timeouts the one top-level command_timeout.
+OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic', 'command_timeout'),
+            'command_mux': ('cmd_timeout',)}
+SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
+WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
+# Board addresses: only config/default.yaml sets them, since host/mhseals-thruster-access prepares exactly those
+# files at boot. An operator file or arm snapshot may repeat them (a snapshot holds every key) but not change them.
+BOARD = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high')
 log = logging.getLogger(__name__)
 
 
@@ -38,6 +53,7 @@ def config_path(path=None):
 def validate_config(config):
     """Reject a config that could drive the wrong pins or produce unsafe output."""
     config['controller'] = controller_section(config['controller'])
+    topics_section(config['topics'])
     # Thruster layout.
     validate_channel_map(config['channel_map'])
     validate_reversed(config['reversed'])
@@ -53,8 +69,11 @@ def validate_config(config):
     mux = config.get('command_mux', {})
     if not isinstance(mux, dict):
         raise ValueError('command_mux must be a mapping')
+    state_file = mux.get('state_file')
+    if state_file is not None and (not isinstance(state_file, str) or not state_file):
+        raise ValueError('command_mux.state_file must be null or a nonempty path string')
     try:
-        Arbitration.from_config(mux)
+        Arbitration.from_config(mux_section(config))
     except TypeError as error:
         raise ValueError(f'invalid command_mux: {error}') from error
     # Optional calibration written by mhseals_testing's characterization.
@@ -146,56 +165,43 @@ def load_defaults():
 
 
 def load_config(path=None):
-    """Shipped defaults overlaid with the user's hardware YAML, if present.
+    """Defaults < the vessel profile's ``thrusters:`` < the operator YAML (README "Configuration").
 
     The YAML path is ``path``, else $MHSEALS_HARDWARE_CONFIG, else
-    ~/.config/mhseals/hardware.yaml. Unknown keys are rejected so typos fail
-    loudly instead of being ignored.
+    ~/.config/mhseals/hardware.yaml. Unknown keys in either layer are rejected so
+    typos fail loudly instead of being ignored.
+    """
+    return load_layers(path)[0]
+
+
+def load_layers(path=None):
+    """``(config, channel_map source, vessel dir or None)`` from load_config's one read of each layer.
+
+    The source is the layer that supplied channel_map: the operator file (or arm snapshot), the
+    vessel, or defaults; the driver's ready line names it and the vessel dir.
     """
     selected = config_path(path)
     if not selected.exists() and (path or os.environ.get('MHSEALS_HARDWARE_CONFIG')):
         raise FileNotFoundError(selected)
-    return _merge_overrides(_read_overrides(selected))
+    overrides, wiring = _read_overrides(selected), vessel.section('thrusters')
+    profile = vessel.directory() if wiring else None
+    source = (str(selected) if 'channel_map' in overrides
+              else f'vessel {profile}' if 'channel_map' in wiring else 'defaults')
+    return _layered(overrides, wiring), source, profile
+
+
+def _layered(overrides, wiring=None):
+    """The operator overrides merged over the vessel profile's thrusters: wiring and the defaults."""
+    wiring = vessel.section('thrusters') if wiring is None else wiring
+    extra = sorted(set(wiring) - set(WIRING))
+    if extra:
+        raise ValueError(f'vessel profile thrusters: takes {", ".join(WIRING)}, not {extra}')
+    return _merge_overrides({**copy.deepcopy(wiring), **overrides})
 
 
 def config_sha(config):
     """Short hash of a loaded config, so the TUI can tell which file a node applied."""
     return hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()[:12]
-
-
-class ConfigWatcher:
-    """Reload the hardware YAML once an edit has settled.
-
-    A change is parsed only when the file's (mtime, size, inode) is the same on two
-    consecutive polls, so an in-place save caught mid-write is never applied as a
-    partial file (whose missing keys would fall back to the defaults).
-    """
-
-    def __init__(self, path):
-        self.path = path
-        self.mtime = self.seen = self._stat()  # applied key, and last tick's key
-
-    def _stat(self):
-        try:
-            st = os.stat(config_path(self.path))
-        except OSError:
-            return None
-        return st.st_mtime_ns, st.st_size, st.st_ino
-
-    def poll(self):
-        """The new config after a settled edit, else None; raises OSError/ValueError/KeyError on a bad one.
-
-        YAML syntax errors and wrong-typed values surface as ValueError, so a typo in a
-        live edit is rejected by the callers instead of killing the node.
-        """
-        key, previous, self.seen = self._stat(), self.seen, self._stat()
-        if key is None or key == self.mtime or key != previous:
-            return None
-        self.mtime = key
-        try:
-            return load_config(self.path)
-        except (yaml.YAMLError, TypeError) as error:
-            raise ValueError(f'invalid hardware YAML: {error}') from error
 
 
 def load_strict_yaml(path):
@@ -257,6 +263,27 @@ def _read_overrides(path):
         log.warning('%s: %s is deprecated, read as %s (rename it; the next write does)',
                     path, old, new)
         overrides[new] = overrides.pop(old)
+    for (section, old), (target, new) in MOVED.items():
+        values = overrides.get(section)
+        if not isinstance(values, dict) or old not in values:
+            continue
+        moved = overrides.get(target) if isinstance(overrides.get(target), dict) else {}
+        if new in moved:
+            raise ValueError(f'{path}: {section}.{old} and {target}.{new} both set; '
+                             f'{section}.{old} is the old home of {target}.{new}, keep {target}.{new}')
+        log.warning('%s: %s.%s is deprecated, read as %s.%s (move it; the next write does)',
+                    path, section, old, target, new)
+        overrides[section] = {k: v for k, v in values.items() if k != old}
+        overrides[target] = dict(moved, **{new: values[old]})
+    gone = []
+    for section, keys in OBSOLETE.items():
+        values = overrides.get(section)
+        if isinstance(values, dict) and any(key in values for key in keys):
+            gone += [f'{section}.{key}' for key in keys if key in values]
+            overrides[section] = {k: v for k, v in values.items() if k not in keys}
+    if gone:
+        log.warning('%s: %s no longer exist; ignored (the next write drops them)', path,
+                    ', '.join(gone))
     unknown = sorted(set(overrides) - set(load_defaults()))
     if unknown:
         lines = {key.value: key.start_mark.line + 1 for key, _ in
@@ -266,26 +293,50 @@ def _read_overrides(path):
     return overrides
 
 
-def startup_config(node, path, hardware_parameters=True):
-    """Load the YAML at node startup: ``(effective, baseline)``.
+def declared(node, section, names=None):
+    """``section`` with each of ``names`` (default: every non-mapping key) as a ROS parameter.
 
-    ``baseline`` is the file layer (package defaults, then the operator file);
-    ``effective`` adds the node's launch/CLI parameter overrides. With
-    ``hardware_parameters`` False only controller keys can be overridden (mux, controller).
+    Each is declared with its YAML value and read back, so a ``-p`` override wins and the file
+    gives the rest. A node reads its arm snapshot this way once, at startup; none watches the YAML.
     """
-    baseline = load_config(path)
-    defaults = load_defaults()
-    names = defaults if hardware_parameters else defaults['controller']
-    found = {name: _plain(node._parameter_overrides[name].value)
-             for name in names if name in node._parameter_overrides}
-    effective = dict(baseline, **found) if hardware_parameters else dict(
-        baseline, controller=dict(baseline['controller'], **found))
-    return _merge_overrides(effective), baseline
+    names = [k for k, v in section.items() if not isinstance(v, dict)] if names is None else names
+    for name in names:
+        node.declare_parameter(name, section[name])
+    return dict(section, **{name: plain(node.get_parameter(name).value) for name in names})
 
 
-def _plain(value):
-    """ROS array parameters arrive as sequences other than list; YAML and validators want lists."""
+def moved_parameters(node, config):
+    """A ``-p`` for a MOVED key (an older arming argv) lands in its new home with one warning.
+
+    rclpy ignores an override for an undeclared name, so without this the binding would vanish silently.
+    """
+    for (_, old), (target, new) in MOVED.items():
+        node.declare_parameter(old, '')
+        value = node.get_parameter(old).value
+        node.undeclare_parameter(old)
+        if value:
+            node.get_logger().warning(
+                f'-p {old} is deprecated, read as {target}.{new} (set it in the snapshot)')
+            config[target] = dict(config[target], **{new: value})
+    topics_section(config['topics'])
+    return config
+
+
+def plain(value):
+    """ROS array parameters arrive as sequences other than list; YAML and validators want lists.
+
+    The one conversion: declared(), the driver's and controller's live parameters and the mux all use it."""
     return list(value) if isinstance(value, (tuple, array.array)) else value
+
+
+def board_unchanged(config):
+    """Refuse a BOARD value that differs from default.yaml; equal values (a full snapshot) pass."""
+    defaults = load_defaults()
+    moved = [key for key in BOARD if key in config and plain(config[key]) != defaults[key]]
+    if moved:
+        raise ValueError(f'board address {", ".join(moved)}: set it in config/default.yaml and re-run '
+                         'scripts/install_odroid_access.sh (the boot service prepares only those files)')
+    return config
 
 
 def _merge_overrides(overrides):
@@ -293,17 +344,13 @@ def _merge_overrides(overrides):
     unknown = set(overrides) - set(defaults)
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
+    board_unchanged(overrides)
     combined = dict(defaults, **overrides)
-    if 'controller' in overrides:
-        section = overrides['controller']
-        if not isinstance(section, dict):
-            raise ValueError('controller must be a mapping')
-        combined['controller'] = dict(defaults['controller'], **section)
-    if 'command_mux' in overrides:
-        section = overrides['command_mux']
-        if not isinstance(section, dict):
-            raise ValueError('command_mux must be a mapping')
-        combined['command_mux'] = dict(defaults['command_mux'], **section)
+    for name in SECTIONS:
+        if name in overrides:
+            if not isinstance(overrides[name], dict):
+                raise ValueError(f'{name} must be a mapping')
+            combined[name] = dict(defaults[name], **overrides[name])
     config = validate_config(combined)
     # ROS array parameters are typed by their elements: ints or a mix would declare the
     # wrong type (or crash), so every matrix is a plain list of floats.
@@ -329,10 +376,9 @@ def _follows(negative, decoupling):
 
 def save_config(config, path=None):
     """Atomically persist validated settings; never partially replace a file."""
-    validate_config(config)
+    validate_config(board_unchanged(config))
     target = config_path(path)
-    normalized = {key: list(value) if isinstance(value, tuple) else value
-                  for key, value in config.items()}
+    normalized = {key: plain(value) for key, value in config.items()}
     if _follows(normalized.get('decoupling_negative'), normalized['decoupling']):
         normalized['decoupling_negative'] = None  # same as decoupling; don't freeze a copy
     return _write_config(normalized, target)
@@ -366,7 +412,7 @@ def _update_locked(changes, target):
     overrides.update(changes)
     if _follows(overrides.get('decoupling_negative'), _merge_overrides(overrides)['decoupling']):
         overrides.pop('decoupling_negative', None)
-    _merge_overrides(overrides)
+    _layered(overrides)
     return _write_config(overrides, target)
 
 
@@ -429,16 +475,20 @@ def configure_args(parser, args=None):
     """
     parser.add_argument('--config', help='hardware YAML (or MHSEALS_HARDWARE_CONFIG)')
     parser.add_argument('--save-config', action='store_true',
-                        help='persist pin/mixer overrides before opening hardware')
+                        help='persist the non-board overrides given before opening hardware')
     preliminary, _ = parser.parse_known_args(args)
     config = load_config(preliminary.config)
     parser.set_defaults(**config)
     parsed = parser.parse_args(args)
+    changes = {}
     for key in config:
         if hasattr(parsed, key):
-            config[key] = getattr(parsed, key)
+            value = getattr(parsed, key)
+            if plain(value) != plain(config[key]):
+                changes[key] = plain(value)
+            config[key] = value
     validate_config(config)
-    if parsed.save_config:
-        save_config(config, parsed.config)
+    if parsed.save_config and changes:   # board addresses refuse; nothing given writes nothing
+        update_config(changes, parsed.config)  # only the flags given, not every default
     parsed.hardware_config = config
     return parsed

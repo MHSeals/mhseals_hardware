@@ -2,7 +2,7 @@
 
 The real command_mux and thruster_pwm_node run in one executor; the driver drives fake
 sysfs PWM and a fake gpiod MOSFET line (test_estop). The velocity controller is not in
-this chain (profiles without it remap the driver to /cmd_vel/applied, as here).
+this chain: it sits before the mux, and the driver reads topics.applied in both modes.
 """
 
 import json
@@ -34,10 +34,9 @@ class Rig:
         save_config(load_defaults(), path)
         chips = [fake_chip(tmp_path / 'pwm', n) for n in range(4)]
         monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda cfg, node=None:
-                            OdroidPWMOutputs(chips, mosfet_chip='/dev/gpiochip5', mosfet_line=29))
+                            OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True))
         monkeypatch.setenv('ROS_DOMAIN_ID', '196')
-        rclpy.init(args=['--ros-args', '-p', f'config_file:={path}',
-                         '-r', 'thruster_pwm_node:cmd_vel:=/cmd_vel/applied'])
+        rclpy.init(args=['--ros-args', '-p', f'config_file:={path}'])
         self.mux = command_mux.CommandMux()
         self.driver = thruster_pwm_node.ThrusterPWMNode()
         probe = self.probe = rclpy.create_node('probe')

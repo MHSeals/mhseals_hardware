@@ -1,18 +1,21 @@
-"""Pick which command drives the boat: rc > manual > hold > auto.
+"""Pick which command drives the boat: duplicate > rc > manual > hold > auto.
 
 ROS-free and clock-injected: every call takes ``now`` in seconds, so a node
 feeds it monotonic time and a test feeds it a fake clock.  The mux node only
 forwards ``select(now)``; all the rules live here.
 
+Every lane is effort (``topics`` in default.yaml):
+
 * rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
-* manual: ``/cmd_vel/manual`` (TUI keys) newer than ``cmd_timeout``.
+* manual: ``topics.manual`` (TUI keys) newer than ``command_timeout``.
 * hold: any hold cause is set.  Output is zero until it is released.
 * duplicate: another publisher drives the same output, so this one sends
   only zeros (``set_duplicate``) and cannot be released.
-* auto: ``/cmd_vel`` newer than ``cmd_timeout``, ramped in over ``ramp``.
+* auto: ``topics.effort`` newer than ``command_timeout``, ramped in over ``ramp``.
 """
 
 import hashlib
+import json
 import math
 from collections import deque
 
@@ -22,11 +25,29 @@ MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
 # Upper edges (microseconds) of MODE1..5; MODE6 is everything above.
 MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
 
-# Hold causes renamed for the ``~/state`` ``cause`` field (authority.md 2.3).
+# Hold causes renamed for the ``~/state`` ``cause`` field (docs/authority.md 2.3).
 STATE_CAUSES = {'rc_stop': 'stop_channel', 'keys': 'manual_end'}
+RC_CENTER = 1500                  # stick centre and stop-switch threshold, µs
 RC_WINDOW = 50                    # frame intervals kept for rate and p95
 
 RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
+MUX_SCHEMA = 'mhseals.mux/1'
+
+
+def mux_input(text):
+    """The ``input`` of a mux state message (the contract in command_mux), or None: unknown.
+
+    A schema other than MUX_SCHEMA, a missing input or unreadable JSON is unknown, and each
+    consumer fails safe on it.
+    """
+    try:
+        state = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(state, dict) or state.get('schema') != MUX_SCHEMA:
+        return None
+    value = state.get('input')
+    return value if isinstance(value, str) else None
 
 
 def token_hash(token):
@@ -42,7 +63,7 @@ def mode_from_pwm(pwm, modes):
     return MODE_NAMES.get(modes[slot], OTHER)
 
 
-def stick(pwm, center=1500, deadband=100, half_range=500):
+def stick(pwm, center=RC_CENTER, deadband=100, half_range=500):
     """One channel as [-1, 1] with a center deadband."""
     offset = pwm - center
     if abs(offset) <= deadband:
@@ -51,20 +72,30 @@ def stick(pwm, center=1500, deadband=100, half_range=500):
 
 
 # The tunables a ``command_mux`` section may set (Arbitration.__init__ arguments).
-INIT_KEYS = ('mode_ch', 'modes', 'stop_ch', 'rc_scale', 'rc_max_age', 'cmd_timeout',
+# ``command_timeout`` is the one top-level watchdog the driver and the controller also read.
+INIT_KEYS = ('mode_ch', 'modes', 'stop_ch', 'rc_scale', 'rc_max_age', 'command_timeout',
              'stick_takeover', 'stick_time', 'stick_release', 'ramp')
+
+
+def mux_section(config):
+    """The ``command_mux`` section of a hardware config plus its top-level ``command_timeout``."""
+    if 'command_timeout' in config['command_mux']:
+        raise ValueError('command_timeout is top-level, not a command_mux key')
+    # state_file is the node's (hold_store.path), not the state machine's.
+    section = {k: v for k, v in config['command_mux'].items() if k != 'state_file'}
+    return {**section, 'command_timeout': config['command_timeout']}
 
 
 class Arbitration:
     """The state machine behind ``command_mux``."""
 
-    def __init__(self, mode_ch, modes, stop_ch, rc_scale, rc_max_age, cmd_timeout,
+    def __init__(self, mode_ch, modes, stop_ch, rc_scale, rc_max_age, command_timeout,
                  stick_takeover, stick_time, stick_release, ramp):
         # Every value comes from the command_mux section of default.yaml.
         self.mode_ch, self.modes, self.stop_ch = mode_ch, tuple(modes), stop_ch
         self._check_layout()
         self.rc_scale = tuple(rc_scale)
-        self.rc_max_age, self.cmd_timeout = rc_max_age, cmd_timeout
+        self.rc_max_age, self.command_timeout = rc_max_age, command_timeout
         if type(stick_takeover) is not int or stick_takeover < 0:
             raise ValueError('stick_takeover must be a nonnegative integer PWM offset')
         self.stick_takeover, self.stick_time = stick_takeover, stick_time
@@ -74,10 +105,10 @@ class Arbitration:
             raise ValueError('rc_scale needs three numbers')
         for value in self.rc_scale:
             nonnegative(value, 'rc_scale')
-        for name in ('rc_max_age', 'cmd_timeout', 'stick_takeover', 'stick_time',
+        for name in ('rc_max_age', 'command_timeout', 'stick_takeover', 'stick_time',
                      'stick_release', 'ramp'):
             nonnegative(getattr(self, name), name,
-                        positive=name in ('rc_max_age', 'cmd_timeout'))
+                        positive=name in ('rc_max_age', 'command_timeout'))
 
         self.channels, self.rc_time = (), None
         self.manual, self.manual_time = (0.0, 0.0, 0.0), None
@@ -103,12 +134,8 @@ class Arbitration:
 
     @classmethod
     def from_config(cls, config):
-        """Build from the ``command_mux`` section of hardware.yaml."""
-        if config and 'state_file' in config and (
-                not isinstance(config['state_file'], str) or not config['state_file']):
-            raise ValueError('state_file must be a nonempty path string')
-        # ``state_file`` belongs to the node (hold persistence), not the state machine.
-        return cls(**{k: v for k, v in (config or {}).items() if k != 'state_file'})
+        """Build from ``mux_section``: the ``command_mux`` section plus ``command_timeout``."""
+        return cls(**(config or {}))
 
     def adopt_holds(self, holds, now):
         """Re-adopt holds saved by a previous mux process (see ``hold_store``)."""
@@ -126,19 +153,6 @@ class Arbitration:
                 type(mode) is int and mode >= 0 for mode in self.modes):
             raise ValueError('modes must be %d FCU mode numbers' % (len(MODE_BANDS) + 1))
 
-    def apply_config(self, section, now):
-        """Apply a ``command_mux`` section only while nothing is being driven.
-
-        Returns False (and changes nothing) in rc, manual or auto, so a remap
-        never lands mid-drive; the caller keeps the section pending and retries.
-        """
-        fresh = self.from_config(section)
-        if self.select(now)[0] not in ('idle', 'hold'):
-            return False
-        for key in INIT_KEYS:
-            setattr(self, key, getattr(fresh, key))
-        return True
-
     # Inputs
 
     def update_rc(self, channels, now):
@@ -152,7 +166,7 @@ class Arbitration:
         self.channels, self.rc_time = tuple(channels), now
         stop = self._channel(self.channels, self.stop_ch)
         edge = (self.valid(now) and was is not None and stop is not None
-                and was >= 1500 > stop)
+                and was >= RC_CENTER > stop)
         if edge:
             self._hold('rc_stop', 'rc', now)       # stop switch falling edge
         self._advance(now)
@@ -186,7 +200,12 @@ class Arbitration:
         return False
 
     def request(self, op, cause, by, now, token=None):
-        """Apply a hold or release request; return ``(ok, reason)``."""
+        """Apply a hold or release request; return ``(ok, reason)``.
+
+        The one release rule: a release with a token clears only the hold that token placed
+        (its own cause). A tokenless release (the TUI's U) clears every hold, unless a valid
+        RC frame puts the mode switch at MANUAL, HOLD or OTHER, which refuses it.
+        """
         self._advance(now)
         if op == 'hold':
             if not isinstance(cause, str) or not cause:
@@ -240,13 +259,13 @@ class Arbitration:
         return (stick(ch[1]), -stick(ch[0]), -stick(ch[3]))
 
     def _past_takeover(self):
-        return any(abs(self.channels[i] - 1500) > self.stick_takeover
+        return any(abs(self.channels[i] - RC_CENTER) > self.stick_takeover
                    for i in (0, 1, 3))
 
     # State machine
 
     def _hold(self, cause, by, now, token=None):
-        # Placing a cause again restarts its since, so the controller sees a new hold,
+        # Placing a cause again restarts its since, so ``~/state`` shows a new hold,
         # except a repeat with the same token (a watchdog refreshing its own hold).
         held = self.holds.get(cause)
         stored = token_hash(token)
@@ -306,7 +325,7 @@ class Arbitration:
                 self._hold('rc_stick', 'rc', now)
 
     def _fresh(self, stamp, now):
-        return stamp is not None and now - stamp <= self.cmd_timeout
+        return stamp is not None and now - stamp <= self.command_timeout
 
     def select(self, now):
         """Return ``(source, (surge, sway, yaw))`` for this instant."""
@@ -368,7 +387,7 @@ class Arbitration:
         return None if stamp is None else round(now - stamp, 3)
 
     def state(self, now, wall_ns=None, pipeline_ms=None):
-        """What ``~/state`` publishes (authority.md 2.3), minus schema/seq/t_ns.
+        """What ``~/state`` publishes (docs/authority.md 2.3), minus schema/seq/t_ns.
 
         Times here are the node's monotonic seconds, which no other host can
         read; given ``wall_ns`` (wall clock at ``now``) each ``since`` is also

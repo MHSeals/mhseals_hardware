@@ -21,9 +21,10 @@ estop_cuts_power: true
 # or older than command_mux.rc_max_age) cuts and latches the same way.
 estop_on_rc_loss: true
 # Toggle the MOSFET enable at this rate while powered, for a heartbeat circuit
-# that drops the gate when the toggling stops (.handoff/specs/mosfet-heartbeat.md).
+# that drops the gate when the toggling stops (docs/authority.md 4).
 # 0 = steady level (no heartbeat circuit fitted).
 mosfet_heartbeat: 0.0
+# Seconds: the one watchdog the velocity controller, the mux and the driver each apply.
 command_timeout: 0.5
 # Canonical FL, FR, RR, RL -> physical output (1-based).
 channel_map: [1, 2, 3, 4]
@@ -38,7 +39,7 @@ thruster_matrix: [
 ]
 # Rows and columns surge, sway, yaw, applied before the mixer: cancels the
 # cross-coupling the characterization measured. Identity means none. Entries within
-# +/-2, diagonal positive. Applies live (this file or SetParameters on the driver).
+# +/-2, diagonal positive. Read at arm; SetParameters on the driver changes it live.
 decoupling: [
   1.0, 0.0, 0.0,
   0.0, 1.0, 0.0,
@@ -60,22 +61,41 @@ manual_yaw_scale: 0.5
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
-# command_mux (Arbitration arguments). Applied live, but only while idle or holding.
+# command_mux (Arbitration arguments). Read at arm; only rc_scale and ramp change live (SetParameters).
 # mode_ch/stop_ch: 1-based RC channels. modes: the FCU MODE1..6 numbers (0 MANUAL,
 # 4 HOLD, 15 GUIDED). rc_scale: surge, sway, yaw fraction at full stick.
-# rc_max_age, cmd_timeout, stick_time, stick_release, ramp: seconds.
+# rc_max_age, stick_time, stick_release, ramp: seconds.
 # stick_takeover: PWM microseconds past center.
+# state_file: where the mux saves its holds across a restart (hold_store); null =
+# $XDG_RUNTIME_DIR/mhseals/command_mux_<ROS_DOMAIN_ID>.json. Not an Arbitration argument.
 command_mux:
   mode_ch: 8
   modes: [0, 0, 0, 4, 0, 15]
   stop_ch: 6
   rc_scale: [0.5, 0.5, 0.3]
   rc_max_age: 0.3
-  cmd_timeout: 0.5
   stick_takeover: 200
   stick_time: 0.2
   stick_release: 0.5
   ramp: 1.0
+  state_file: null
+
+# The motion topics; the mux, the driver and the velocity controller read them (no remaps).
+# auto is the only SI lane: body velocity from Nav2, which only the velocity controller reads.
+# Every mux input is effort: effort (the auto lane: the controller's output or an effort
+# publisher), manual (the keys) and rc. applied is the mux output the driver mixes, and
+# mux_state the mux state (contract in command_mux). odom and obstacle are the velocity
+# controller's sensor inputs.
+topics:
+  auto: /cmd_vel
+  effort: /cmd_vel_effort
+  manual: /cmd_vel/manual
+  rc: /mavros/rc/in
+  applied: /cmd_vel/applied
+  mux_state: /command_mux/state
+  odom: /odom/local
+  # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
+  obstacle: /perception/nearest_obstacle
 
 # Bumped (never reset) when the hardware changes physically (ballast, prop swap,
 # remount): calibrations recorded under an older epoch count as invalid.
@@ -84,7 +104,7 @@ hardware_epoch: 0
 # Optional field characterization written by mhseals_testing (boat_test or thrust_characterize).
 characterization: {}
 
-# Standalone controller inputs; managed profiles capture their topic bindings.
+# The velocity controller's gains and observer; its topics are in topics:.
 controller:
   kp: [0.8, 0.8, 0.6]
   ki: [0.6, 0.6, 0.4]
@@ -92,7 +112,6 @@ controller:
   feedback: true
   drift_time_constant: 5.0
   odom_timeout: 0.3
-  command_timeout: 0.5
   drift_command_limit: 0.1
   # m/s: the fastest current and wind drift the observer may believe, a backstop for
   # contact with a dock or buoy, which reads as current. Keep it well below the slowest
@@ -102,16 +121,9 @@ controller:
   # m: the estimate grows only after the boat has been carried this far along the
   # supposed current since it last got under way; the boat against a contact is not.
   drift_carry: 0.02
-  # m: while obstacle_topic puts an obstacle this close to the hull, the estimate doesn't
+  # m: while topics.obstacle puts an obstacle this close to the hull, the estimate doesn't
   # grow away from it (that could be the obstacle's reaction); 0 turns this off. A real
   # current setting off the obstacle is then left to the PI integral (less effort, not more).
   proximity_distance: 0.5
   # s: obstacle data older than this (or none) leaves only the carry gate, as without it.
   obstacle_timeout: 0.5
-  input_topic: /cmd_vel
-  output_topic: /cmd_vel_effort
-  odom_topic: /odom/local
-  # The command_mux ~/state: while it holds or idles the controller gives neutral effort.
-  mux_state_topic: /command_mux/state
-  # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
-  obstacle_topic: /perception/nearest_obstacle
