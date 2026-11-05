@@ -10,7 +10,6 @@ missing, and every file read with the operator file's strict loader (duplicate k
 A ``$ROS_WS`` without the env file is a workspace with no vessel.
 """
 
-from functools import cache
 import os
 from pathlib import Path
 
@@ -43,7 +42,6 @@ def directory(network_env=None):
     return env.resolve().parent if env is not None and env.is_file() else None
 
 
-@cache
 def section(name, network_env=None):
     """The vessel profile chain's merged ``name:`` mapping ({} without a vessel profile or that key)."""
     named = network_env or os.environ.get('ASTRO_NETWORK_ENV')
