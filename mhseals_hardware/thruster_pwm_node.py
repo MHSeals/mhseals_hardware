@@ -8,12 +8,13 @@ Inputs:
                        for ``hold_s`` (at most TEST_HOLD_MAX_S) after each message, so a slow
                        or stalled publisher does not chop the pulse
 Test pulses are accepted only while ``pulse_guard_topic`` (the command_mux ``~/state``)
-reports input ``auto`` or ``idle``, so they never outvote a human; no fresh state, no pulse.
-An empty ``pulse_guard_topic`` disables the guard (bench use without a mux).
+reports input ``idle``, so they never outvote a human or autonomy; no fresh state, no pulse.
+An empty ``pulse_guard_topic`` disables the guard (bench use without a mux; warned at start).
 A live test pulse owns the outputs: the mux forwards cmd_vel (zeros too) at 25 Hz, which
 would otherwise overwrite the pulse within 40 ms. It ends, to neutral, when its hold runs
 out, on an all-neutral pulse, or at once when the guard reports another input (manual, rc,
-a hold) or goes stale; cmd_vel drives again after. cmd_vel goes neutral after
+auto, a hold) or goes stale, or a cmd_vel frame is not neutral (a takeover whose mux state
+has not arrived yet: that frame drives); cmd_vel drives again after. cmd_vel goes neutral after
 ``command_timeout`` without a message. ``~/output`` (String JSON, 10 Hz and on each test
 change) reports what the outputs hold, read back from them, its source and the test seq. With
 ``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
@@ -57,7 +58,7 @@ from mhseals_hardware.thruster_mixer import (
 )
 
 RELOAD_PERIOD = 1.0
-PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autonomy or nobody
+PULSE_INPUTS = ('idle',)  # the mux input that leaves the thrusters to nobody
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 TEST_HOLD_MAX_S = 5.0  # s; the longest a held test pulse lasts without another message
 HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s timeout
@@ -135,6 +136,9 @@ class ThrusterPWMNode(Node):
         self.mux_input, self.mux_time = None, 0.0
         if self.guard_topic:
             self.create_subscription(String, self.guard_topic, self.guard_callback, GUARD_QOS)
+        else:
+            self.get_logger().warning('pulse_guard_topic is empty: test pulses are not guarded '
+                                      'by the command_mux (bench use only)')
         self.add_pre_set_parameters_callback(self.follow_correction)
         self.add_on_set_parameters_callback(self.check_parameters)
         self.add_post_set_parameters_callback(self.commit_parameters)
@@ -304,7 +308,10 @@ class ThrusterPWMNode(Node):
             self.source = 'neutral'
             return
         if self.test is not None:
-            return  # the test pulse owns the outputs until it ends
+            refusal = self.pulse_refusal()
+            if refusal is None and not any(values):
+                return  # the test pulse owns the outputs until it ends
+            self.end_test(refusal or 'a cmd_vel command took over')
         self.drive(thruster_pulses(values, self.mixer, self.channel_map,
                                    self.reversed, self.decoupling, self.decoupling_negative,
                                    self.reverse_ratio))

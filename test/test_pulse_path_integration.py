@@ -91,3 +91,22 @@ def test_manual_drives_after_a_pulse_ends(rig):
     run(1.0, lambda: pubs['manual'].publish(surge), every=0.05)   # the mux goes manual
     assert seen['pwm'][-1][1] not in (NEUTRAL, PULSE)
     assert seen['output'][-1]['source'] == 'cmd_vel'
+
+
+def test_manual_takes_over_mid_pulse_at_once(rig):
+    """Keys mid-pulse (the TUI still republishing it): the first manual frame drives, the pulse stops."""
+    run, pubs, seen = rig
+    held = lambda: pubs['held'].publish(String(data=json.dumps({'pulses': PULSE, 'hold_s': 1.5, 'seq': 1})))
+    run(1.0, held)
+    assert seen['pwm'][-1][1] == PULSE
+    surge = Twist()
+    surge.linear.x = 0.5
+    start = time.monotonic()
+
+    def both():
+        held()
+        pubs['manual'].publish(surge)
+    run(1.0, both, every=0.04)
+    after = [data for t, data in seen['pwm'] if t > start + 0.2]
+    assert after and PULSE not in after and after[-1] != NEUTRAL
+    assert seen['output'][-1]['source'] == 'cmd_vel'

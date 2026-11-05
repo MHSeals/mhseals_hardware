@@ -54,23 +54,37 @@ class Clock:
         return self.now
 
 
-@pytest.fixture
-def driver(tmp_path, monkeypatch):
+def start_driver(tmp_path, monkeypatch, **config):
     outputs, clock = Outputs(), Clock()
     monkeypatch.setattr(thruster_pwm_node, 'make_outputs', lambda *args, **kwargs: outputs)
     monkeypatch.setattr(thruster_pwm_node.time, 'monotonic', clock)
     path = tmp_path / 'hardware.yaml'
-    save_config(load_defaults(), path)
+    save_config(dict(load_defaults(), **config), path)
     rclpy.init(args=['--ros-args', '-r', '__node:=pulse_hold_test', '-p', f'config_file:={path}'])
     node = thruster_pwm_node.ThrusterPWMNode()
     published = []
-    node.output_pub.publish = lambda message: published.append(json.loads(message.data))
+    if hasattr(node, 'output_pub'):   # the golden recorder runs this on the driver before it
+        node.output_pub.publish = lambda message: published.append(json.loads(message.data))
     node.guard_callback(String(data='{"input": "idle"}'))
     try:
         yield node, outputs, clock, published
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+
+@pytest.fixture
+def driver(tmp_path, monkeypatch):
+    yield from start_driver(tmp_path, monkeypatch)
+
+
+# Non-identity wiring for the golden manual sequence: every output moved, two reversed.
+MAPPED = dict(channel_map=[2, 4, 1, 3], reversed=[True, False, False, True])
+
+
+@pytest.fixture
+def mapped_driver(tmp_path, monkeypatch):
+    yield from start_driver(tmp_path, monkeypatch, **MAPPED)
 
 
 def held(pulses, hold_s, seq=1):
@@ -128,7 +142,7 @@ def test_the_legacy_topic_holds_while_republished(driver):
     assert outputs.pulses == NEUTRAL
 
 
-@pytest.mark.parametrize('mux_input', ['manual', 'rc', 'hold'])
+@pytest.mark.parametrize('mux_input', ['manual', 'rc', 'hold', 'auto'])
 def test_a_human_or_a_hold_ends_the_pulse_at_once(driver, mux_input):
     node, outputs, clock, published = driver
     node.test_pulse(PULSE, 3.0, 1)
@@ -173,20 +187,64 @@ def test_a_held_pulse_is_capped_and_validated(driver):
         assert node.test is None and outputs.pulses == NEUTRAL
 
 
-def test_manual_and_cmd_vel_writes_are_unchanged(driver):
-    """A recorded manual sequence writes exactly the mixer's pulses, frame for frame, as before."""
-    from mhseals_hardware.thruster_mixer import thruster_pulses
-    node, outputs, clock, _ = driver
-    sequence = [(0.0, 0.0, 0.0), (0.75, 0.0, 0.0), (0.75, 0.0, 0.13), (0.0, -0.75, 0.0),
-                (-0.75, 0.0, 0.0), (0.0, 0.0, -0.13), (0.4, 0.3, 0.1), (1.0, 1.0, 1.0),
-                (-1.0, -1.0, -1.0), (0.0, 0.0, 0.0)]
-    outputs.writes.clear()
-    for surge, sway, yaw in sequence:
+def manual_sequence(node, clock):
+    """A recorded manual drive: 25 Hz frames with watchdog ticks, a NaN frame, a stall into the
+    command_timeout neutral, and frames again; every outputs write in order."""
+    frames = [(0.0, 0.0, 0.0), (0.75, 0.0, 0.0), (0.75, 0.0, 0.13), (0.0, -0.75, 0.0),
+              (-0.75, 0.0, 0.0), (0.0, 0.0, -0.13), (0.4, 0.3, 0.1), (1.0, 1.0, 1.0),
+              (-1.0, -1.0, -1.0), (float('nan'), 0.0, 0.0), (0.2, -0.6, 0.05), (0.0, 0.0, 0.0)]
+    for index, (surge, sway, yaw) in enumerate(frames):
         message = Twist()
         message.linear.x, message.linear.y, message.angular.z = surge, sway, yaw
         node.cmd_vel_callback(message)
-        clock.now += 0.04
-    assert outputs.writes == [list(thruster_pulses(
-        command, node.mixer, node.channel_map, node.reversed, node.decoupling,
-        node.decoupling_negative, node.reverse_ratio)) for command in sequence]
-    assert node.source == 'cmd_vel'
+        for _ in range(4):           # 40 ms between frames, the watchdog every 10 ms here
+            clock.now += 0.01
+            node.watchdog_callback()
+        if index == 8:               # the stream stalls: the watchdog's timeout neutral
+            for _ in range(int(node.command_timeout / 0.1) + 3):
+                clock.now += 0.1
+                node.watchdog_callback()
+
+
+# Recorded from the driver before the test-pulse change (mhseals_hardware 3d79a7e) with MAPPED.
+GOLDEN = [
+    [1500, 1500, 1500, 1500],
+    [1800, 1800, 1200, 1200],
+    [1804, 1795, 1205, 1196],
+    [1800, 1800, 1800, 1800],
+    [1200, 1200, 1800, 1800],
+    [1448, 1552, 1448, 1552],
+    [1613, 1598, 1304, 1296],
+    [1731, 1269, 1269, 1100],
+    [1269, 1731, 1731, 1900],
+    [1500, 1500, 1500, 1500],
+    [1500, 1500, 1500, 1500],
+    [1754, 1752, 1727, 1725],
+    [1500, 1500, 1500, 1500],
+]
+
+
+def test_manual_and_cmd_vel_writes_are_unchanged(mapped_driver):
+    """The recorded manual sequence writes exactly what the driver before this change wrote."""
+    node, outputs, clock, _ = mapped_driver
+    outputs.writes.clear()
+    manual_sequence(node, clock)
+    assert outputs.writes == GOLDEN
+
+
+def test_a_command_frame_takes_over_before_its_mux_state_arrives(driver):
+    """The mux sends a takeover's first frame before its state: that frame ends the pulse and drives."""
+    node, outputs, clock, _ = driver
+    node.test_pulse(PULSE, 3.0, 1)
+    drive = Twist()
+    drive.linear.x = 0.5
+    node.cmd_vel_callback(drive)
+    assert node.test is None and outputs.pulses not in (PULSE, NEUTRAL)
+    assert outputs.writes[-2:][0] == NEUTRAL      # the pulse ended at neutral, then the frame
+
+
+def test_pulses_are_refused_while_autonomy_drives(driver):
+    node, outputs, clock, _ = driver
+    node.guard_callback(String(data='{"input": "auto"}'))
+    node.test_pulse(PULSE, 3.0, 1)
+    assert node.test is None and outputs.pulses == NEUTRAL

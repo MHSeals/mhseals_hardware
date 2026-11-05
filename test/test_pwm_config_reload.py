@@ -284,7 +284,7 @@ def test_non_finite_cmd_vel_goes_neutral_without_raising(tmp_path, monkeypatch):
         rclpy.shutdown()
 
 
-def test_test_pulses_only_when_autonomy_holds_the_thrusters(tmp_path, monkeypatch):
+def test_test_pulses_only_when_the_mux_is_idle(tmp_path, monkeypatch):
     from std_msgs.msg import String, UInt16MultiArray
     node, _, _ = start(tmp_path, monkeypatch, load_defaults())
     sent = []
@@ -294,7 +294,7 @@ def test_test_pulses_only_when_autonomy_holds_the_thrusters(tmp_path, monkeypatc
         node.pulses_callback(pulses)
         assert sent == []                      # no state yet
         for mux_input, accepted in (('hold', False), ('rc', False), ('manual', False),
-                                    ('auto', True), ('idle', True)):
+                                    ('auto', False), ('idle', True)):
             sent.clear()
             node.guard_callback(String(data=f'{{"input": "{mux_input}"}}'))
             node.pulses_callback(pulses)
