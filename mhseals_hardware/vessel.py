@@ -45,7 +45,7 @@ def section(name, network_env=None):
         return {}
     if not env.is_file():
         raise ValueError(f'vessel network env {env} is missing')
-    chain, here = [], env.parent
+    chain, here = [], env.resolve().parent       # a symlinked env (legacy $ROS_WS/config) names its target's vessel
     while here is not None and len(chain) < DEPTH and here not in chain:
         chain.append(here)
         parent = _mapping(here / 'profile.yaml', required=True).get('extends')
