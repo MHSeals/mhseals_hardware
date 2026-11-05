@@ -17,6 +17,11 @@ def default_path():
     return Path(base) / 'mhseals' / ('command_mux_%s.json' % domain)
 
 
+def path(section):
+    """The hold file of a ``command_mux`` section: its ``state_file``, or ``default_path()`` when null."""
+    return section.get('state_file') or default_path()
+
+
 def save(path, holds):
     """Atomically write ``holds`` (cause -> {cause, by, since, token hash})."""
     path = Path(path)

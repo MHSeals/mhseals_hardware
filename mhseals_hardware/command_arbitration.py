@@ -81,7 +81,9 @@ def mux_section(config):
     """The ``command_mux`` section of a hardware config plus its top-level ``command_timeout``."""
     if 'command_timeout' in config['command_mux']:
         raise ValueError('command_timeout is top-level, not a command_mux key')
-    return {**config['command_mux'], 'command_timeout': config['command_timeout']}
+    # state_file is the node's (hold_store.path), not the state machine's.
+    section = {k: v for k, v in config['command_mux'].items() if k != 'state_file'}
+    return {**section, 'command_timeout': config['command_timeout']}
 
 
 class Arbitration:
@@ -133,11 +135,7 @@ class Arbitration:
     @classmethod
     def from_config(cls, config):
         """Build from ``mux_section``: the ``command_mux`` section plus ``command_timeout``."""
-        if config and 'state_file' in config and (
-                not isinstance(config['state_file'], str) or not config['state_file']):
-            raise ValueError('state_file must be a nonempty path string')
-        # ``state_file`` belongs to the node (hold persistence), not the state machine.
-        return cls(**{k: v for k, v in (config or {}).items() if k != 'state_file'})
+        return cls(**(config or {}))
 
     def adopt_holds(self, holds, now):
         """Re-adopt holds saved by a previous mux process (see ``hold_store``)."""
