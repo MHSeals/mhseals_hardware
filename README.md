@@ -23,7 +23,9 @@ navigation and mission tests live in
 ## Hardware
 
 Outputs 1-4 are fixed J2 pins; `channel_map` (canonical FL, FR, RR, RL -> output)
-decides which thruster each drives.
+decides which thruster each drives. A vessel's wiring lives in its profile's
+`thrusters:` section (blastoise/profile.yaml in the team profile), laid between
+`config/default.yaml` and the operator file (see Configuration).
 
 | Output | J2 pin | Pad | PWM |
 | --- | --- | --- | --- |
@@ -112,6 +114,20 @@ mapping without pulses; `--output-backend topic` identifies the simulator's
 thrusters. Only `channel_map` and `reversed` are written. The test suite's
 Thrusters panel does the same.
 
+**Bench check of a vessel's profile wiring** (owner present, props off or boat
+on stands; agents never run it):
+
+1. Deploy, then start `thruster_pwm_node`: the ready line must name the vessel
+   profile, not `vessel thrusters: none`.
+2. Only then save a copy of the operator file and remove its `channel_map` (and
+   `reversed` if it equals the default).
+3. Restart the driver: `~/status` and the ready line show the profile's
+   `thrusters: channel_map`.
+4. Pulse FL, FR, RR, RL one at a time through the guarded `~/test_pulses` path;
+   each must spin the expected motor the expected way.
+5. On a wrong thruster restore the saved operator file and fix the profile's
+   value, not the operator file.
+
 ## Driver
 
 ```bash
@@ -163,7 +179,10 @@ ros2 run mhseals_hardware thruster_pwm_node --ros-args -p output_backend:=topic
 Defaults live in `config/default.yaml` (installed to
 `share/mhseals_hardware/config/`); the operator file is
 `~/.config/mhseals/hardware.yaml` or `$MHSEALS_HARDWARE_CONFIG`. Startup order:
-package defaults, operator file, then explicit ROS parameters. Files go through
+package defaults, the vessel profile's `thrusters:` section (`vessel.py`: the
+profile holding `$ASTRO_NETWORK_ENV`; its keys are config keys, an unknown one
+refuses), the operator file, then explicit ROS parameters. The driver's ready
+log line names the `channel_map` and the profile that supplied it, or `none`. Files go through
 a strict loader that refuses duplicate keys, anchors, aliases, merge keys and
 non-finite numbers, naming `file:line`. Python loading needs no ROS.
 
