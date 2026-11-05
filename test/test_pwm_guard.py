@@ -8,7 +8,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from mhseals_hardware.configuration import config_sha, load_config, validate_config
+from mhseals_hardware.configuration import config_sha, load_config, plain, validate_config
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS
 from mhseals_hardware.thruster_mixer import (

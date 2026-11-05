@@ -30,7 +30,7 @@ from mhseals_hardware.control_validation import (
     validate_controller, validate_drift_limit,
 )
 from mhseals_hardware.command_arbitration import mux_input
-from mhseals_hardware.configuration import declared, load_config
+from mhseals_hardware.configuration import declared, load_config, plain
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
@@ -77,14 +77,14 @@ class VelocityController(Node):
 
     def _validate_gains(self, parameters):
         """Pure preflight; a later validator can still refuse the whole batch."""
-        values = {name: self.get_parameter(name).value
+        values = {name: plain(self.get_parameter(name).value)
                   for name in GAIN_KEYS + ('feedback',)}
         for parameter in parameters:
             if parameter.name in TOPIC_KEYS + ('config_file', 'command_timeout'):
                 return SetParametersResult(successful=False,
                                            reason='applies at the next arm: ' + parameter.name)
             if parameter.name in values:
-                values[parameter.name] = parameter.value
+                values[parameter.name] = plain(parameter.value)
         try:
             validate_controller(values)
             validate_drift_limit(values['drift_limit'], self._law.plant.limits)

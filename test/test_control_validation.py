@@ -4,7 +4,7 @@ from array import array
 import pytest
 
 from mhseals_hardware.command_arbitration import Arbitration, mux_section
-from mhseals_hardware.configuration import load_defaults
+from mhseals_hardware.configuration import load_defaults, plain
 from mhseals_hardware.control_validation import validate_controller, validate_drift_limit
 
 
@@ -87,5 +87,5 @@ def test_drift_limit_below_both_planar_limits_ignores_yaw():
     validate_drift_limit(0.39, (0.6, 0.4, 0.1))
 
 
-def test_ros_startup_array_domain_is_supported():
-    assert validate_controller(dict(values(), kp=array('d', [.8]*3)))['kp'][0] == .8
+def test_ros_arrays_validate_once_made_plain():
+    assert validate_controller(dict(values(), kp=plain(array('d', [.8]*3))))['kp'][0] == .8
