@@ -7,8 +7,8 @@ drift estimate on ``~/drift`` (odom frame, m/s). It drives only while the mux in
 (the contract in command_mux); any other input, or an unknown state, resets the law and sends
 neutral effort, so a hold, rc or manual leaves no stale integral behind. The node
 reads its arm snapshot (``config_file``, ``-p`` overrides win) once and never watches the
-YAML; only the gains and the shared top-level ``command_timeout`` change live, through
-SetParameters. Callbacks run on one
+YAML; only the gains change live, through SetParameters (``command_timeout``, shared with
+the mux and the driver, applies at the next arm, so the three never diverge). Callbacks run on one
 single-threaded executor, so a parameter batch never interleaves with a command.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String
 
 from mhseals_hardware.control_validation import (
-    GAIN_KEYS, SCALAR_GAINS, TOPIC_KEYS, VECTOR_GAINS, controller_section, nonnegative,
+    GAIN_KEYS, SCALAR_GAINS, TOPIC_KEYS, VECTOR_GAINS, controller_section,
     validate_controller, validate_drift_limit,
 )
 from mhseals_hardware.command_arbitration import mux_input
@@ -78,16 +78,15 @@ class VelocityController(Node):
     def _validate_gains(self, parameters):
         """Pure preflight; a later validator can still refuse the whole batch."""
         values = {name: self.get_parameter(name).value
-                  for name in GAIN_KEYS + ('command_timeout', 'feedback')}
+                  for name in GAIN_KEYS + ('feedback',)}
         for parameter in parameters:
-            if parameter.name in TOPIC_KEYS + ('config_file',):
+            if parameter.name in TOPIC_KEYS + ('config_file', 'command_timeout'):
                 return SetParametersResult(successful=False,
                                            reason='applies at the next arm: ' + parameter.name)
             if parameter.name in values:
                 values[parameter.name] = parameter.value
         try:
             validate_controller(values)
-            nonnegative(values['command_timeout'], 'command_timeout', positive=True)
         except (TypeError, ValueError) as error:
             return SetParametersResult(successful=False, reason=str(error))
         candidate = copy.copy(self._law)

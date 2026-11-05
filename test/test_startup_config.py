@@ -96,7 +96,7 @@ def test_schema_covers_real_keys_with_required_fields():
         assert type(value).__name__ == row['type'], key
         if 'range' in row:
             assert len(row['range']) == 2
-    assert schema['command_timeout']['tier'] == 'live'
+    assert schema['command_timeout']['tier'] == 'restart'  # one value per arm for all three stages
 
 
 def test_default_yaml_is_loaded_strictly(tmp_path, monkeypatch):

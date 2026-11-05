@@ -60,7 +60,8 @@ def mux(section, overrides=None, **replace):
                declared=declared, MUX_SCHEMA='mhseals.mux/1',
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw),
-               LIVE_PARAMETERS=('rc_scale', 'command_timeout', 'ramp'))
+               **{n.targets[0].id: ast.literal_eval(n.value) for n in tree.body
+                  if isinstance(n, ast.Assign) and n.targets[0].id.endswith('_PARAMETERS')})
     env.update(replace)
     exec(compile(ast.fix_missing_locations(ast.Module(body=[change, cls], type_ignores=[])), str(path), 'exec'), env)
     return env['CommandMux']()
@@ -88,13 +89,16 @@ def test_yaml_fallback_and_explicit_invocation_precedence():
     assert n.arbitration.command_timeout == .9
 
 
-def test_config_file_parameter_write_refuses():
-    n = mux({})
-    assert not n._check_parameters([NS(name='config_file', value='/x')]).successful
+@pytest.mark.parametrize('name,value', [('config_file', '/x'), ('command_timeout', .9)])
+def test_arm_parameter_write_refuses(name, value):
+    n = mux({})  # command_timeout is shared with the driver and controller: fixed per arm
+    result = n._check_parameters([NS(name=name, value=value)])
+    assert not result.successful and result.reason == 'applies at the next arm: ' + name
+    assert n.arbitration.command_timeout == .5
 
 
 @pytest.mark.parametrize('name,value', [('rc_scale', [.5, -.1, .3]), ('rc_scale', [.5, .5]),
-                                        ('command_timeout', 0.), ('ramp', -1.)])
+                                        ('ramp', -1.)])
 def test_bad_live_parameter_writes_refuse_and_keep_the_old(name, value):
     n = mux({})
     result = n._check_parameters([NS(name=name, value=value)])
@@ -105,10 +109,10 @@ def test_bad_live_parameter_writes_refuse_and_keep_the_old(name, value):
 def test_live_parameter_set_applies_at_once_even_while_driving():
     n = mux({})
     a = n.arbitration
-    sets = [NS(name='command_timeout', value=.9), NS(name='rc_scale', value=array('d', [.2] * 3))]
+    sets = [NS(name='rc_scale', value=array('d', [.2] * 3))]
     assert n._check_parameters(sets).successful
     n._commit_parameters(sets)
-    assert a.command_timeout == .9 and a.rc_scale == (.2,) * 3
+    assert a.rc_scale == (.2,) * 3
     a.update_manual((.4, 0, 0), 0.)
     n._commit_parameters([NS(name='ramp', value=2.)])
     assert a.ramp == 2. and n.arbitration is a  # tuning never remaps a channel, so no wait

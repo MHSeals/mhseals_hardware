@@ -86,7 +86,7 @@ def test_commit_preserves_observer_and_reprojects_integral():
     assert n.sent[-1][0] > .2  # actual new PI law consumed
 
 
-@pytest.mark.parametrize('name', validation.TOPIC_KEYS + ('config_file',))
+@pytest.mark.parametrize('name', validation.TOPIC_KEYS + ('config_file', 'command_timeout'))
 def test_an_arm_parameter_is_refused(name):
     n = node()
     old = n._law

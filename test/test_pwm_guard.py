@@ -59,7 +59,8 @@ def test_only_the_live_keys_change_in_a_running_driver():
     for key in node.declared - set(env['PARAMETER_KEYS']) | {'config_file'}:
         result = node.check_parameters([NS(name=key)])
         assert not result.successful and 'next arm' in result.reason
-    assert node.check_parameters([NS(name='command_timeout', value=1.0)]).successful
+    assert 'command_timeout' in node.declared - set(env['PARAMETER_KEYS'])  # fixed per arm
+    assert node.check_parameters([NS(name='decoupling', value=[1., 0, 0, 0, 1., 0, 0, 0, .9])]).successful
     assert not hasattr(node, 'reload_callback') and not hasattr(node, 'sync_parameters')
 
 
@@ -69,8 +70,7 @@ def test_status_names_one_snapshot_sha_of_what_the_driver_runs():
     status = node.statuses[-1]
     assert status['config_sha'] == config_sha(dict(load_config(None), output_backend='topic'))
     assert not {'requested_config_sha', 'effective_config_sha', 'pending_restart_keys'} & set(status)
-    node.commit_parameters([NS(name='command_timeout', value=1.0)])
-    assert node.command_timeout == 1.0
+    node.commit_parameters([NS(name='decoupling', value=[1., 0, 0, 0, 1., 0, 0, 0, .9])])
     assert node.statuses[-1]['config_sha'] == config_sha(node.config) != status['config_sha']
 
 

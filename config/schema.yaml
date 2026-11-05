@@ -14,7 +14,7 @@ channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Cano
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
 decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correction C, rows and columns surge, sway, yaw (row-major, 9 values); diagonal positive. Live through SetParameters on the driver; decoupling_negative (C for an axis commanded below zero, null = follow C) takes the same rules."}
-command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "The one watchdog of all three stages: the velocity controller resets without topics.auto, the mux drops a manual or auto lane, and the driver puts the thrusters at neutral without topics.applied, each after this long."}
+command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: restart, doc: "The one watchdog of all three stages: the velocity controller resets without topics.auto, the mux drops a manual or auto lane, and the driver puts the thrusters at neutral without topics.applied, each after this long. Read once per arm by all three, so they never diverge."}
 command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch."}
 command_mux.modes: {type: list, units: enum, tier: restart, doc: "FCU mode number for each of the six mode switch positions."}
 command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch: a mux hold, and with estop_cuts_power also the driver's latched power cut."}
