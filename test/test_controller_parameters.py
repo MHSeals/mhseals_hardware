@@ -123,7 +123,7 @@ def test_ros_service_double_array_consumes_new_law_and_rejection_retains_it():
 
 def constructor(overrides, resources):
     """Execute the unchanged class body, including __init__, with inert ROS seams."""
-    from mhseals_hardware.configuration import declared, load_config
+    from mhseals_hardware.configuration import declared, load_config, moved_parameters
 
     class InertNode(ParameterOwner):
         def __init__(self, name):
@@ -135,6 +135,9 @@ def constructor(overrides, resources):
 
         def get_parameter(self, name):
             return NS(value=self.values[name])
+
+        def undeclare_parameter(self, name):
+            del self.values[name]
 
         def create_publisher(self, kind, topic, depth):
             resources.append(('publisher', topic))
@@ -153,7 +156,8 @@ def constructor(overrides, resources):
             pass
 
         def get_logger(self):
-            return NS(error=lambda message: resources.append(('error', message)))
+            return NS(error=lambda message: resources.append(('error', message)),
+                      warning=lambda message: resources.append(('warning', message)))
 
     path = Path(__file__).parents[1] / 'mhseals_hardware/velocity_controller.py'
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
@@ -161,6 +165,7 @@ def constructor(overrides, resources):
     env = dict(vars(validation),
         Node=InertNode, plain=plain, copy=copy, numpy=numpy, Plant=Plant, mux_input=mux_input,
         VelocityLaw=VelocityLaw, load_config=load_config, declared=declared,
+        moved_parameters=moved_parameters,
         Twist=lambda: (0., 0., 0.),
         Vector3Stamped=object, Odometry=object, String=object, STATE_QOS=1, yaw_of=lambda q: 0.,
         SetParametersResult=lambda **kw: NS(**kw),
@@ -270,6 +275,17 @@ def test_a_yaml_edit_waits_for_the_next_arm(tmp_path):
     fresh._law.observe((0., 0., 0.), 0., 1.)
     fresh._command((.12, 0., 0.))
     assert resources[-1] == ('message', '/second', pytest.approx((.56, 0., 0.)))
+
+
+def test_an_old_arming_odom_topic_override_still_feeds_the_controller(tmp_path):
+    from mhseals_hardware.configuration import save_config
+    path = tmp_path / 'hardware.yaml'
+    save_config(config(), path)
+    resources = []
+    cls, _ = constructor(dict(config_file=str(path), odom_topic='/profile/odom'), resources)
+    n = cls()
+    assert ('subscription', '/profile/odom') in resources  # not silently /odom/local
+    assert [r for r in resources if r[0] == 'warning'] and 'odom_topic' not in n.values
 
 
 def test_constructor_consumes_obstacle_topic_distance_and_timeout(tmp_path):

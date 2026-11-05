@@ -296,6 +296,37 @@ def test_old_controller_input_topics_move_to_topics_and_still_arm(tmp_path, monk
         load_config(str(path))
 
 
+class ArgvNode:
+    """Stand-in for an rclpy node started with ``-p`` overrides (rclpy drops undeclared ones)."""
+    def __init__(self, overrides):
+        self.overrides, self.declared, self.warned = overrides, {}, []
+
+    def declare_parameter(self, name, default):
+        self.declared[name] = self.overrides.get(name, default)
+
+    def get_parameter(self, name):
+        return type('Parameter', (), {'value': self.declared[name]})
+
+    def undeclare_parameter(self, name):
+        del self.declared[name]
+
+    def get_logger(self):
+        return type('Logger', (), {'warning': staticmethod(self.warned.append)})
+
+
+def test_an_old_arming_odom_topic_override_lands_in_topics_not_dropped():
+    from mhseals_hardware.configuration import moved_parameters
+    node = ArgvNode({'odom_topic': '/sim/odom'})
+    config = moved_parameters(node, load_defaults())
+    assert config['topics']['odom'] == '/sim/odom' and len(node.warned) == 1
+    assert node.declared == {}  # the old names leave no parameter behind
+    quiet = ArgvNode({})
+    assert moved_parameters(quiet, load_defaults())['topics'] == load_defaults()['topics']
+    assert not quiet.warned
+    with pytest.raises(ValueError, match='both name'):
+        moved_parameters(ArgvNode({'odom_topic': load_defaults()['topics']['auto']}), load_defaults())
+
+
 def test_old_stage_timeouts_migrate_with_one_line_and_still_arm(tmp_path, monkeypatch):
     from mhseals_hardware import configuration
     warned = []
