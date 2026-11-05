@@ -1,6 +1,6 @@
 import pytest
 
-from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, mode_from_pwm
+from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, mode_from_pwm, mux_section
 from mhseals_hardware.configuration import load_defaults
 
 pytestmark = pytest.mark.smoke
@@ -10,7 +10,7 @@ MODES = (0, 0, 0, 4, 0, 15)
 
 
 def section(**changes):
-    return {**load_defaults()['command_mux'], **changes}
+    return {**mux_section(load_defaults()), **changes}
 
 
 def arbitration(**changes):
@@ -403,6 +403,6 @@ def test_state_cause_names_the_hold_and_the_release():
 def test_yaml_section_equals_the_former_python_defaults():
     a = arbitration()
     assert (a.mode_ch, a.modes, a.stop_ch, a.rc_scale) == (8, MODES, 6, (0.5, 0.5, 0.3))
-    assert (a.rc_max_age, a.cmd_timeout, a.stick_takeover) == (0.3, 0.5, 200)
+    assert (a.rc_max_age, a.command_timeout, a.stick_takeover) == (0.3, 0.5, 200)
     assert (a.stick_time, a.stick_release, a.ramp) == (0.2, 0.5, 1.0)
-    assert set(load_defaults()['command_mux']) == set(INIT_KEYS)
+    assert set(mux_section(load_defaults())) == set(INIT_KEYS)

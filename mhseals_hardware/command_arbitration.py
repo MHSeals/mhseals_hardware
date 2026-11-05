@@ -7,11 +7,11 @@ forwards ``select(now)``; all the rules live here.
 Every lane is effort (``topics`` in default.yaml):
 
 * rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
-* manual: ``topics.manual`` (TUI keys) newer than ``cmd_timeout``.
+* manual: ``topics.manual`` (TUI keys) newer than ``command_timeout``.
 * hold: any hold cause is set.  Output is zero until it is released.
 * duplicate: another publisher drives the same output, so this one sends
   only zeros (``set_duplicate``) and cannot be released.
-* auto: ``topics.effort`` newer than ``cmd_timeout``, ramped in over ``ramp``.
+* auto: ``topics.effort`` newer than ``command_timeout``, ramped in over ``ramp``.
 """
 
 import hashlib
@@ -72,20 +72,28 @@ def stick(pwm, center=RC_CENTER, deadband=100, half_range=500):
 
 
 # The tunables a ``command_mux`` section may set (Arbitration.__init__ arguments).
-INIT_KEYS = ('mode_ch', 'modes', 'stop_ch', 'rc_scale', 'rc_max_age', 'cmd_timeout',
+# ``command_timeout`` is the one top-level watchdog the driver and the controller also read.
+INIT_KEYS = ('mode_ch', 'modes', 'stop_ch', 'rc_scale', 'rc_max_age', 'command_timeout',
              'stick_takeover', 'stick_time', 'stick_release', 'ramp')
+
+
+def mux_section(config):
+    """The ``command_mux`` section of a hardware config plus its top-level ``command_timeout``."""
+    if 'command_timeout' in config['command_mux']:
+        raise ValueError('command_timeout is top-level, not a command_mux key')
+    return {**config['command_mux'], 'command_timeout': config['command_timeout']}
 
 
 class Arbitration:
     """The state machine behind ``command_mux``."""
 
-    def __init__(self, mode_ch, modes, stop_ch, rc_scale, rc_max_age, cmd_timeout,
+    def __init__(self, mode_ch, modes, stop_ch, rc_scale, rc_max_age, command_timeout,
                  stick_takeover, stick_time, stick_release, ramp):
         # Every value comes from the command_mux section of default.yaml.
         self.mode_ch, self.modes, self.stop_ch = mode_ch, tuple(modes), stop_ch
         self._check_layout()
         self.rc_scale = tuple(rc_scale)
-        self.rc_max_age, self.cmd_timeout = rc_max_age, cmd_timeout
+        self.rc_max_age, self.command_timeout = rc_max_age, command_timeout
         if type(stick_takeover) is not int or stick_takeover < 0:
             raise ValueError('stick_takeover must be a nonnegative integer PWM offset')
         self.stick_takeover, self.stick_time = stick_takeover, stick_time
@@ -95,10 +103,10 @@ class Arbitration:
             raise ValueError('rc_scale needs three numbers')
         for value in self.rc_scale:
             nonnegative(value, 'rc_scale')
-        for name in ('rc_max_age', 'cmd_timeout', 'stick_takeover', 'stick_time',
+        for name in ('rc_max_age', 'command_timeout', 'stick_takeover', 'stick_time',
                      'stick_release', 'ramp'):
             nonnegative(getattr(self, name), name,
-                        positive=name in ('rc_max_age', 'cmd_timeout'))
+                        positive=name in ('rc_max_age', 'command_timeout'))
 
         self.channels, self.rc_time = (), None
         self.manual, self.manual_time = (0.0, 0.0, 0.0), None
@@ -124,7 +132,7 @@ class Arbitration:
 
     @classmethod
     def from_config(cls, config):
-        """Build from the ``command_mux`` section of hardware.yaml."""
+        """Build from ``mux_section``: the ``command_mux`` section plus ``command_timeout``."""
         if config and 'state_file' in config and (
                 not isinstance(config['state_file'], str) or not config['state_file']):
             raise ValueError('state_file must be a nonempty path string')
@@ -319,7 +327,7 @@ class Arbitration:
                 self._hold('rc_stick', 'rc', now)
 
     def _fresh(self, stamp, now):
-        return stamp is not None and now - stamp <= self.cmd_timeout
+        return stamp is not None and now - stamp <= self.command_timeout
 
     def select(self, now):
         """Return ``(source, (surge, sway, yaw))`` for this instant."""

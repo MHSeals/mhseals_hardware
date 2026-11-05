@@ -49,7 +49,7 @@ def pwm():
     log = lambda message, **_: node.events.append(message)  # noqa: E731
     node.get_logger = lambda: NS(info=log, error=log)
     node.declared = {key for key, value in node.config.items() if not isinstance(value, dict)}
-    node.estop = RemoteEstop(node.outputs, node.config['command_mux'])
+    node.estop = RemoteEstop(node.outputs, node.config)
     node.apply(node.config)
     return node, env
 
@@ -109,7 +109,7 @@ def powered_node():
     node, _ = pwm()
     node.outputs.mosfet = Line()
     node.outputs.neutral = lambda: None
-    node.estop = RemoteEstop(node.outputs, node.config['command_mux'])
+    node.estop = RemoteEstop(node.outputs, node.config)
     return node
 
 

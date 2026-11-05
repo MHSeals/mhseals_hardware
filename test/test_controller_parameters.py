@@ -193,8 +193,8 @@ def test_constructor_consumes_pi_bounds_feedback_and_both_deadlines(tmp_path):
     path = tmp_path / 'hardware.yaml'
     selected = config()
     selected['controller'].update(kp=[2., 0., 0.], ki=[4., 0., 0.],
-        integral_limit=[.01]*3, drift_time_constant=0., odom_timeout=.11,
-        command_timeout=.05)
+        integral_limit=[.01]*3, drift_time_constant=0., odom_timeout=.11)
+    selected['command_timeout'] = .05
     save_config(selected, path)
     resources = []
     cls, clock = constructor(dict(config_file=str(path)), resources)

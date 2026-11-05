@@ -24,6 +24,7 @@ estop_on_rc_loss: true
 # that drops the gate when the toggling stops (.handoff/specs/mosfet-heartbeat.md).
 # 0 = steady level (no heartbeat circuit fitted).
 mosfet_heartbeat: 0.0
+# Seconds: the one watchdog the velocity controller, the mux and the driver each apply.
 command_timeout: 0.5
 # Canonical FL, FR, RR, RL -> physical output (1-based).
 channel_map: [1, 2, 3, 4]
@@ -63,7 +64,7 @@ manual_initial_timeout: 0.65
 # command_mux (Arbitration arguments). Applied live, but only while idle or holding.
 # mode_ch/stop_ch: 1-based RC channels. modes: the FCU MODE1..6 numbers (0 MANUAL,
 # 4 HOLD, 15 GUIDED). rc_scale: surge, sway, yaw fraction at full stick.
-# rc_max_age, cmd_timeout, stick_time, stick_release, ramp: seconds.
+# rc_max_age, stick_time, stick_release, ramp: seconds.
 # stick_takeover: PWM microseconds past center.
 command_mux:
   mode_ch: 8
@@ -71,7 +72,6 @@ command_mux:
   stop_ch: 6
   rc_scale: [0.5, 0.5, 0.3]
   rc_max_age: 0.3
-  cmd_timeout: 0.5
   stick_takeover: 200
   stick_time: 0.2
   stick_release: 0.5
@@ -105,7 +105,6 @@ controller:
   feedback: true
   drift_time_constant: 5.0
   odom_timeout: 0.3
-  command_timeout: 0.5
   drift_command_limit: 0.1
   # m/s: the fastest current and wind drift the observer may believe, a backstop for
   # contact with a dock or buoy, which reads as current. Keep it well below the slowest

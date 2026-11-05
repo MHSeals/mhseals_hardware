@@ -67,7 +67,7 @@ def arm(tmp_path, enabled=True, on_rc_loss=False):
     """What the arm path does: open fresh outputs (MOSFET on at neutral), a new e-stop."""
     chips = [fake_chip(tmp_path / str(len(list(tmp_path.iterdir()))), n) for n in range(4)]
     outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True).open()
-    return outputs, RemoteEstop(outputs, load_defaults()['command_mux'], enabled, on_rc_loss)
+    return outputs, RemoteEstop(outputs, load_defaults(), enabled, on_rc_loss)
 
 
 def duties(outputs):
@@ -232,7 +232,7 @@ def test_the_estop_keeps_the_snapshot_channels_after_a_yaml_edit_on_disk(tmp_pat
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux: {stop_ch: 6}\n')
     outputs = SimpleNamespace(mosfet=None, neutral=lambda: None)
-    estop = RemoteEstop(outputs, load_config(path)['command_mux'])
+    estop = RemoteEstop(outputs, load_config(path))
     path.write_text('command_mux: {stop_ch: 3}\n')  # an edit while armed: the next arm's
     assert not hasattr(estop, 'configure') and estop.rule.stop_ch == 6
     assert not estop.rc(frame(ON), 1.0, 10)

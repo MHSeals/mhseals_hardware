@@ -17,7 +17,7 @@ import yaml
 
 from mhseals_hardware import vessel
 from mhseals_hardware.resources import config_resource
-from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.command_arbitration import Arbitration, mux_section
 from mhseals_hardware.control_validation import controller_section, topics_section
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
@@ -30,7 +30,9 @@ from mhseals_hardware.thruster_mixer import (
 RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
 # Removed settings an older operator file may still name: dropped on read with one warning, so
 # the file still arms. The next write of the file drops them.
-OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic')}  # now topics:
+# The topic keys are now topics:, the two stage timeouts the one top-level command_timeout.
+OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic', 'command_timeout'),
+            'command_mux': ('cmd_timeout',)}
 SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
 WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
 log = logging.getLogger(__name__)
@@ -62,7 +64,7 @@ def validate_config(config):
     if not isinstance(mux, dict):
         raise ValueError('command_mux must be a mapping')
     try:
-        Arbitration.from_config(mux)
+        Arbitration.from_config(mux_section(config))
     except TypeError as error:
         raise ValueError(f'invalid command_mux: {error}') from error
     # Optional calibration written by mhseals_testing's characterization.
@@ -239,13 +241,15 @@ def _read_overrides(path):
         log.warning('%s: %s is deprecated, read as %s (rename it; the next write does)',
                     path, old, new)
         overrides[new] = overrides.pop(old)
+    gone = []
     for section, keys in OBSOLETE.items():
         values = overrides.get(section)
-        gone = [key for key in keys if isinstance(values, dict) and key in values]
-        if gone:
-            log.warning('%s: %s no longer exist; ignored (the next write drops them)', path,
-                        ', '.join(f'{section}.{key}' for key in gone))
-            overrides[section] = {k: v for k, v in values.items() if k not in gone}
+        if isinstance(values, dict) and any(key in values for key in keys):
+            gone += [f'{section}.{key}' for key in keys if key in values]
+            overrides[section] = {k: v for k, v in values.items() if k not in keys}
+    if gone:
+        log.warning('%s: %s no longer exist; ignored (the next write drops them)', path,
+                    ', '.join(gone))
     unknown = sorted(set(overrides) - set(load_defaults()))
     if unknown:
         lines = {key.value: key.start_mark.line + 1 for key, _ in
