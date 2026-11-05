@@ -3,6 +3,10 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
+pytestmark = pytest.mark.smoke
+
 
 def test_host_installer_sources_and_syntax(tmp_path):
     root = Path(__file__).resolve().parents[1]

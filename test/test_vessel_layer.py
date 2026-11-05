@@ -2,6 +2,8 @@
 
 import pytest
 
+pytestmark = pytest.mark.smoke
+
 from mhseals_hardware import vessel
 from mhseals_hardware.configuration import channel_map_source, load_config, update_config
 
