@@ -133,7 +133,7 @@ def test_stable_platform_glob_resolves_dynamic_chip_number(tmp_path):
 
 def test_four_outputs_neutralize_on_close(tmp_path):
     chips = [fake_chip(tmp_path, number) for number in range(4)]
-    outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
+    outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), None, None, True).open()
     outputs.set_pulse_widths([1600, 1400, 1550, 1450])
     assert outputs.readback() == [1600, 1400, 1550, 1450]   # read back from duty_cycle
     outputs.close()
@@ -145,7 +145,7 @@ def test_four_outputs_neutralize_on_close(tmp_path):
 def test_close_disables_every_channel_after_one_neutral_failure(tmp_path,
                                                                 monkeypatch):
     chips = [fake_chip(tmp_path, number) for number in range(4)]
-    outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
+    outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), None, None, True).open()
 
     def fail_neutral(_pulse_width):
         raise OSError('simulated duty-cycle failure')
@@ -173,7 +173,7 @@ def test_close_unexports_only_channels_exported_here(tmp_path, monkeypatch):
             write(path, value)
 
     monkeypatch.setattr(SysfsPWMChannel, '_write', staticmethod(export_creates_pwm))
-    outputs = OdroidPWMOutputs(chips, mosfet_chip=None).open()
+    outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), None, None, True).open()
     outputs.close(unexport=True)
     assert (chips[0] / 'unexport').read_text() == ''
     assert all((chip / 'unexport').read_text() == '0' for chip in chips[1:])
@@ -185,8 +185,9 @@ def test_close_unexports_only_channels_exported_here(tmp_path, monkeypatch):
 def test_j2_pins_match_overlay_readme_and_defaults():
     import re
     from pathlib import Path
-    from mhseals_hardware.odroid_pwm import (
-        DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE, DEFAULT_PWM_CHIPS, J2_PINS)
+    from mhseals_hardware.configuration import load_defaults
+    from mhseals_hardware.odroid_pwm import J2_PINS
+    defaults = load_defaults()
     root = Path(__file__).resolve().parents[1]
     outputs = (1, 2, 3, 4)
 
@@ -197,13 +198,12 @@ def test_j2_pins_match_overlay_readme_and_defaults():
     rows = {}
     for line in (root / 'README.md').read_text().splitlines():
         cells = [c.strip().strip('`') for c in line.strip('|').split('|')]
-        if cells[0].isdigit() and len(cells) == 5:
-            rows[int(cells[0])] = (int(cells[1]), cells[2], cells[3], cells[4])
+        if cells[0].isdigit() and len(cells) == 4:
+            rows[int(cells[0])] = (int(cells[1]), cells[2], cells[3])
     assert rows == {o: J2_PINS[o] for o in outputs}
 
-    assert tuple(J2_PINS[o][3] for o in outputs) == tuple(DEFAULT_PWM_CHIPS)
     pin, pad, bank, line = J2_PINS['mosfet']
-    assert (pin, bank, line) == (13, DEFAULT_MOSFET_CHIP, DEFAULT_MOSFET_LINE)
+    assert (pin, bank, line) == (13, defaults['mosfet_chip'], defaults['mosfet_line'])
     assert f'| MOSFET enable | {pin} | {pad} |' in (root / 'README.md').read_text()
 
 
@@ -229,7 +229,71 @@ def test_failed_open_unexports_channels_it_exported(tmp_path, monkeypatch):
             path.write_text(str(value))
 
     monkeypatch.setattr(SysfsPWMChannel, '_write', staticmethod(fake_write))
-    outputs = OdroidPWMOutputs(chips, (1, 1, 1, 1), mosfet_chip=None)
+    outputs = OdroidPWMOutputs(chips, (1, 1, 1, 1), None, None, True)
     with pytest.raises(PermissionError):
         outputs.open()
     assert not list(tmp_path.glob('pwmchip*/pwm1'))
+
+
+def fake_gpiod(events, busy=False):
+    """A libgpiod 2.x stand-in that logs the line request and every level set."""
+    class Request:
+        def set_value(self, offset, value):
+            events.append(('mosfet', value))
+
+        def release(self):
+            events.append(('release',))
+
+    class Chip:
+        def __init__(self, path):
+            pass
+
+        def request_lines(self, **kwargs):
+            if busy:
+                raise OSError(16, 'Device or resource busy')
+            events.append(('request',))
+            return Request()
+
+        def close(self):
+            pass
+
+    return SimpleNamespace(
+        Chip=Chip, LineSettings=SimpleNamespace,
+        line=SimpleNamespace(Value=SimpleNamespace(ACTIVE=1, INACTIVE=0),
+                             Direction=SimpleNamespace(OUTPUT=3)))
+
+
+def logged_outputs(tmp_path, monkeypatch, events, busy=False):
+    chips = [fake_chip(tmp_path, number) for number in range(4)]
+    write = SysfsPWMChannel._write
+
+    def logged_write(path, value):
+        events.append(('write', Path(path).name, str(value)))
+        write(path, value)
+
+    monkeypatch.setattr(SysfsPWMChannel, '_write', staticmethod(logged_write))
+    monkeypatch.setitem(sys.modules, 'gpiod', fake_gpiod(events, busy))
+    return OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True)
+
+
+def test_busy_mosfet_line_fails_open_before_any_pwm_write(tmp_path, monkeypatch):
+    # A second driver finds the line held by the live one: it must not touch the
+    # live driver's PWM channels, neither configuring nor rolling them back.
+    events = []
+    outputs = logged_outputs(tmp_path, monkeypatch, events, busy=True)
+    with pytest.raises(OSError, match='busy'):
+        outputs.open()
+    assert events == []
+    assert not outputs.opened
+
+
+def test_open_requests_mosfet_then_neutral_then_enables(tmp_path, monkeypatch):
+    events = []
+    logged_outputs(tmp_path, monkeypatch, events).open()
+    assert events[0] == ('request',)
+    assert events[-1] == ('mosfet', 1)
+    writes = events[1:-1]
+    assert all(event[0] == 'write' for event in writes)
+    # Every channel ends its configuration enabled at the neutral duty.
+    assert [w[2] for w in writes if w[1] == 'duty_cycle'][1::2] == ['1500000'] * 4
+    assert [w[2] for w in writes if w[1] == 'enable'][-1] == '1'

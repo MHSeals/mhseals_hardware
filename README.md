@@ -23,23 +23,25 @@ navigation and mission tests live in
 ## Hardware
 
 Outputs 1-4 are fixed J2 pins; `channel_map` (canonical FL, FR, RR, RL -> output)
-decides which thruster each drives. The boat uses `[1, 3, 2, 4]`.
+decides which thruster each drives.
 
-| Output | J2 pin | Pad | PWM | `pwm_chips` entry |
-| --- | --- | --- | --- | --- |
-| 1 | 7  | GPIO0_D0 | PWM7  | `/sys/devices/platform/febd0030.pwm/pwm/pwmchip*` |
-| 2 | 12 | GPIO3_B2 | PWM3  | `/sys/devices/platform/fd8b0030.pwm/pwm/pwmchip*` |
-| 3 | 15 | GPIO4_B3 | PWM15 | `/sys/devices/platform/febf0030.pwm/pwm/pwmchip*` |
-| 4 | 33 | GPIO3_D0 | PWM8  | `/sys/devices/platform/febe0000.pwm/pwm/pwmchip*` |
-| MOSFET enable | 13 | GPIO3_D5 | - | `mosfet_chip: gpio3`, `mosfet_line: 29` (active high) |
-| Signal ground | 6 | | | |
+| Output | J2 pin | Pad | PWM |
+| --- | --- | --- | --- |
+| 1 | 7  | GPIO0_D0 | PWM7  |
+| 2 | 12 | GPIO3_B2 | PWM3  |
+| 3 | 15 | GPIO4_B3 | PWM15 |
+| 4 | 33 | GPIO3_D0 | PWM8  |
+| MOSFET enable | 13 | GPIO3_D5 | `mosfet_chip`, `mosfet_line` |
+| Signal ground | 6 | | |
 
-The table is `odroid_pwm.J2_PINS`, which the TUI also reads. `pwmchipN` numbers
-are allocated at boot; the platform glob is stable. `gpio3` is a bank label
-resolved to `/dev/gpiochipN` at runtime.
+The table is `odroid_pwm.J2_PINS`, which the TUI also reads. The addresses live
+only in `config/default.yaml`: `pwm_chips` (one stable platform glob per output,
+in output order; `pwmchipN` numbers are allocated at boot) and `pwm_channels`.
+`mosfet_chip` is a bank label resolved to `/dev/gpiochipN` at runtime.
 
-- Every entry point configures neutral PWM before enabling the MOSFET and
-  disables the MOSFET before PWM on shutdown.
+- Every entry point claims the MOSFET line first (inactive, so a second driver
+  fails before it writes any PWM file), configures neutral PWM, then enables
+  the MOSFET; on shutdown it disables the MOSFET before PWM.
 - Connect pin 13 only to a logic-level trigger and pin 6 to its signal ground.
   Never power a load from the GPIO. Verify the module's input-high threshold
   with a meter and add an external pull-down if the module needs one. A GPIO
