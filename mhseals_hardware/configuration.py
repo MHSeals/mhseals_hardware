@@ -168,6 +168,16 @@ def load_config(path=None):
     return _layered(_read_overrides(selected))
 
 
+def channel_map_source(path=None):
+    """The layer that supplied channel_map: the operator file (or arm snapshot), the vessel, or defaults."""
+    selected = config_path(path)
+    if 'channel_map' in _read_overrides(selected):
+        return str(selected)
+    if 'channel_map' in vessel.section('thrusters'):
+        return f'vessel {vessel.directory()}'
+    return 'defaults'
+
+
 def _layered(overrides):
     """The operator overrides merged over the vessel profile's thrusters: wiring and the defaults."""
     wiring = vessel.section('thrusters')
