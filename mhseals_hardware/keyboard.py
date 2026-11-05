@@ -136,7 +136,9 @@ class Terminal:
 
     ``kitty``: the kitty keyboard protocol (it answered ``CSI ? u``): press, repeat and release
     events, so held keys chord. ``legacy``: tmux (and cx, which runs on it) forwards plain keys
-    only, so a held key is its auto-repeat stream and only the newest key repeats. ``plain``: a
+    only, so a held key is its auto-repeat stream and only the newest key repeats; manual mode
+    (`KeyReader.events`) also asks the terminal outside tmux, and held keys chord once its events
+    come through (allow-passthrough on, a kitty-protocol terminal, no tmux nested between). ``plain``: a
     terminal that answered the probe without the protocol. ``unknown``: not probed; manual mode
     finds out from the keys themselves (ManualState.chords).
     """
@@ -245,6 +247,18 @@ def string_complete(buffer):
 # without it ignore the request and keep sending legacy keys.
 EVENTS_ON = '\x1b[>11u\x1b[?1004h'
 EVENTS_OFF = '\x1b[<u\x1b[?1004l'
+
+
+def tmux_wrap(sequence):
+    """``sequence`` for the terminal outside tmux: a passthrough DCS with its ESCs doubled."""
+    return '\x1bPtmux;' + sequence.replace('\x1b', '\x1b\x1b') + '\x1b\\'
+
+
+# Under tmux the kitty request also goes to the terminal outside it (allow-passthrough on): tmux keeps
+# no keyboard flags of its own but hands the CSI u sequences it can't parse, key events among them,
+# to the pane as they came. The focus reports stay tmux's (focus-events on).
+TMUX_EVENTS_ON = tmux_wrap('\x1b[>11u')
+TMUX_EVENTS_OFF = tmux_wrap('\x1b[<u')
 
 
 def terminal_write(sequence):
@@ -384,15 +398,16 @@ class _Events:
     """`KeyReader.events`: report key events for a block, then restore the reader's mode."""
 
     def __init__(self, reader):
-        self.reader, self.before = reader, None
+        self.reader, self.before, self.outer = reader, None, False
 
     def __enter__(self):
         self.before, self.reader.report_events = self.reader.report_events, True
+        self.outer = self.reader.terminal.kind == 'legacy'   # tmux: ask its terminal too
         if not self.before:
-            terminal_write(EVENTS_ON)
+            terminal_write(EVENTS_ON + (TMUX_EVENTS_ON if self.outer else ''))
         return self.reader
 
     def __exit__(self, *_):
         if not self.before:
-            terminal_write(EVENTS_OFF)
+            terminal_write(EVENTS_OFF + (TMUX_EVENTS_OFF if self.outer else ''))
         self.reader.report_events = self.before

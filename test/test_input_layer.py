@@ -43,6 +43,20 @@ def test_events_keep_the_reader_and_its_queue(feed, monkeypatch):
     assert written == [keyboard.EVENTS_ON, keyboard.EVENTS_OFF]
 
 
+@pytest.mark.smoke
+def test_events_under_tmux_also_ask_the_terminal_outside_it(feed, monkeypatch):
+    # tmux keeps no keyboard flags but hands kitty events it can't parse to the pane verbatim.
+    reader, send = feed
+    written = []
+    monkeypatch.setattr(keyboard, 'terminal_write', written.append)
+    reader.terminal = Terminal('legacy')
+    send(b'\x1b[119;1:3u')
+    with reader.events():
+        assert reader.read(0.2) == 'release:w'
+    assert written == [keyboard.EVENTS_ON + '\x1bPtmux;\x1b\x1b[>11u\x1b\\',
+                       keyboard.EVENTS_OFF + '\x1bPtmux;\x1b\x1b[<u\x1b\\']
+
+
 def test_lone_escape_still_waits_for_its_sequence(feed):
     reader, send = feed
     send(b'\x1b')
