@@ -24,6 +24,7 @@ MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
 
 # Hold causes renamed for the ``~/state`` ``cause`` field (authority.md 2.3).
 STATE_CAUSES = {'rc_stop': 'stop_channel', 'keys': 'manual_end'}
+RC_CENTER = 1500                  # stick centre and stop-switch threshold, µs
 RC_WINDOW = 50                    # frame intervals kept for rate and p95
 
 RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
@@ -42,7 +43,7 @@ def mode_from_pwm(pwm, modes):
     return MODE_NAMES.get(modes[slot], OTHER)
 
 
-def stick(pwm, center=1500, deadband=100, half_range=500):
+def stick(pwm, center=RC_CENTER, deadband=100, half_range=500):
     """One channel as [-1, 1] with a center deadband."""
     offset = pwm - center
     if abs(offset) <= deadband:
@@ -152,7 +153,7 @@ class Arbitration:
         self.channels, self.rc_time = tuple(channels), now
         stop = self._channel(self.channels, self.stop_ch)
         edge = (self.valid(now) and was is not None and stop is not None
-                and was >= 1500 > stop)
+                and was >= RC_CENTER > stop)
         if edge:
             self._hold('rc_stop', 'rc', now)       # stop switch falling edge
         self._advance(now)
@@ -240,7 +241,7 @@ class Arbitration:
         return (stick(ch[1]), -stick(ch[0]), -stick(ch[3]))
 
     def _past_takeover(self):
-        return any(abs(self.channels[i] - 1500) > self.stick_takeover
+        return any(abs(self.channels[i] - RC_CENTER) > self.stick_takeover
                    for i in (0, 1, 3))
 
     # State machine
