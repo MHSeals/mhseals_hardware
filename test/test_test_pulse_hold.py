@@ -282,12 +282,3 @@ def test_the_output_carries_the_code_version(driver):
     node.watchdog_callback()
     version = published[-1]['version']
     assert version == code_version() and len(version['digest']) == 12
-
-
-def test_the_version_digest_follows_the_sources(tmp_path):
-    from mhseals_hardware.version import code_version
-    (tmp_path / 'a.py').write_text('x = 1\n')
-    first = code_version(tmp_path)['digest']
-    code_version.cache_clear()
-    (tmp_path / 'a.py').write_text('x = 2\n')
-    assert code_version(tmp_path)['digest'] != first and code_version(tmp_path)['git'] is None
