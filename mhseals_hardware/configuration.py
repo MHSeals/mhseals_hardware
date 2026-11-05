@@ -291,15 +291,22 @@ def plain(value):
     return list(value) if isinstance(value, (tuple, array.array)) else value
 
 
+def board_unchanged(config):
+    """Refuse a BOARD value that differs from default.yaml; equal values (a full snapshot) pass."""
+    defaults = load_defaults()
+    moved = [key for key in BOARD if key in config and plain(config[key]) != defaults[key]]
+    if moved:
+        raise ValueError(f'board address {", ".join(moved)}: set it in config/default.yaml and re-run '
+                         'scripts/install_odroid_access.sh (the boot service prepares only those files)')
+    return config
+
+
 def _merge_overrides(overrides):
     defaults = load_defaults()
     unknown = set(overrides) - set(defaults)
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
-    moved = [key for key in BOARD if key in overrides and plain(overrides[key]) != defaults[key]]
-    if moved:
-        raise ValueError(f'board address {", ".join(moved)}: set it in config/default.yaml and re-run '
-                         'scripts/install_odroid_access.sh (the boot service prepares only those files)')
+    board_unchanged(overrides)
     combined = dict(defaults, **overrides)
     for name in SECTIONS:
         if name in overrides:
@@ -331,10 +338,9 @@ def _follows(negative, decoupling):
 
 def save_config(config, path=None):
     """Atomically persist validated settings; never partially replace a file."""
-    validate_config(config)
+    validate_config(board_unchanged(config))
     target = config_path(path)
-    normalized = {key: list(value) if isinstance(value, tuple) else value
-                  for key, value in config.items()}
+    normalized = {key: plain(value) for key, value in config.items()}
     if _follows(normalized.get('decoupling_negative'), normalized['decoupling']):
         normalized['decoupling_negative'] = None  # same as decoupling; don't freeze a copy
     return _write_config(normalized, target)

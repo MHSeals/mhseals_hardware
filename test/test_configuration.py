@@ -78,6 +78,8 @@ def test_a_board_address_is_set_only_in_the_defaults(tmp_path, monkeypatch):
     chips = load_defaults()['pwm_chips']
     with pytest.raises(ValueError, match='pwm_chips'):
         update_config({'pwm_chips': chips[1:] + chips[:1]}, tmp_path / 'other.yaml')
+    with pytest.raises(ValueError, match='mosfet_chip'):   # a snapshot writer refuses at save, not at arm
+        save_config(dict(load_defaults(), mosfet_chip='other'), tmp_path / 'other.yaml')
     assert not (tmp_path / 'other.yaml').exists()
     # A bench tool may still open another line for one run, but --save-config never persists it.
     def bench():

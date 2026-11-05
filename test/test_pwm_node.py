@@ -145,12 +145,22 @@ def test_a_p_override_wins_and_a_yaml_edit_waits_for_the_next_arm(tmp_path, monk
         assert node.get_parameter('output_backend').value == 'topic'
         assert node.config['output_backend'] == 'topic' and node.command_timeout == 1.0
         events.clear()
-        save_config(dict(config, pwm_channels=[1, 0, 0, 0], reversed=[True] * 4), path)
+        save_config(dict(config, reverse_thrust_ratio=0.5, reversed=[True] * 4), path)
         assert not hasattr(node, 'watch') and events == []
-        assert list(node.get_parameter('pwm_channels').value) == [0, 0, 0, 0]
+        assert node.get_parameter('reverse_thrust_ratio').value == config['reverse_thrust_ratio']
         assert list(node.get_parameter('reversed').value) == [False] * 4
     finally:
         node.destroy_node()
+        rclpy.shutdown()
+
+
+def test_a_p_board_address_refuses_at_start(tmp_path, monkeypatch):
+    """The boot service prepares default.yaml's files only, so -p cannot move the driver off them."""
+    line = load_defaults()['mosfet_line'] + 1
+    try:
+        with pytest.raises(ValueError, match='mosfet_line'):
+            start(tmp_path, monkeypatch, load_defaults(), args=['-p', f'mosfet_line:={line}'])
+    finally:
         rclpy.shutdown()
 
 
