@@ -25,7 +25,7 @@ MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
 # Upper edges (microseconds) of MODE1..5; MODE6 is everything above.
 MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
 
-# Hold causes renamed for the ``~/state`` ``cause`` field (authority.md 2.3).
+# Hold causes renamed for the ``~/state`` ``cause`` field (docs/authority.md 2.3).
 STATE_CAUSES = {'rc_stop': 'stop_channel', 'keys': 'manual_end'}
 RC_CENTER = 1500                  # stick centre and stop-switch threshold, µs
 RC_WINDOW = 50                    # frame intervals kept for rate and p95
@@ -389,7 +389,7 @@ class Arbitration:
         return None if stamp is None else round(now - stamp, 3)
 
     def state(self, now, wall_ns=None, pipeline_ms=None):
-        """What ``~/state`` publishes (authority.md 2.3), minus schema/seq/t_ns.
+        """What ``~/state`` publishes (docs/authority.md 2.3), minus schema/seq/t_ns.
 
         Times here are the node's monotonic seconds, which no other host can
         read; given ``wall_ns`` (wall clock at ``now``) each ``since`` is also

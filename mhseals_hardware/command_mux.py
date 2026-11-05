@@ -54,7 +54,7 @@ VOLATILE_RC = ('age_s', 'rate_hz', 'interval_p95_s')
 def change_key(state):
     """The state body without volatile fields, as a comparable string.
 
-    authority.md 2.1 publishes on change plus 1 Hz: ages, rates, pipeline_ms
+    docs/authority.md 2.1: published on change plus 1 Hz: ages, rates, pipeline_ms
     and the jittering ``since_ns`` conversions must not count as a change.
     """
     body = {k: v for k, v in state.items()
@@ -82,7 +82,7 @@ class CommandMux(Node):
         self.arbitration = Arbitration.from_config(self.section)
         self.add_on_set_parameters_callback(self._check_parameters)
         self.add_post_set_parameters_callback(self._commit_parameters)
-        # Holds survive a restart: re-adopt the saved set (invariant 4).
+        # Holds survive a restart: re-adopt the saved set (docs/authority.md invariant 4).
         self.state_file = section.get('state_file') or hold_store.default_path()
         self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
         self._saved = None

@@ -21,7 +21,7 @@ estop_cuts_power: true
 # or older than command_mux.rc_max_age) cuts and latches the same way.
 estop_on_rc_loss: true
 # Toggle the MOSFET enable at this rate while powered, for a heartbeat circuit
-# that drops the gate when the toggling stops (.handoff/specs/mosfet-heartbeat.md).
+# that drops the gate when the toggling stops (docs/authority.md 4).
 # 0 = steady level (no heartbeat circuit fitted).
 mosfet_heartbeat: 0.0
 # Seconds: the one watchdog the velocity controller, the mux and the driver each apply.
