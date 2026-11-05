@@ -83,7 +83,7 @@ class CommandMux(Node):
         self.add_on_set_parameters_callback(self._check_parameters)
         self.add_post_set_parameters_callback(self._commit_parameters)
         # Holds survive a restart: re-adopt the saved set (docs/authority.md invariant 4).
-        self.state_file = section.get('state_file') or hold_store.default_path()
+        self.state_file = hold_store.path(config['command_mux'])
         self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
         self._saved = None
 

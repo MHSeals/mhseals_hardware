@@ -18,6 +18,7 @@ command_mux.rc_max_age: {type: float, units: s, tier: restart, doc: "RC frames o
 command_mux.stick_takeover: {type: int, units: count, tier: restart, doc: "Stick deflection in PWM microseconds past center that takes over."}
 command_mux.stick_time: {type: float, units: s, tier: restart, doc: "How long the stick must stay deflected to take over."}
 command_mux.stick_release: {type: float, units: s, tier: restart, doc: "How long the stick must stay centered to release."}
+command_mux.state_file: {type: str, units: path, nullable: true, tier: restart, doc: "Where the mux saves its holds so a restart keeps them; null = the runtime dir default (hold_store.path)."}
 command_mux.ramp: {type: float, units: s, tier: live, doc: "Seconds to ramp the auto lane in from zero, after a start, a hold, rc or manual."}
 topics.auto: {type: str, units: topic, tier: restart, doc: "SI body velocity from Nav2 (the only velocity lane); only the velocity controller reads it."}
 topics.effort: {type: str, units: topic, tier: restart, doc: "The mux auto input, effort: the velocity controller's output, or an effort publisher."}

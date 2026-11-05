@@ -66,6 +66,9 @@ def validate_config(config):
     mux = config.get('command_mux', {})
     if not isinstance(mux, dict):
         raise ValueError('command_mux must be a mapping')
+    state_file = mux.get('state_file')
+    if state_file is not None and (not isinstance(state_file, str) or not state_file):
+        raise ValueError('command_mux.state_file must be null or a nonempty path string')
     try:
         Arbitration.from_config(mux_section(config))
     except TypeError as error:

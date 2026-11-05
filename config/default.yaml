@@ -66,6 +66,8 @@ manual_initial_timeout: 0.65
 # 4 HOLD, 15 GUIDED). rc_scale: surge, sway, yaw fraction at full stick.
 # rc_max_age, stick_time, stick_release, ramp: seconds.
 # stick_takeover: PWM microseconds past center.
+# state_file: where the mux saves its holds across a restart (hold_store); null =
+# $XDG_RUNTIME_DIR/mhseals/command_mux_<ROS_DOMAIN_ID>.json. Not an Arbitration argument.
 command_mux:
   mode_ch: 8
   modes: [0, 0, 0, 4, 0, 15]
@@ -76,6 +78,7 @@ command_mux:
   stick_time: 0.2
   stick_release: 0.5
   ramp: 1.0
+  state_file: null
 
 # The motion topics; the mux, the driver and the velocity controller read them (no remaps).
 # auto is the only SI lane: body velocity from Nav2, which only the velocity controller reads.

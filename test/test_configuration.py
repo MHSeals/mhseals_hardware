@@ -205,10 +205,22 @@ def test_command_mux_section_is_validated(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux: {mode_ch: 7}\n')
     assert load_config(path)['command_mux'] == dict(load_defaults()['command_mux'], mode_ch=7)
-    for text in ('command_mux: {bogus: 1}\n', 'command_mux: {modes: [0]}\n', 'command_mux: 3\n'):
+    for text in ('command_mux: {bogus: 1}\n', 'command_mux: {modes: [0]}\n', 'command_mux: 3\n',
+                 'command_mux: {state_file: ""}\n', 'command_mux: {state_file: 3}\n'):
         path.write_text(text)
         with pytest.raises(ValueError):
             load_config(path)
+
+
+def test_mux_state_file_is_declared_and_resolved_once(tmp_path, monkeypatch):
+    from mhseals_hardware import hold_store
+    from mhseals_hardware.command_arbitration import mux_section
+    monkeypatch.setenv('XDG_RUNTIME_DIR', str(tmp_path))
+    defaults = load_defaults()
+    assert defaults['command_mux']['state_file'] is None
+    assert 'state_file' not in mux_section(defaults)   # the node's key, not Arbitration's
+    assert hold_store.path(defaults['command_mux']) == hold_store.default_path()
+    assert hold_store.path({'state_file': 'x.json'}) == 'x.json'
 
 
 def test_hardware_epoch_defaults_to_zero_and_can_be_bumped(tmp_path):

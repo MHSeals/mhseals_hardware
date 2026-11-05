@@ -30,7 +30,7 @@ Invariants:
 2. **Only the mux output drives.** The driver mixes `topics.applied` and nothing else. The only
    exception is a test pulse, which 2.4 allows only while the mux is idle.
 3. **The release rule is written once**, in `Arbitration.request` (see 2.2).
-4. **A hold is sticky.** It stays until it is released. The mux saves its holds (`hold_store`) and
+4. **A hold is sticky.** It stays until it is released. The mux saves its holds (`hold_store`, in `command_mux.state_file`) and
    re-adopts them when it restarts, so a hold survives a mux restart, a TUI crash and a session takeover.
    When the hold is released, auto ramps back in from zero over `ramp`.
 
