@@ -82,6 +82,7 @@ class ThrusterPWMNode(Node):
         self.declare_parameter('config_file', '')
         config_file = self.get_parameter('config_file').value or None
         self.config = validate_config(declared(self, load_config(config_file)))
+        self.map_source = channel_map_source(config_file)  # the layer the ready line names
         self.declared = {key for key, value in self.config.items() if not isinstance(value, dict)}
         self.session = uuid.uuid4().hex[:8]
         self.status_pub = self.create_publisher(String, '~/status', STATUS_QOS)
@@ -130,7 +131,7 @@ class ThrusterPWMNode(Node):
         profile = vessel.directory() if vessel.section('thrusters') else 'none'
         self.get_logger().info(
             f"thruster control ready ({self.config['output_backend']} outputs, channel_map "
-            f"{self.config['channel_map']} from {channel_map_source(config_file)}, "
+            f"{self.config['channel_map']} from {self.map_source}, "
             f"vessel thrusters: {profile})")
 
     def apply(self, config):
