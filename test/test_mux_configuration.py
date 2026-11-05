@@ -58,7 +58,8 @@ def mux(section, overrides=None, **replace):
                load_config=lambda path: dict(load_defaults(), **yaml_config(section)),
                mux_section=mux_section,
                declared=declared, plain=plain, MUX_SCHEMA='mhseals.mux/1',
-               hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
+               hold_store=NS(path=lambda section: section.get('state_file') or '/default',
+                                load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw),
                **{n.targets[0].id: ast.literal_eval(n.value) for n in tree.body
                   if isinstance(n, ast.Assign) and n.targets[0].id.endswith('_PARAMETERS')})
