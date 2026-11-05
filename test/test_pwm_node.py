@@ -140,9 +140,11 @@ def start(tmp_path, monkeypatch, config, args=(), fail_on=None):
 def test_a_p_override_wins_and_a_yaml_edit_waits_for_the_next_arm(tmp_path, monkeypatch):
     config = dict(load_defaults(), output_backend='odroid')
     node, path, events = start(tmp_path, monkeypatch, config,
-                               args=['-p', 'output_backend:=topic', '-p', 'command_timeout:=1.0'])
+                               args=['-p', 'output_backend:=topic', '-p', 'command_timeout:=1.0',
+                                     '-p', 'channel_map:=[2, 1, 3, 4]'])
     try:
         assert node.get_parameter('output_backend').value == 'topic'
+        assert node.config['channel_map'] == [2, 1, 3, 4] and node.map_source == '-p channel_map'
         assert node.config['output_backend'] == 'topic' and node.command_timeout == 1.0
         events.clear()
         save_config(dict(config, reverse_thrust_ratio=0.5, reversed=[True] * 4), path)

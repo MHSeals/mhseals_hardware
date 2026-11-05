@@ -171,25 +171,28 @@ def load_config(path=None):
     ~/.config/mhseals/hardware.yaml. Unknown keys in either layer are rejected so
     typos fail loudly instead of being ignored.
     """
+    return load_layers(path)[0]
+
+
+def load_layers(path=None):
+    """``(config, channel_map source, vessel dir or None)`` from load_config's one read of each layer.
+
+    The source is the layer that supplied channel_map: the operator file (or arm snapshot), the
+    vessel, or defaults; the driver's ready line names it and the vessel dir.
+    """
     selected = config_path(path)
     if not selected.exists() and (path or os.environ.get('MHSEALS_HARDWARE_CONFIG')):
         raise FileNotFoundError(selected)
-    return _layered(_read_overrides(selected))
+    overrides, wiring = _read_overrides(selected), vessel.section('thrusters')
+    profile = vessel.directory() if wiring else None
+    source = (str(selected) if 'channel_map' in overrides
+              else f'vessel {profile}' if 'channel_map' in wiring else 'defaults')
+    return _layered(overrides, wiring), source, profile
 
 
-def channel_map_source(path=None):
-    """The layer that supplied channel_map: the operator file (or arm snapshot), the vessel, or defaults."""
-    selected = config_path(path)
-    if 'channel_map' in _read_overrides(selected):
-        return str(selected)
-    if 'channel_map' in vessel.section('thrusters'):
-        return f'vessel {vessel.directory()}'
-    return 'defaults'
-
-
-def _layered(overrides):
+def _layered(overrides, wiring=None):
     """The operator overrides merged over the vessel profile's thrusters: wiring and the defaults."""
-    wiring = vessel.section('thrusters')
+    wiring = vessel.section('thrusters') if wiring is None else wiring
     extra = sorted(set(wiring) - set(WIRING))
     if extra:
         raise ValueError(f'vessel profile thrusters: takes {", ".join(WIRING)}, not {extra}')
