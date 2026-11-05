@@ -18,8 +18,8 @@ def test_persistent_mapping_and_pins(tmp_path, monkeypatch):
     monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
     config = load_config()
     config['channel_map'] = [4, 3, 2, 1]
-    config['mosfet_line'] = 12
-    target = save_config(config)
+    config['reversed'] = [True, False, False, False]
+    target = save_config(config)   # every key, board addresses included, as an arm snapshot does
     assert target.exists()
     assert load_config() == config
 
@@ -60,11 +60,34 @@ def test_cli_overrides_then_saves(tmp_path, monkeypatch):
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mosfet-line', type=int)
-    args = configure_args(parser, ['--mosfet-line', '5', '--save-config'])
-    assert args.mosfet_line == 5
-    assert load_config()['mosfet_line'] == 5
-    assert yaml.safe_load(config_path().read_text()) == {'mosfet_line': 5}  # only the flag
+    parser.add_argument('--reverse-thrust-ratio', type=float)
+    args = configure_args(parser, ['--reverse-thrust-ratio', '0.8', '--save-config'])
+    assert args.reverse_thrust_ratio == 0.8
+    assert load_config()['reverse_thrust_ratio'] == 0.8
+    assert yaml.safe_load(config_path().read_text()) == {'reverse_thrust_ratio': 0.8}  # only the flag
+
+
+def test_a_board_address_is_set_only_in_the_defaults(tmp_path, monkeypatch):
+    """The boot access service prepares default.yaml's PWM and MOSFET files, so no other layer moves them."""
+    monkeypatch.setenv('HOME', str(tmp_path))
+    monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
+    path = tmp_path / 'hardware.yaml'
+    path.write_text(f'mosfet_line: {load_defaults()["mosfet_line"] + 1}\n')
+    with pytest.raises(ValueError, match='default.yaml'):
+        load_config(path)
+    chips = load_defaults()['pwm_chips']
+    with pytest.raises(ValueError, match='pwm_chips'):
+        update_config({'pwm_chips': chips[1:] + chips[:1]}, tmp_path / 'other.yaml')
+    assert not (tmp_path / 'other.yaml').exists()
+    # A bench tool may still open another line for one run, but --save-config never persists it.
+    def bench():
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--mosfet-line', type=int)
+        return parser
+    assert configure_args(bench(), ['--mosfet-line', '5']).mosfet_line == 5
+    with pytest.raises(ValueError, match='mosfet_line'):
+        configure_args(bench(), ['--mosfet-line', '5', '--save-config'])
+    assert not config_path().exists()
 
 
 @pytest.mark.parametrize(('sequence', 'key'), [
@@ -90,9 +113,9 @@ def test_update_only_persists_explicit_settings(tmp_path):
     import yaml
     from mhseals_hardware.configuration import update_config
     path = tmp_path / 'hardware.yaml'
-    path.write_text('mosfet_line: 12\n')
+    path.write_text('reverse_thrust_ratio: 0.8\n')
     update_config({'channel_map': [2, 1, 3, 4]}, path)
-    assert yaml.safe_load(path.read_text()) == {'mosfet_line': 12, 'channel_map': [2, 1, 3, 4]}
+    assert yaml.safe_load(path.read_text()) == {'reverse_thrust_ratio': 0.8, 'channel_map': [2, 1, 3, 4]}
     assert load_config(path)['command_timeout'] > 0
     before = path.read_text()
     with pytest.raises(ValueError):

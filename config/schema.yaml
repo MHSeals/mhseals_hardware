@@ -2,11 +2,6 @@
 # range appears only where validate_config enforces it; the mux values are checked as non-negative by Arbitration.
 # tier: live = changes in the running node through SetParameters; restart = applies at the next arm
 # (every node reads the arm snapshot once and never watches this file).
-pwm_chips: {type: list, units: path, tier: restart, doc: "Four sysfs PWM chip paths for physical outputs 1-4."}
-pwm_channels: {type: list, units: count, tier: restart, doc: "PWM channel index on each chip, outputs 1-4."}
-mosfet_chip: {type: str, units: label, tier: restart, doc: "GPIO bank label (gpio3) or /dev/gpiochipN for the MOSFET enable line."}
-mosfet_line: {type: int, units: count, tier: restart, doc: "GPIO line offset of the MOSFET enable."}
-mosfet_active_high: {type: bool, units: bool, tier: restart, doc: "True when a high level powers the thrusters."}
 estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until re-armed."}
 estop_on_rc_loss: {type: bool, units: bool, tier: restart, doc: "Losing RC while it controls the boat cuts the MOSFET and latches it off until re-armed."}
 mosfet_heartbeat: {type: float, units: Hz, range: [0, 100], tier: restart, doc: "Toggle rate of the MOSFET enable for a heartbeat circuit: 0 holds a steady level, otherwise 10-100 (slower stalls the driver's 0.15 s heartbeat check)."}
