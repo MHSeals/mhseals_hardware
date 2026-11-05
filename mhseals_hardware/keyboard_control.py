@@ -96,7 +96,7 @@ def main(args=None):
         return
     rclpy.init(args=args)
     node = Node('keyboard_control')
-    publisher = node.create_publisher(Twist, '/cmd_vel/manual', 10)
+    publisher = node.create_publisher(Twist, config['topics']['manual'], 10)
     spinning = True
 
     def spin():

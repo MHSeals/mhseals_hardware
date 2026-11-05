@@ -1,11 +1,11 @@
 """Calibrated body-velocity to normalized-effort controller.
 
-The native PWM node consumes normalized effort, despite its historical
-``cmd_vel`` topic name. This node is the explicit boundary that accepts SI
-body velocity commands from Nav2 and emits ``cmd_vel_effort`` for that node.
-The control law lives in ``velocity_law``; this node only wires it to ROS and
-publishes its live drift estimate on ``~/drift`` (odom frame, m/s). While the
-command_mux state says hold or idle it sends neutral effort, not station-keeping. The node
+The one unit boundary on the auto lane, before the command_mux: SI body velocity from Nav2
+on ``topics.auto`` becomes normalized effort on ``topics.effort``, the mux's auto input. The
+control law lives in ``velocity_law``; this node only wires it to ROS and publishes its live
+drift estimate on ``~/drift`` (odom frame, m/s). It drives only while the mux input is ``auto``
+(the contract in command_mux); any other input, or an unknown state, resets the law and sends
+neutral effort, so a hold, rc or manual leaves no stale integral behind. The node
 reads its arm snapshot (``config_file``, ``-p`` overrides win) once and never watches the
 YAML; only the gains change live, through SetParameters. Callbacks run on one
 single-threaded executor, so a parameter batch never interleaves with a command.
@@ -13,7 +13,6 @@ single-threaded executor, so a parameter batch never interleaves with a command.
 from __future__ import annotations
 
 import copy
-import json
 import math
 import time
 
@@ -29,6 +28,7 @@ from mhseals_hardware.control_validation import (
     GAIN_KEYS, SCALAR_GAINS, TOPIC_KEYS, VECTOR_GAINS, controller_section, validate_controller,
     validate_drift_limit,
 )
+from mhseals_hardware.command_arbitration import mux_input
 from mhseals_hardware.configuration import declared, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
@@ -58,14 +58,15 @@ class VelocityController(Node):
                                 value('drift_carry'), value('proximity_distance'),
                                 value('obstacle_timeout'))
         validate_drift_limit(self._law.drift_limit, self._law.plant.limits)
-        self._held = False  # the mux holds or idles: neutral effort (no mux: never)
+        self._held = True  # until the mux reports auto: neutral effort, a reset law
         self._frame = 'odom'
         self._last_command = time.monotonic()
-        self._pub = self.create_publisher(Twist, value('output_topic'), 10)
+        topics = config['topics']
+        self._pub = self.create_publisher(Twist, topics['effort'], 10)
         self._drift = self.create_publisher(Vector3Stamped, '~/drift', 10)
-        self.create_subscription(Twist, value('input_topic'), self._command, 10)
+        self.create_subscription(Twist, topics['auto'], self._command, 10)
         self.create_subscription(Odometry, value('odom_topic'), self._odom, 10)
-        self.create_subscription(String, value('mux_state_topic'), self._mux_state, STATE_QOS)
+        self.create_subscription(String, topics['mux_state'], self._mux_state, STATE_QOS)
         self.create_subscription(Vector3Stamped, value('obstacle_topic'), self._obstacle, 10)
         self.add_on_set_parameters_callback(self._validate_gains)
         self.add_post_set_parameters_callback(self._commit_gains)
@@ -131,26 +132,8 @@ class VelocityController(Node):
         self._last_command = now
 
     def _mux_state(self, message):
-        """A mux hold (or idle) means neutral thrusters, not station-keeping.
-
-        The mux sends zeros while it holds, which this law would hold position on, with
-        the drift feed-forward and the kept integral still pushing. Only auto, manual or
-        rc drive; anything else, or a state that can't be read, is neutral at once.
-        A hold placed while manual or auto drives is neutral too: the mux keeps reporting
-        manual until its last frame times out. The newest hold counts, so an older one
-        cannot hide it, and a key takeover after every hold still drives. RC outranks
-        holds in the mux and always drives; only the driver's e-stop latch stops it.
-        """
-        try:
-            state = json.loads(message.data)
-            held = state['input'] not in ('auto', 'manual', 'rc')
-            holds = state.get('holds')
-            if holds and not held and state['input'] != 'rc':
-                starts = [h.get('since_ns') for h in holds]
-                since = state.get('since_ns')
-                held = since is None or None in starts or max(starts) >= since
-        except (ValueError, TypeError, KeyError, AttributeError):
-            held = True
+        """Drive only while the mux input is auto; anything else, or unknown, resets."""
+        held = mux_input(message.data) != 'auto'
         if held and not self._held:
             self._law.reset()
             self._pub.publish(Twist())
@@ -166,10 +149,9 @@ class VelocityController(Node):
     def _watchdog(self):
         if time.monotonic() - self._last_command <= float(self.get_parameter('command_timeout').value):
             return
-        # The driver goes neutral on its own; match it so the drift estimate
-        # keeps learning from zero effort.
+        # The mux goes idle on its own; match it so the drift estimate keeps learning from
+        # zero effort. Publishing here would keep the auto lane fresh, so the mux never idles.
         self._law.reset()
-        self._pub.publish(Twist())
 
 
 def main(args=None):

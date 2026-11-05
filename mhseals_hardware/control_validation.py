@@ -37,22 +37,37 @@ def validate_drift_limit(drift_limit, limits):
                          f'velocity limit {slowest} m/s')
 
 
-TOPIC_KEYS = ('input_topic', 'output_topic', 'odom_topic', 'mux_state_topic', 'obstacle_topic')
+# The controller's own sensor inputs; its command lanes come from the topics: section.
+TOPIC_KEYS = ('odom_topic', 'obstacle_topic')
 CONTROLLER_KEYS = GAIN_KEYS + ('command_timeout', 'feedback') + TOPIC_KEYS
+MOTION_TOPICS = ('auto', 'effort', 'manual', 'rc', 'applied', 'mux_state')
+
+
+def ros_topic(topic, name):
+    """Refuse anything but an absolute ROS topic name."""
+    import re
+
+    if not isinstance(topic, str) or not re.fullmatch(
+            r'/(?:[A-Za-z_][A-Za-z_0-9]*)(?:/[A-Za-z_][A-Za-z_0-9]*)*', topic):
+        raise ValueError(f'{name} must be an absolute ROS topic')
+
+
+def topics_section(values):
+    """The topics: section names every motion topic, each absolute."""
+    if not isinstance(values, dict) or set(values) != set(MOTION_TOPICS):
+        raise ValueError('topics must name exactly ' + ', '.join(MOTION_TOPICS))
+    for name in MOTION_TOPICS:
+        ros_topic(values[name], f'topics.{name}')
+    return values
 
 
 def controller_section(values):
     """Validate a complete owned section and normalize ROS numeric types."""
-    import re
-
     if not isinstance(values, dict) or set(values) != set(CONTROLLER_KEYS):
         raise ValueError('controller must contain exactly the registered controller keys')
     validate_controller(values)
     for name in TOPIC_KEYS:
-        topic = values[name]
-        if not isinstance(topic, str) or not re.fullmatch(
-                r'/(?:[A-Za-z_][A-Za-z_0-9]*)(?:/[A-Za-z_][A-Za-z_0-9]*)*', topic):
-            raise ValueError(f'controller.{name} must be an absolute ROS topic')
+        ros_topic(values[name], f'controller.{name}')
     return {name: [float(v) for v in value] if name in VECTOR_GAINS
             else float(value) if name in SCALAR_GAINS + ('command_timeout',) else value
             for name, value in values.items()}

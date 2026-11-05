@@ -10,6 +10,7 @@ import numpy
 import pytest
 
 from mhseals_hardware import control_validation as validation
+from mhseals_hardware.command_arbitration import mux_input
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 from test_velocity_law import config
 
@@ -35,7 +36,7 @@ def node():
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     cls.bases = [ast.Name(id='ParameterOwner', ctx=ast.Load())]
     env = dict(vars(validation),
-               ParameterOwner=ParameterOwner, copy=copy, numpy=numpy, json=json,
+               ParameterOwner=ParameterOwner, copy=copy, numpy=numpy, mux_input=mux_input,
                Twist=lambda: (0., 0., 0.),
                SetParametersResult=lambda **kw: NS(**kw), time=NS(monotonic=lambda: 1.),
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
@@ -148,7 +149,7 @@ def constructor(overrides, resources):
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
     clock = NS(now=1.)
     env = dict(vars(validation),
-        Node=InertNode, copy=copy, numpy=numpy, Plant=Plant,
+        Node=InertNode, copy=copy, numpy=numpy, Plant=Plant, mux_input=mux_input,
         VelocityLaw=VelocityLaw, load_config=load_config, declared=declared,
         Twist=lambda: (0., 0., 0.),
         Vector3Stamped=object, Odometry=object, String=object, STATE_QOS=1, yaw_of=lambda q: 0.,
@@ -157,15 +158,24 @@ def constructor(overrides, resources):
         twist_from=lambda x: tuple(x))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])),
                  str(path), 'exec'), env)
-    return env['VelocityController'], clock
+    return lambda: driving(env['VelocityController']()), clock
+
+
+AUTO = NS(data=json.dumps({'schema': 'mhseals.mux/1', 'input': 'auto'}))
+
+
+def driving(n):
+    """A controller whose mux reports auto: it drives."""
+    n._mux_state(AUTO)
+    return n
 
 
 def test_actual_constructor_consumes_yaml_and_explicit_invocation(tmp_path):
     from mhseals_hardware.configuration import save_config
     path = tmp_path / 'hardware.yaml'
     selected = config()
-    selected['controller'].update(kp=[2., 0., 0.], ki=[0., 0., 0.],
-        input_topic='/selected/input', output_topic='/selected/output', odom_topic='/selected/odom')
+    selected['controller'].update(kp=[2., 0., 0.], ki=[0., 0., 0.], odom_topic='/selected/odom')
+    selected['topics'].update(auto='/selected/input', effort='/selected/output')
     save_config(selected, path)
     resources = []
     cls, _ = constructor(dict(config_file=str(path), kp=array('d', [3., 0., 0.])), resources)
@@ -205,8 +215,7 @@ def test_constructor_consumes_pi_bounds_feedback_and_both_deadlines(tmp_path):
     n._command((.12, 0., 0.))
     clock.now += .06
     n._watchdog()
-    assert resources[-1][-1] == (0., 0., 0.)  # selected command deadline
-    assert n._law.last_step is None
+    assert n._law.last_step is None  # selected command deadline: the law resets
 
 
 @pytest.mark.parametrize('command_limit,expected', [(.05, .1/.6), (.2, (.1-.02)/.6)])
@@ -234,14 +243,16 @@ def test_a_yaml_edit_waits_for_the_next_arm(tmp_path):
     from mhseals_hardware.configuration import save_config
     path = tmp_path / 'hardware.yaml'
     selected = config()
-    selected['controller'].update(kp=[2., 0., 0.], ki=[0.]*3, output_topic='/first')
+    selected['controller'].update(kp=[2., 0., 0.], ki=[0.]*3)
+    selected['topics']['effort'] = '/first'
     save_config(selected, path)
     overrides = dict(config_file=str(path))
     resources = []
     cls, _ = constructor(overrides, resources)
     n = cls()
     law = n._law
-    selected['controller'].update(kp=[3., 0., 0.], output_topic='/second')
+    selected['controller']['kp'] = [3., 0., 0.]
+    selected['topics']['effort'] = '/second'
     save_config(selected, path)
     assert not hasattr(n, '_reload') and n._law is law and list(law.kp) == [2., 0., 0.]
     fresh = constructor(overrides, resources)[0]()  # the next arm consumes the edited YAML

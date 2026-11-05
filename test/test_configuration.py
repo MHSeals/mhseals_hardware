@@ -218,6 +218,25 @@ def test_an_operator_file_with_the_old_heartbeat_key_loads_with_a_warning(tmp_pa
     assert load_config(str(path))['mosfet_heartbeat'] == 20
 
 
+def test_old_controller_topic_keys_still_arm_with_one_warning(tmp_path, monkeypatch):
+    from mhseals_hardware import configuration
+    warned = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda text, *args: warned.append(text % args))
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('controller: {input_topic: /cmd_vel, kp: [1, 2, 3]}\n')
+    config = load_config(str(path))
+    assert 'input_topic' not in config['controller'] and config['controller']['kp'] == [1, 2, 3]
+    assert len(warned) == 1 and 'controller.input_topic no longer exist' in warned[0]
+
+
+@pytest.mark.parametrize('section', ['{auto: relative}', '{extra: /a}', '[1]'])
+def test_a_bad_topics_section_is_refused(tmp_path, section):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('topics: ' + section + '\n')
+    with pytest.raises(ValueError, match='topics'):
+        load_config(path)
+
+
 def test_an_operator_file_with_both_heartbeat_names_is_refused(tmp_path):
     path = tmp_path / 'hardware.yaml'
     path.write_text('mosfet_heartbeat_hz: 20\nmosfet_heartbeat: 30\n')
@@ -246,7 +265,7 @@ def test_controller_partial_merge_and_independent_deadline(tmp_path):
 
 @pytest.mark.parametrize('section', ['null', '{unknown: 1}', '{kp: [1, 2]}',
     '{ki: [true, 0, 0]}', '{feedback: 1}', '{odom_timeout: 0}',
-    '{command_timeout: .inf}', '{input_topic: relative}', '{output_topic: /bad//topic}'])
+    '{command_timeout: .inf}', '{odom_topic: relative}', '{obstacle_topic: /bad//topic}'])
 def test_controller_invalid_section(tmp_path, section):
     path = tmp_path / 'hardware.yaml'
     path.write_text('controller: ' + section + '\n')

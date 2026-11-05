@@ -56,7 +56,7 @@ def pwm():
 
 def test_only_the_live_keys_change_in_a_running_driver():
     node, env = pwm()
-    for key in node.declared - set(env['PARAMETER_KEYS']) | {'config_file', 'pulse_guard_topic'}:
+    for key in node.declared - set(env['PARAMETER_KEYS']) | {'config_file'}:
         result = node.check_parameters([NS(name=key)])
         assert not result.successful and 'next arm' in result.reason
     assert node.check_parameters([NS(name='command_timeout', value=1.0)]).successful
