@@ -7,15 +7,18 @@ remap: in velocity mode the controller turns ``topics.auto`` into ``topics.effor
 auto input; in effort mode nothing reads ``topics.auto`` and an effort publisher drives
 ``topics.effort`` itself. The mux output ``topics.applied`` reaches the driver in both modes.
 
-If the owner keeps effort on ``topics.auto`` instead (atlas #0 vetoed), effort mode is one argv
-override here: the mux gets ``-r <topics.effort>:=<topics.auto>``, read from the snapshot.
+Effort mode here answers atlas #0 as recommended (nothing on ``topics.auto`` drives without the
+controller), so arming adopts this only once the owner decides #0. If the owner vetoes it and
+keeps effort on ``topics.auto``, effort mode is one argv override here: the mux gets
+``-r <topics.effort>:=<topics.auto>``, read from the snapshot.
 """
 
 PACKAGE = 'mhseals_hardware'
 
 
 def children(config_path, velocity, use_sim_time, outputs):
-    """``[(name, argv)]`` in start order: the controller (only when ``velocity``), mux, driver.
+    """``[(name, argv)]`` in start order: the driver first so it holds neutral before any command,
+    then the controller (only when ``velocity``), the mux last. Stopping runs it reversed.
 
     ``outputs`` is the driver's ``output_backend``.
     """
@@ -26,5 +29,5 @@ def children(config_path, velocity, use_sim_time, outputs):
         return ['ros2', 'run', PACKAGE, executable, *common, *extra]
 
     controller = [('velocity', node('calibrated_velocity_controller'))] if velocity else []
-    return [*controller, ('mux', node('command_mux')),
-            ('hardware', node('thruster_pwm_node', '-p', f'output_backend:={outputs}'))]
+    return [('hardware', node('thruster_pwm_node', '-p', f'output_backend:={outputs}')),
+            *controller, ('mux', node('command_mux'))]
