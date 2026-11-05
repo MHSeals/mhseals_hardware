@@ -9,15 +9,15 @@ pytestmark = pytest.mark.smoke
 @pytest.mark.parametrize('velocity,names', [(True, ['hardware', 'velocity', 'mux']),
                                             (False, ['hardware', 'mux'])])
 def test_order_and_no_remaps(velocity, names):
-    started = children('/s/hardware.yaml', velocity, True, 'topic')
+    started = children('/s/hardware.yaml', velocity, True)
     assert [name for name, _ in started] == names
     for _, argv in started:
+        assert not any('output_backend' in arg for arg in argv)  # the snapshot holds it
         assert '-r' not in argv and argv[:3] == ['ros2', 'run', 'mhseals_hardware']
         assert 'config_file:=/s/hardware.yaml' in argv and 'use_sim_time:=true' in argv
     executables = [argv[3] for _, argv in started]
     assert executables[0] == 'thruster_pwm_node' and executables[-1] == 'command_mux'
     assert ('calibrated_velocity_controller' in executables) is velocity
-    assert dict(started)['hardware'][-2:] == ['-p', 'output_backend:=topic']
 
 
 def test_readme_starts_motion_nodes_by_hand_only_in_sim():
