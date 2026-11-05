@@ -28,6 +28,9 @@ from mhseals_hardware.thruster_mixer import (
 # deprecation warning (an operator file on the boat may predate the rename); naming both refuses.
 # The next write of the file (update_config) migrates it to the new name.
 RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
+# Settings moved to another section, (section, key): (section, key); read and migrated like RENAMED.
+MOVED = {('controller', 'odom_topic'): ('topics', 'odom'),
+         ('controller', 'obstacle_topic'): ('topics', 'obstacle')}
 # Removed settings an older operator file may still name: dropped on read with one warning, so
 # the file still arms. The next write of the file drops them.
 # The topic keys are now topics:, the two stage timeouts the one top-level command_timeout.
@@ -257,6 +260,18 @@ def _read_overrides(path):
         log.warning('%s: %s is deprecated, read as %s (rename it; the next write does)',
                     path, old, new)
         overrides[new] = overrides.pop(old)
+    for (section, old), (target, new) in MOVED.items():
+        values = overrides.get(section)
+        if not isinstance(values, dict) or old not in values:
+            continue
+        moved = overrides.get(target) if isinstance(overrides.get(target), dict) else {}
+        if new in moved:
+            raise ValueError(f'{path}: {section}.{old} and {target}.{new} both set; '
+                             f'{section}.{old} is the old home of {target}.{new}, keep {target}.{new}')
+        log.warning('%s: %s.%s is deprecated, read as %s.%s (move it; the next write does)',
+                    path, section, old, target, new)
+        overrides[section] = {k: v for k, v in values.items() if k != old}
+        overrides[target] = dict(moved, **{new: values[old]})
     gone = []
     for section, keys in OBSOLETE.items():
         values = overrides.get(section)

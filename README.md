@@ -150,8 +150,9 @@ command_mux output (`geometry_msgs/msg/Twist`, normalized **effort**, not m/s):
 `linear.x` is forward, `linear.y` port, `angular.z` counterclockwise. After
 `command_timeout` (0.5 s) without a command every channel returns to neutral.
 
-The `topics:` section of the YAML names every motion topic once; the mux, the
-driver and the controller read it, with no remaps. `topics.auto` (`/cmd_vel`)
+The `topics:` section of the YAML names every motion topic once, the controller's
+`odom` and `obstacle` inputs included; the mux, the driver and the controller read
+it, with no remaps. `topics.auto` (`/cmd_vel`)
 is the only SI velocity lane and only the velocity controller reads it; every
 mux input is effort. In effort mode an effort publisher drives `topics.effort`.
 
@@ -231,8 +232,9 @@ controller:
 ```
 
 Other leaves: `integral_limit`, `feedback`, `drift_time_constant`,
-`drift_command_limit`, `drift_limit`, `drift_carry`,
-`odom_topic`, `obstacle_topic` (its lanes come from `topics:`). Vectors are
+`drift_command_limit`, `drift_limit`, `drift_carry` (its topics, `odom` and
+`obstacle` included, come from `topics:`; an old file's `controller.odom_topic` or
+`controller.obstacle_topic` is read as `topics.odom` or `topics.obstacle`). Vectors are
 surge, sway, yaw. Unknown leaves and nulls refuse startup. The one top-level
 `command_timeout` is the watchdog of all three stages (controller, mux, driver); an old
 file's `controller.command_timeout` or `command_mux.cmd_timeout` is dropped on read

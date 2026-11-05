@@ -271,6 +271,31 @@ def test_old_controller_topic_keys_still_arm_with_one_warning(tmp_path, monkeypa
     assert len(warned) == 1 and 'controller.input_topic no longer exist' in warned[0]
 
 
+@pytest.mark.parametrize('topics', ['{odom: relative}', '{obstacle: /bad//topic}',
+                                    '{odom: /cmd_vel}'])
+def test_controller_input_topics_are_checked_in_topics(tmp_path, topics):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('topics: ' + topics + '\n')
+    with pytest.raises(ValueError):
+        load_config(path)
+
+
+def test_old_controller_input_topics_move_to_topics_and_still_arm(tmp_path, monkeypatch):
+    from mhseals_hardware import configuration
+    warned = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda text, *args: warned.append(text % args))
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('controller: {odom_topic: /old/odom, obstacle_topic: /old/obstacle}\n')
+    config = load_config(str(path))
+    assert config['topics']['odom'] == '/old/odom' and config['topics']['obstacle'] == '/old/obstacle'
+    assert 'odom_topic' not in config['controller'] and len(warned) == 2
+    update_config({'controller': {'kp': [1, 2, 3]}}, path)
+    assert 'odom_topic' not in path.read_text() and load_config(str(path))['topics']['odom'] == '/old/odom'
+    path.write_text('controller: {odom_topic: /a}\ntopics: {odom: /b}\n')
+    with pytest.raises(ValueError, match='both set'):
+        load_config(str(path))
+
+
 def test_old_stage_timeouts_migrate_with_one_line_and_still_arm(tmp_path, monkeypatch):
     from mhseals_hardware import configuration
     warned = []
@@ -328,7 +353,7 @@ def test_controller_partial_merge(tmp_path):
 
 @pytest.mark.parametrize('section', ['null', '{unknown: 1}', '{kp: [1, 2]}',
     '{ki: [true, 0, 0]}', '{feedback: 1}', '{odom_timeout: 0}',
-    '{odom_timeout: .inf}', '{odom_topic: relative}', '{obstacle_topic: /bad//topic}'])
+    '{odom_timeout: .inf}'])
 def test_controller_invalid_section(tmp_path, section):
     path = tmp_path / 'hardware.yaml'
     path.write_text('controller: ' + section + '\n')
