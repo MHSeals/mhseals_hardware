@@ -6,9 +6,9 @@ or serial transport.
 
 | Command | Purpose |
 | --- | --- |
-| `thruster_pwm_node` | Mixes `cmd_vel` effort into thruster pulses (real pins or a simulator topic) |
-| `calibrated_velocity_controller` | Closes the loop from SI velocity on `/cmd_vel` to effort on `/cmd_vel_effort` |
-| `command_mux` | Arbitrates MAVROS RC, `/cmd_vel/manual` and `/cmd_vel` into `/cmd_vel/applied` (rc > manual > hold > auto). The stop switch (`command_mux.stop_ch`) holds the mux; with `estop_cuts_power` true the driver also cuts ESC power on it, latched until the next arm, and with it false the switch only holds |
+| `thruster_pwm_node` | Mixes the mux's `topics.applied` effort into thruster pulses (real pins or a simulator topic) |
+| `calibrated_velocity_controller` | Closes the loop from SI velocity on `topics.auto` (`/cmd_vel`) to effort on `topics.effort` (`/cmd_vel_effort`), the mux's auto input |
+| `command_mux` | Arbitrates the effort lanes `topics.rc`, `topics.manual` and `topics.effort` into `topics.applied` (rc > manual > hold > auto). The stop switch (`command_mux.stop_ch`) holds the mux; with `estop_cuts_power` true the driver also cuts ESC power on it, latched until the next arm, and with it false the switch only holds |
 | `keyboard_control` | Deadman keyboard publisher of effort commands |
 | `thruster_test` | Direct per-output PWM test |
 | `thruster_identify` | Finds which output drives each thruster and saves `channel_map` / `reversed` |
@@ -138,12 +138,15 @@ on stands; agents never run it):
 ros2 run mhseals_hardware thruster_pwm_node
 ```
 
-This arms real outputs; secure the boat first. It subscribes to `cmd_vel`
-(`geometry_msgs/msg/Twist`, normalized **effort**, not m/s): `linear.x` is
-forward, `linear.y` port, `angular.z` counterclockwise. After `command_timeout`
-(0.5 s) without a command every channel returns to neutral. To use another
-effort topic: `--ros-args -r cmd_vel:=/control/cmd_vel`. Do not connect Nav2's
-`/nav/cmd_vel` without the calibrated velocity controller.
+This arms real outputs; secure the boat first. It reads `topics.applied`, the
+command_mux output (`geometry_msgs/msg/Twist`, normalized **effort**, not m/s):
+`linear.x` is forward, `linear.y` port, `angular.z` counterclockwise. After
+`command_timeout` (0.5 s) without a command every channel returns to neutral.
+
+The `topics:` section of the YAML names every motion topic once; the mux, the
+driver and the controller read it, with no remaps. `topics.auto` (`/cmd_vel`)
+is the only SI velocity lane and only the velocity controller reads it; every
+mux input is effort. In effort mode an effort publisher drives `topics.effort`.
 
 Mixer rows are FL, FR, RR, RL; columns are surge, sway, yaw (`thruster_matrix`):
 
@@ -165,8 +168,7 @@ RL  +1  +1  -1
 
 `~/test_pulses` (`std_msgs/msg/UInt16MultiArray`, 1100-1900 us per physical
 output) takes raw bench pulses under the same watchdog. They are accepted only
-while `/command_mux/state` (`pulse_guard_topic`; empty disables) reports input
-`auto` or `idle`.
+while `topics.mux_state` reports input `idle` (the contract in command_mux).
 
 **Simulator.** With `output_backend: topic` the node publishes the four pulse
 widths (microseconds, `UInt16MultiArray`) on `pwm_topic` (`/thrusters/pwm`) at
@@ -220,7 +222,7 @@ controller:
 
 Other leaves: `integral_limit`, `feedback`, `drift_time_constant`,
 `command_timeout`, `drift_command_limit`, `drift_limit`, `drift_carry`,
-`input_topic`, `output_topic`, `odom_topic`, `mux_state_topic`. Vectors are
+`odom_topic`, `obstacle_topic` (its lanes come from `topics:`). Vectors are
 surge, sway, yaw. Unknown leaves and nulls refuse startup. Driver `command_timeout`,
 `controller.command_timeout` and mux `cmd_timeout` are independent watchdogs.
 
@@ -243,17 +245,19 @@ ros2 run mhseals_testing thrust_characterize \
   body-fixed bias, acceleration and per-axis limits.
 - Reports the day's current, and writes measured Nav2 limits to pass as
   `limits_file:=...` to `navigation.launch.py`.
-- Use `--cmd-topic /cmd_vel_effort` when the bag was recorded with
-  `--velocity-control`, else `/cmd_vel`.
+- `--cmd-topic` is the bag's effort topic, `topics.effort` (`/cmd_vel_effort`);
+  effort-mode bags recorded before the `topics:` section carry it on `/cmd_vel`.
 - `--apply-decoupling` also writes the fitted `decoupling` (identity turns it off).
 
 The optional controller then applies feed-forward through the model, a
 world-frame current and wind estimate (`~/drift`), and bounded PI feedback.
-`boat_test --velocity-control` arms both:
+`boat_test --velocity-control` arms it in front of the mux, on the auto lane;
+it drives only while the mux input is `auto` and resets otherwise:
 
 ```bash
 ros2 run mhseals_hardware calibrated_velocity_controller
-ros2 run mhseals_hardware thruster_pwm_node --ros-args -r cmd_vel:=/cmd_vel_effort
+ros2 run mhseals_hardware command_mux
+ros2 run mhseals_hardware thruster_pwm_node
 ```
 
 ## Keyboard control

@@ -24,7 +24,13 @@ command_mux.cmd_timeout: {type: float, units: s, tier: live, doc: "Manual and au
 command_mux.stick_takeover: {type: int, units: count, tier: restart, doc: "Stick deflection in PWM microseconds past center that takes over."}
 command_mux.stick_time: {type: float, units: s, tier: restart, doc: "How long the stick must stay deflected to take over."}
 command_mux.stick_release: {type: float, units: s, tier: restart, doc: "How long the stick must stay centered to release."}
-command_mux.ramp: {type: float, units: s, tier: live, doc: "Ramp time when the commanded source changes."}
+command_mux.ramp: {type: float, units: s, tier: live, doc: "Seconds to ramp the auto lane in from zero, after a start, a hold, rc or manual."}
+topics.auto: {type: str, units: topic, tier: restart, doc: "SI body velocity from Nav2 (the only velocity lane); only the velocity controller reads it."}
+topics.effort: {type: str, units: topic, tier: restart, doc: "The mux auto input, effort: the velocity controller's output, or an effort publisher."}
+topics.manual: {type: str, units: topic, tier: restart, doc: "The mux manual input, effort (the TUI keys, a deadman lane)."}
+topics.rc: {type: str, units: topic, tier: restart, doc: "RC frames (mavros RCIn): the mux rc input, and the driver's stop channel."}
+topics.applied: {type: str, units: topic, tier: restart, doc: "The mux output, effort, which the driver mixes."}
+topics.mux_state: {type: str, units: topic, tier: restart, doc: "The mux state, latched (contract in command_mux): the driver pulses only while idle, the controller drives only while auto."}
 controller.proximity_distance: {type: float, units: m, tier: restart, doc: "The drift estimate doesn't grow away from an obstacle this close to the hull (its reaction is not current); 0 turns this off."}
 controller.obstacle_timeout: {type: float, units: s, tier: restart, doc: "Obstacle data older than this, or none, leaves only the carry gate."}
 controller.obstacle_topic: {type: str, units: topic, tier: restart, doc: "Nearest obstacle from the hull (mhseals_nav nearest_obstacle), Vector3Stamped in the base frame."}
