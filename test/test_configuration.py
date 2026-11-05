@@ -327,3 +327,12 @@ def test_saved_shared_lists_reload_without_aliases(tmp_path):
     text = path.read_text()
     assert '&' not in text and '*id' not in text
     assert load_config(path)['controller']['ki'] == gains
+
+
+def test_one_topic_on_two_lanes_is_refused(tmp_path):
+    """applied == effort would feed the mux its own output as the auto lane, so command_timeout never fires."""
+    topics = dict(load_defaults()['topics'], applied='/cmd_vel_effort')
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('topics: {' + ', '.join(f'{k}: {v}' for k, v in topics.items()) + '}\n')
+    with pytest.raises(ValueError, match='topics.effort and topics.applied both name /cmd_vel_effort'):
+        load_config(path)

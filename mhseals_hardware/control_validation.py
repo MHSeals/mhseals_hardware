@@ -53,11 +53,15 @@ def ros_topic(topic, name):
 
 
 def topics_section(values):
-    """The topics: section names every motion topic, each absolute."""
+    """The topics: section names every motion topic, each absolute and distinct."""
     if not isinstance(values, dict) or set(values) != set(MOTION_TOPICS):
         raise ValueError('topics must name exactly ' + ', '.join(MOTION_TOPICS))
+    seen = {}
     for name in MOTION_TOPICS:
         ros_topic(values[name], f'topics.{name}')
+        if values[name] in seen:    # one topic on two lanes loops a node's output into its own input
+            raise ValueError(f'topics.{seen[values[name]]} and topics.{name} both name {values[name]}')
+        seen[values[name]] = name
     return values
 
 
