@@ -8,7 +8,7 @@ or serial transport.
 | --- | --- |
 | `thruster_pwm_node` | Mixes `cmd_vel` effort into thruster pulses (real pins or a simulator topic) |
 | `calibrated_velocity_controller` | Closes the loop from SI velocity on `/cmd_vel` to effort on `/cmd_vel_effort` |
-| `command_mux` | Arbitrates MAVROS RC, `/cmd_vel/manual` and `/cmd_vel` into `/cmd_vel/applied` (rc > manual > hold > auto); the ch6 stop switch holds, it is not a kill |
+| `command_mux` | Arbitrates MAVROS RC, `/cmd_vel/manual` and `/cmd_vel` into `/cmd_vel/applied` (rc > manual > hold > auto). The stop switch (`command_mux.stop_ch`) holds the mux; with `estop_cuts_power` true the driver also cuts ESC power on it, latched until the next arm, and with it false the switch only holds |
 | `keyboard_control` | Deadman keyboard publisher of effort commands |
 | `thruster_test` | Direct per-output PWM test |
 | `thruster_identify` | Finds which output drives each thruster and saves `channel_map` / `reversed` |
@@ -192,19 +192,19 @@ log line names the `channel_map` and the profile that supplied it, or `none`. Fi
 a strict loader that refuses duplicate keys, anchors, aliases, merge keys and
 non-finite numbers, naming `file:line`. Python loading needs no ROS.
 
-`config/schema.yaml` lists the keys the TUI shows with type, units, range, reload
-tier and a one-line doc. Validation is `configuration.validate_config`. With
-`config_file` set, `command_timeout`, the correction C (`decoupling`,
-`decoupling_negative`) and the `command_mux` keys apply live; everything else,
-including pins, backend, `channel_map`, `reversed` and the mixer, is flagged
-`restart required` and needs a node restart.
+`config/schema.yaml` lists the keys the TUI shows with type, units, range, tier
+(live or restart) and a one-line doc. Validation is `configuration.validate_config`.
 
-The same keys change live through the standard SetParameters service, refused with
-the old value kept when validation fails and read back with GetParameters: on the
-driver `decoupling`, `decoupling_negative` (a `decoupling` set alone carries it
-along while the two are equal) and `command_timeout`; on `command_mux` `rc_scale`,
-`cmd_timeout` and `ramp` (applied at once from idle or a hold, else when the boat
-next idles or holds); on the velocity controller its gains. The driver's latched
+The driver, the mux and the controller live one arm: each reads the arm snapshot
+(`config_file`; a `-p` parameter wins over it) once, at startup, and never watches the
+YAML, so the driver's e-stop and the mux always share one `command_mux` section. An
+edit to the file applies at the next arm. The only live changes go through the
+standard SetParameters service, refused with the old value kept when validation fails
+and read back with GetParameters: on the driver `decoupling`, `decoupling_negative` (a
+`decoupling` set alone carries it along while the two are equal) and
+`command_timeout`; on `command_mux` `rc_scale`, `cmd_timeout` and `ramp` (applied at
+once); on the velocity controller its gains. Any other set is refused with "applies at
+the next arm". The driver's latched
 `~/status` reports what is in force under `live`. Agents set them through
 `boat_agent set`, so the TUI shows and logs the change.
 
@@ -221,7 +221,7 @@ controller:
 Other leaves: `integral_limit`, `feedback`, `drift_time_constant`,
 `command_timeout`, `drift_command_limit`, `drift_limit`, `drift_carry`,
 `input_topic`, `output_topic`, `odom_topic`, `mux_state_topic`. Vectors are
-surge, sway, yaw. Unknown leaves and nulls refuse startup. Controller changes need a restart. Driver `command_timeout`,
+surge, sway, yaw. Unknown leaves and nulls refuse startup. Driver `command_timeout`,
 `controller.command_timeout` and mux `cmd_timeout` are independent watchdogs.
 
 ## Characterization and velocity control
@@ -280,8 +280,8 @@ tools/smoke                         # the landing gate (python3 -m pytest -q -m 
 python3 -m pytest -q                 # the full suite (CI reports it, never blocks)
 ```
 
-The smoke tier covers config loading and the schema, the mixer, the driver reload
-guard and the live parameter callbacks; tests that start nodes skip without rclpy.
+The smoke tier covers config loading and the schema, the mixer, the driver's
+parameter guard and the live parameter callbacks; tests that start nodes skip without rclpy.
 
 The package contains only pin-level and thruster code: PWM outputs, the ROS
 bridge, mixer, velocity controller, command mux, the test and identification

@@ -1,6 +1,7 @@
 # Keys the TUI shows. Dotted paths into hardware.yaml (a plain mapping).
 # range appears only where validate_config enforces it; the mux values are checked as non-negative by Arbitration.
-# tier: live = applied in the running node; restart = needs a node restart.
+# tier: live = changes in the running node through SetParameters; restart = applies at the next arm
+# (every node reads the arm snapshot once and never watches this file).
 pwm_chips: {type: list, units: path, tier: restart, doc: "Four sysfs PWM chip paths for physical outputs 1-4."}
 pwm_channels: {type: list, units: count, tier: restart, doc: "PWM channel index on each chip, outputs 1-4."}
 mosfet_chip: {type: str, units: label, tier: restart, doc: "GPIO bank label (gpio3) or /dev/gpiochipN for the MOSFET enable line."}
@@ -12,17 +13,17 @@ mosfet_heartbeat: {type: float, units: Hz, range: [0, 100], tier: restart, doc: 
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
 reverse_thrust_ratio: {type: float, units: "1", range: [0.5, 1.0], tier: restart, doc: "Full reverse over full forward thrust, used by the mixer."}
-decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correction C, rows and columns surge, sway, yaw (row-major, 9 values); diagonal positive. Live from the YAML or SetParameters on the driver; decoupling_negative (C for an axis commanded below zero, null = follow C) takes the same rules."}
+decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correction C, rows and columns surge, sway, yaw (row-major, 9 values); diagonal positive. Live through SetParameters on the driver; decoupling_negative (C for an axis commanded below zero, null = follow C) takes the same rules."}
 command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: live, doc: "Thrusters go neutral after this long without a command."}
-command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch; the driver's e-stop takes it only on a restart."}
-command_mux.modes: {type: list, units: enum, tier: live, doc: "FCU mode number for each of the six mode switch positions."}
-command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch; the driver's e-stop takes it only on a restart."}
+command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch."}
+command_mux.modes: {type: list, units: enum, tier: restart, doc: "FCU mode number for each of the six mode switch positions."}
+command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch: a mux hold, and with estop_cuts_power also the driver's latched power cut."}
 command_mux.rc_scale: {type: list, units: "1", tier: live, doc: "Surge, sway, yaw fraction of full command at full stick."}
-command_mux.rc_max_age: {type: float, units: s, tier: live, doc: "RC frames older than this count as no receiver."}
+command_mux.rc_max_age: {type: float, units: s, tier: restart, doc: "RC frames older than this count as no receiver."}
 command_mux.cmd_timeout: {type: float, units: s, tier: live, doc: "Manual and autonomous commands expire after this long."}
-command_mux.stick_takeover: {type: int, units: count, tier: live, doc: "Stick deflection in PWM microseconds past center that takes over."}
-command_mux.stick_time: {type: float, units: s, tier: live, doc: "How long the stick must stay deflected to take over."}
-command_mux.stick_release: {type: float, units: s, tier: live, doc: "How long the stick must stay centered to release."}
+command_mux.stick_takeover: {type: int, units: count, tier: restart, doc: "Stick deflection in PWM microseconds past center that takes over."}
+command_mux.stick_time: {type: float, units: s, tier: restart, doc: "How long the stick must stay deflected to take over."}
+command_mux.stick_release: {type: float, units: s, tier: restart, doc: "How long the stick must stay centered to release."}
 command_mux.ramp: {type: float, units: s, tier: live, doc: "Ramp time when the commanded source changes."}
 controller.proximity_distance: {type: float, units: m, tier: restart, doc: "The drift estimate doesn't grow away from an obstacle this close to the hull (its reaction is not current); 0 turns this off."}
 controller.obstacle_timeout: {type: float, units: s, tier: restart, doc: "Obstacle data older than this, or none, leaves only the carry gate."}
