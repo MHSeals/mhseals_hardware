@@ -127,8 +127,8 @@ on stands; agents never run it):
    still names the operator file, which holds the map until step 2.
 2. Only then save a copy of the operator file and remove its `channel_map` (and
    `reversed` if it equals the default).
-3. Restart the driver: `~/status` and the ready line show the profile's
-   `thrusters: channel_map`, and the line says `from vessel <dir>`.
+3. Restart the driver: the ready line shows the profile's
+   `thrusters: channel_map`, and says `from vessel <dir>`.
 4. Arm through the normal path (TUI or `boat_agent arm`, props off): the driver
    runs from the session snapshot the arming process froze from its own
    environment, so the snapshot's `channel_map` and the ready line must both show
