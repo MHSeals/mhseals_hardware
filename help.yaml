@@ -39,7 +39,6 @@ commands:
       - {name: --mosfet-chip, description: Bank label or /dev/gpiochipN.}
       - {name: --mosfet-line, type: int, description: GPIO line.}
       - {name: --config, type: path, description: Hardware YAML.}
-      - {name: --save-config, type: bool, description: Persist pin overrides before opening hardware.}
 
   - name: thruster_identify
     run: ros2 run mhseals_hardware thruster_identify
