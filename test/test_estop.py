@@ -224,3 +224,16 @@ def test_heartbeat_flips_only_while_powered(tmp_path, line):
     for _ in range(3):
         mosfet.beat()
     assert line == [0, 1, 0, 1, 0, 0] and not mosfet.enabled
+
+
+def test_the_estop_keeps_the_snapshot_channels_after_a_yaml_edit_on_disk(tmp_path):
+    """The driver and the mux each read command_mux once from the same arm snapshot (#1 #111)."""
+    from mhseals_hardware.configuration import load_config
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_mux: {stop_ch: 6}\n')
+    outputs = SimpleNamespace(mosfet=None, neutral=lambda: None)
+    estop = RemoteEstop(outputs, load_config(path)['command_mux'])
+    path.write_text('command_mux: {stop_ch: 3}\n')  # an edit while armed: the next arm's
+    assert not hasattr(estop, 'configure') and estop.rule.stop_ch == 6
+    assert not estop.rc(frame(ON), 1.0, 10)
+    assert estop.rc(frame(OFF), 1.02, 20) and estop.cause == 'rc-stop'  # channel 6 still cuts
