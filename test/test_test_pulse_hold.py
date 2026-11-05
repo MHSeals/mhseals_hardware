@@ -276,6 +276,30 @@ def test_an_estop_mid_pulse_says_it_ended_the_pulse(driver):
     assert published[-1]['ended']['seq'] == 4
 
 
+def test_transmitter_off_while_rc_drives_latches_rc_lost_and_refuses_everything(driver):
+    """#89: RC in MANUAL drives, the transmitter goes off (frames stop): the watchdog
+    latches rc-lost, cmd_vel and pulses are refused, and ~/status and ~/output say why."""
+    node, outputs, clock, published = driver
+    status = []
+    node.status_pub.publish = lambda message: status.append(json.loads(message.data))
+    manual = [1500] * 8
+    manual[5], manual[7] = 2000, 1000                  # stop switch at run, mode at MANUAL
+    for _ in range(3):
+        node.rc_callback(type('RCIn', (), {'channels': manual}))
+        clock.now += 0.05
+    node.watchdog_callback()
+    assert not node.estop.latched                      # still within rc_max_age
+    clock.now += 0.35                                  # transmitter off: no more frames
+    node.watchdog_callback()
+    assert node.estop.cause == 'rc-lost'
+    assert status[-1]['estop']['latched'] and status[-1]['estop']['cause'] == 'rc-lost'
+    node.cmd_vel_callback(Twist(linear=type(Twist().linear)(x=0.5)))
+    node.held_pulses_callback(held(PULSE, 1.0, seq=3))
+    assert outputs.pulses == NEUTRAL and node.test is None
+    assert 'e-stop latched (rc-lost)' in published[-1]['refused']['reason']
+    assert published[-1]['source'] == 'estop'
+
+
 def test_the_output_carries_the_code_version(driver):
     from mhseals_hardware.version import code_version
     node, _, _, published = driver
