@@ -201,7 +201,7 @@ def test_test_pulses_only_when_the_mux_is_idle(tmp_path, monkeypatch):
         for mux_input, accepted in (('hold', False), ('rc', False), ('manual', False),
                                     ('auto', False), ('idle', True)):
             sent.clear()
-            node.guard_callback(String(data=f'{{"input": "{mux_input}"}}'))
+            node.guard_callback(String(data=f'{{"schema": "mhseals.mux/1", "input": "{mux_input}"}}'))
             node.pulses_callback(pulses)
             assert bool(sent) is accepted, mux_input
         node.mux_time -= 10                    # a dead mux is not autonomy

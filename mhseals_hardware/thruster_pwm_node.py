@@ -1,25 +1,25 @@
 """Mix ROS effort commands into thruster pulses: ODROID PWM pins or a simulator topic.
 
 Inputs:
-  cmd_vel              Twist effort, through the decoupling, mixer, reversals and channel map
+  topics.applied       Twist effort (the command_mux output), through the decoupling, mixer,
+                       reversals and channel map
   ~/test_pulses        UInt16MultiArray raw pulses per physical output (bench tests), held
                        for ``command_timeout`` after each message
   ~/test_pulses/held   String JSON {"pulses": [4 us], "hold_s": s, "seq": n}: the same, held
                        for ``hold_s`` (at most TEST_HOLD_MAX_S) after each message, so a slow
                        or stalled publisher does not chop the pulse
-Test pulses are accepted only while ``pulse_guard_topic`` (the command_mux ``~/state``)
-reports input ``idle``, so they never outvote a human or autonomy; no fresh state, no pulse.
-An empty ``pulse_guard_topic`` disables the guard (bench use without a mux; warned at start).
-A live test pulse owns the outputs: the mux forwards cmd_vel (zeros too) at 25 Hz, which
+Test pulses are accepted only while ``topics.mux_state`` reports input ``idle`` (the contract
+in command_mux), so they never outvote a human or autonomy; no fresh or known state, no pulse.
+A live test pulse owns the outputs: the mux forwards its output (zeros too) at 25 Hz, which
 would otherwise overwrite the pulse within 40 ms. It ends, to neutral, when its hold runs
 out, on an all-neutral pulse, or at once when the guard reports another input (manual, rc,
-auto, a hold) or goes stale, or a cmd_vel frame is not neutral (a takeover whose mux state
-has not arrived yet: that frame drives); cmd_vel drives again after. cmd_vel goes neutral after
+auto, a hold) or goes stale or unknown, or a mux frame is not neutral (a takeover whose mux
+state has not arrived yet: that frame drives); the mux drives again after. It goes neutral after
 ``command_timeout`` without a message. ``~/output`` (String JSON, 10 Hz and on each test
 change) reports what the outputs hold, read back from them, its source, the test seq, the last
 refused pulse and the last ended test with their reasons (e-stop latched, mux not idle, guard
 stale, a bad pulse), and the code version this process runs (version.py). With
-``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
+``estop_cuts_power``, the RC stop-channel edge on ``topics.rc`` cuts the
 MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
 shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
@@ -49,6 +49,7 @@ from std_msgs.msg import String, UInt16MultiArray
 from std_srvs.srv import Trigger
 
 from mhseals_hardware import vessel
+from mhseals_hardware.command_arbitration import mux_input
 from mhseals_hardware.configuration import config_sha, declared, load_config, validate_config
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
@@ -71,7 +72,7 @@ GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
 
 
 class ThrusterPWMNode(Node):
-    """Fail-neutral bridge from cmd_vel effort to the configured thruster outputs."""
+    """Fail-neutral bridge from the mux effort to the configured thruster outputs."""
 
     def __init__(self):
         super().__init__('thruster_pwm_node')
@@ -99,6 +100,7 @@ class ThrusterPWMNode(Node):
         self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
                                  self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
         self.last_beat = None
+        topics = self.config['topics']
         if self.config['mosfet_heartbeat'] and getattr(self.outputs, 'mosfet', None):
             # Two flips per cycle; a stopped, killed or hung node stops the heartbeat.
             self.create_timer(0.5 / self.config['mosfet_heartbeat'], self.heartbeat)
@@ -108,23 +110,18 @@ class ThrusterPWMNode(Node):
         self.timed_out = False
         self.publish_status()
         if self.estop.enabled or self.estop.on_rc_loss:
-            self.create_subscription(RCIn, '/mavros/rc/in', self.rc_callback,
+            self.create_subscription(RCIn, topics['rc'], self.rc_callback,
                                      qos_profile_sensor_data)
-        self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
+        self.create_subscription(Twist, topics['applied'], self.cmd_vel_callback, 10)
         self.test = None  # the live test pulse: {pulses, seq, until}
         self.refused = self.ended = None  # the last refused pulse and ended test: {reason, seq, t_ns}
         self.source = 'neutral'  # what last wrote the outputs: cmd_vel, test, neutral, estop
         self.output_pub = self.create_publisher(String, '~/output', 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
         self.create_subscription(String, '~/test_pulses/held', self.held_pulses_callback, 10)
-        self.declare_parameter('pulse_guard_topic', '/command_mux/state')
-        self.guard_topic = self.get_parameter('pulse_guard_topic').value
+        self.guard_topic = topics['mux_state']
         self.mux_input, self.mux_time = None, 0.0
-        if self.guard_topic:
-            self.create_subscription(String, self.guard_topic, self.guard_callback, GUARD_QOS)
-        else:
-            self.get_logger().warning('pulse_guard_topic is empty: test pulses are not guarded '
-                                      'by the command_mux (bench use only)')
+        self.create_subscription(String, self.guard_topic, self.guard_callback, GUARD_QOS)
         self.add_pre_set_parameters_callback(self.follow_correction)
         self.add_on_set_parameters_callback(self.check_parameters)
         self.add_post_set_parameters_callback(self.commit_parameters)
@@ -160,7 +157,7 @@ class ThrusterPWMNode(Node):
         for parameter in parameters:
             if parameter.name in PARAMETER_KEYS:
                 changes[parameter.name] = self._plain(parameter.value)
-            elif parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
+            elif parameter.name in self.declared | {'config_file'}:
                 return SetParametersResult(
                     successful=False, reason='applies at the next arm; edit hardware.yaml')
         try:
@@ -293,10 +290,7 @@ class ThrusterPWMNode(Node):
         self.publish_output()
 
     def guard_callback(self, message):
-        try:
-            self.mux_input = json.loads(message.data).get('input')
-        except (ValueError, AttributeError):
-            self.mux_input = None
+        self.mux_input = mux_input(message.data)
         self.mux_time = time.monotonic()
         if self.test is not None:
             refusal = self.pulse_refusal()
@@ -305,10 +299,10 @@ class ThrusterPWMNode(Node):
 
     def pulse_refusal(self):
         """Why test pulses are refused now, or None while the mux is idle."""
-        if not self.guard_topic:
-            return None
-        if time.monotonic() - self.mux_time > GUARD_MAX_AGE or self.mux_input is None:
+        if time.monotonic() - self.mux_time > GUARD_MAX_AGE:
             return f'guard stale: no fresh {self.guard_topic} (is command_mux running?)'
+        if self.mux_input is None:
+            return f'guard unknown: {self.guard_topic} is not a mhseals.mux/1 state with an input'
         if self.mux_input not in PULSE_INPUTS:
             return f'command_mux input is {self.mux_input}, not idle'
         return None

@@ -27,8 +27,7 @@ def rig(tmp_path, monkeypatch):
     path = tmp_path / 'hardware.yaml'
     save_config(dict(load_defaults(), output_backend='topic'), path)
     monkeypatch.setenv('ROS_DOMAIN_ID', '197')
-    rclpy.init(args=['--ros-args', '-p', f'config_file:={path}',
-                     '-r', 'thruster_pwm_node:cmd_vel:=/cmd_vel/applied'])
+    rclpy.init(args=['--ros-args', '-p', f'config_file:={path}'])
     mux, driver = command_mux.CommandMux(), thruster_pwm_node.ThrusterPWMNode()
     probe = rclpy.create_node('probe')
     seen = {'pwm': [], 'output': []}

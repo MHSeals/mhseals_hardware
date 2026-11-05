@@ -18,7 +18,7 @@ import yaml
 from mhseals_hardware import vessel
 from mhseals_hardware.resources import config_resource
 from mhseals_hardware.command_arbitration import Arbitration
-from mhseals_hardware.control_validation import controller_section
+from mhseals_hardware.control_validation import controller_section, topics_section
 from mhseals_hardware.thruster_mixer import (
     validate_channel_map, validate_decoupling, validate_mixer, validate_reverse_ratio,
     validate_reversed,
@@ -28,6 +28,10 @@ from mhseals_hardware.thruster_mixer import (
 # deprecation warning (an operator file on the boat may predate the rename); naming both refuses.
 # The next write of the file (update_config) migrates it to the new name.
 RENAMED = {'mosfet_heartbeat_hz': 'mosfet_heartbeat'}
+# Removed settings an older operator file may still name: dropped on read with one warning, so
+# the file still arms. The next write of the file drops them.
+OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic')}  # now topics:
+SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
 WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
 log = logging.getLogger(__name__)
 
@@ -41,6 +45,7 @@ def config_path(path=None):
 def validate_config(config):
     """Reject a config that could drive the wrong pins or produce unsafe output."""
     config['controller'] = controller_section(config['controller'])
+    topics_section(config['topics'])
     # Thruster layout.
     validate_channel_map(config['channel_map'])
     validate_reversed(config['reversed'])
@@ -234,6 +239,13 @@ def _read_overrides(path):
         log.warning('%s: %s is deprecated, read as %s (rename it; the next write does)',
                     path, old, new)
         overrides[new] = overrides.pop(old)
+    for section, keys in OBSOLETE.items():
+        values = overrides.get(section)
+        gone = [key for key in keys if isinstance(values, dict) and key in values]
+        if gone:
+            log.warning('%s: %s no longer exist; ignored (the next write drops them)', path,
+                        ', '.join(f'{section}.{key}' for key in gone))
+            overrides[section] = {k: v for k, v in values.items() if k not in gone}
     unknown = sorted(set(overrides) - set(load_defaults()))
     if unknown:
         lines = {key.value: key.start_mark.line + 1 for key, _ in
@@ -266,16 +278,11 @@ def _merge_overrides(overrides):
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
     combined = dict(defaults, **overrides)
-    if 'controller' in overrides:
-        section = overrides['controller']
-        if not isinstance(section, dict):
-            raise ValueError('controller must be a mapping')
-        combined['controller'] = dict(defaults['controller'], **section)
-    if 'command_mux' in overrides:
-        section = overrides['command_mux']
-        if not isinstance(section, dict):
-            raise ValueError('command_mux must be a mapping')
-        combined['command_mux'] = dict(defaults['command_mux'], **section)
+    for name in SECTIONS:
+        if name in overrides:
+            if not isinstance(overrides[name], dict):
+                raise ValueError(f'{name} must be a mapping')
+            combined[name] = dict(defaults[name], **overrides[name])
     config = validate_config(combined)
     # ROS array parameters are typed by their elements: ints or a mix would declare the
     # wrong type (or crash), so every matrix is a plain list of floats.

@@ -48,7 +48,9 @@ def mux(section, overrides=None, **replace):
                InertNode=InertNode, Arbitration=Arbitration,
                time=NS(monotonic=lambda: 0., time_ns=lambda: 1), Twist=object, String=lambda **kw: NS(**kw), RCIn=object,
                STATE_QOS=None, qos_profile_sensor_data=None,
-               load_config=lambda path: {'command_mux': full(section)}, declared=declared,
+               load_config=lambda path: {'command_mux': full(section),
+                                        'topics': load_defaults()['topics']},
+               declared=declared, MUX_SCHEMA='mhseals.mux/1',
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw),
                LIVE_PARAMETERS=('rc_scale', 'cmd_timeout', 'ramp'))

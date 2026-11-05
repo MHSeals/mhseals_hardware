@@ -4,15 +4,18 @@ ROS-free and clock-injected: every call takes ``now`` in seconds, so a node
 feeds it monotonic time and a test feeds it a fake clock.  The mux node only
 forwards ``select(now)``; all the rules live here.
 
+Every lane is effort (``topics`` in default.yaml):
+
 * rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
-* manual: ``/cmd_vel/manual`` (TUI keys) newer than ``cmd_timeout``.
+* manual: ``topics.manual`` (TUI keys) newer than ``cmd_timeout``.
 * hold: any hold cause is set.  Output is zero until it is released.
 * duplicate: another publisher drives the same output, so this one sends
   only zeros (``set_duplicate``) and cannot be released.
-* auto: ``/cmd_vel`` newer than ``cmd_timeout``, ramped in over ``ramp``.
+* auto: ``topics.effort`` newer than ``cmd_timeout``, ramped in over ``ramp``.
 """
 
 import hashlib
+import json
 import math
 from collections import deque
 
@@ -28,6 +31,23 @@ RC_CENTER = 1500                  # stick centre and stop-switch threshold, µs
 RC_WINDOW = 50                    # frame intervals kept for rate and p95
 
 RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
+MUX_SCHEMA = 'mhseals.mux/1'
+
+
+def mux_input(text):
+    """The ``input`` of a mux state message (the contract in command_mux), or None: unknown.
+
+    A schema other than MUX_SCHEMA, a missing input or unreadable JSON is unknown, and each
+    consumer fails safe on it.
+    """
+    try:
+        state = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(state, dict) or state.get('schema') != MUX_SCHEMA:
+        return None
+    value = state.get('input')
+    return value if isinstance(value, str) else None
 
 
 def token_hash(token):
@@ -174,7 +194,12 @@ class Arbitration:
         return False
 
     def request(self, op, cause, by, now, token=None):
-        """Apply a hold or release request; return ``(ok, reason)``."""
+        """Apply a hold or release request; return ``(ok, reason)``.
+
+        The one release rule: a release with a token clears only the hold that token placed
+        (its own cause). A tokenless release (the TUI's U) clears every hold, unless a valid
+        RC frame puts the mode switch at MANUAL, HOLD or OTHER, which refuses it.
+        """
         self._advance(now)
         if op == 'hold':
             if not isinstance(cause, str) or not cause:
@@ -234,7 +259,7 @@ class Arbitration:
     # State machine
 
     def _hold(self, cause, by, now, token=None):
-        # Placing a cause again restarts its since, so the controller sees a new hold,
+        # Placing a cause again restarts its since, so ``~/state`` shows a new hold,
         # except a repeat with the same token (a watchdog refreshing its own hold).
         held = self.holds.get(cause)
         stored = token_hash(token)

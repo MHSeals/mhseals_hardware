@@ -3,8 +3,18 @@
 """Choose which command reaches the driver: rc > manual > hold > auto.
 
 All rules live in ``command_arbitration.Arbitration``; this node only wires
-topics.  A human input is forwarded in the callback that receives it, and a
-25 Hz timer keeps the output alive between frames.
+the ``topics`` section of the YAML. Every input is effort: ``topics.rc``, ``topics.manual`` and
+``topics.effort`` (the auto lane: the velocity controller's output, or an effort publisher). The
+winner goes to ``topics.applied``, which the driver mixes. A human input is forwarded in the
+callback that receives it, and a 25 Hz timer keeps the output alive between frames.
+
+The state contract: ``topics.mux_state`` (latched, on a change and at 1 Hz) carries JSON with
+``schema`` 'mhseals.mux/1' and ``input``, the lane that drives now: ``rc``, ``manual``,
+``hold``, ``auto`` or ``idle`` (nothing fresh). A consumer reads only ``input``
+(``command_arbitration.mux_input``): the driver takes test pulses only while it is ``idle``, the
+velocity controller drives only while it is ``auto``, and a watchdog is outranked by anything
+but ``auto`` and ``idle``. Another schema or a missing input is unknown, and unknown fails safe:
+no pulse, a reset controller, outranked. Every other field is for display.
 
 The node reads the ``command_mux`` section of its arm snapshot once (``-p`` overrides win) and
 never watches the YAML. Only ``rc_scale``, ``cmd_timeout`` and ``ramp`` change live, through
@@ -23,7 +33,7 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
 from std_msgs.msg import String
 
 from mhseals_hardware import hold_store
-from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS
+from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, MUX_SCHEMA
 from mhseals_hardware.configuration import declared, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 
@@ -57,13 +67,14 @@ def change_key(state):
 
 
 class CommandMux(Node):
-    """Publish ``/cmd_vel/applied`` and the latched ``~/state``."""
+    """Publish ``topics.applied`` and the latched ``topics.mux_state``."""
 
     def __init__(self):
         super().__init__('command_mux')
         self.declare_parameter('config_file', '')
-        # The mux takes only the command_mux section.
-        section = load_config(self.get_parameter('config_file').value or None)['command_mux']
+        # The mux takes only the command_mux and topics sections.
+        config = load_config(self.get_parameter('config_file').value or None)
+        section, self.topics = config['command_mux'], config['topics']
         self.section = declared(self, section, LIVE_PARAMETERS)
         self.arbitration = Arbitration.from_config(self.section)
         self.add_on_set_parameters_callback(self._check_parameters)
@@ -73,11 +84,12 @@ class CommandMux(Node):
         self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
         self._saved = None
 
-        self.applied = self.create_publisher(Twist, '/cmd_vel/applied', 10)
-        self.state_pub = self.create_publisher(String, '~/state', STATE_QOS)
-        self.create_subscription(RCIn, '/mavros/rc/in', self._rc, qos_profile_sensor_data)
-        self.create_subscription(Twist, '/cmd_vel/manual', self._manual, 10)
-        self.create_subscription(Twist, '/cmd_vel', self._auto, 10)
+        topics = self.topics
+        self.applied = self.create_publisher(Twist, topics['applied'], 10)
+        self.state_pub = self.create_publisher(String, topics['mux_state'], STATE_QOS)
+        self.create_subscription(RCIn, topics['rc'], self._rc, qos_profile_sensor_data)
+        self.create_subscription(Twist, topics['manual'], self._manual, 10)
+        self.create_subscription(Twist, topics['effort'], self._auto, 10)
         self.create_subscription(String, '~/request', self._request, 10)
         self.create_timer(0.04, self.forward)
         self.create_timer(0.5, self.check_duplicate)
@@ -116,27 +128,23 @@ class CommandMux(Node):
             f'{key}={value}' for key, value in changes.items()))
 
     def check_duplicate(self):
-        """Hold at zero while another node also publishes ``/cmd_vel/applied``.
+        """Hold at zero while another node also publishes ``topics.applied``.
 
         Two publishers interleave frames and the driver obeys the newest, so
         a hold on one is defeated by the other.  Our own publisher counts one.
         """
-        other = self.count_publishers('/cmd_vel/applied') > 1
+        other = self.count_publishers(self.topics['applied']) > 1
         if other != self.arbitration.duplicate:
             self.get_logger().error(
-                'another publisher on /cmd_vel/applied: holding at zero' if other
+                f"another publisher on {self.topics['applied']}: holding at zero" if other
                 else 'duplicate publisher gone: resuming')
             self.arbitration.set_duplicate(other, time.monotonic())
 
     def forward(self):
         """Publish the winning command now; also the 25 Hz keepalive."""
         now = time.monotonic()
-        source, cmd = self.arbitration.select(now)
+        _, cmd = self.arbitration.select(now)
         self.persist_holds()
-        if source == 'hold':
-            # State first (it publishes only on a change): the velocity controller then
-            # goes neutral before it sees the hold's zeros and station-keeps on them.
-            self.publish_state()
         self.applied.publish(twist_from(cmd))
         self.publish_state()
 
@@ -153,7 +161,7 @@ class CommandMux(Node):
             self.get_logger().error(f'cannot save holds to {self.state_file}: {error}')
 
     def publish_state(self, force=False):
-        """Publish ``~/state`` when it changed, or always with ``force``."""
+        """Publish ``topics.mux_state`` when it changed, or always with ``force``."""
         state = self.arbitration.state(time.monotonic(), time.time_ns(),
                                        self._pipeline_ms)
         state['configuration'] = {
@@ -163,7 +171,7 @@ class CommandMux(Node):
         if force or key != self._last_state:
             self._last_state = key
             self._seq += 1
-            state.update(schema='mhseals.mux/1', seq=self._seq, t_ns=time.time_ns())
+            state.update(schema=MUX_SCHEMA, seq=self._seq, t_ns=time.time_ns())
             text = json.dumps(state, sort_keys=True)
             self.state_pub.publish(String(data=text))
 
@@ -195,7 +203,7 @@ class CommandMux(Node):
         if not ok:
             self.get_logger().warning(f'mux request rejected: {reason}')
         elif request.get('op') == 'release':
-            # Journal event; a tokenless release is the U semantics (clears all).
+            # Journal event; the release rule is Arbitration.request's.
             self.get_logger().info(
                 f"hold_release by={request.get('by', '')!r} "
                 f"cause={request.get('cause', '')!r} "

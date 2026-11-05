@@ -65,7 +65,7 @@ def start_driver(tmp_path, monkeypatch, **config):
     published = []
     if hasattr(node, 'output_pub'):   # the golden recorder runs this on the driver before it
         node.output_pub.publish = lambda message: published.append(json.loads(message.data))
-    node.guard_callback(String(data='{"input": "idle"}'))
+    node.guard_callback(String(data='{"schema": "mhseals.mux/1", "input": "idle"}'))
     try:
         yield node, outputs, clock, published
     finally:
@@ -105,7 +105,7 @@ def run(node, clock, seconds, pulse=None, pulse_every=0.1, stall=None):
         if tick % 10 == 0:
             node.watchdog_callback()
         if tick % 100 == 0:
-            node.guard_callback(String(data='{"input": "idle"}'))
+            node.guard_callback(String(data='{"schema": "mhseals.mux/1", "input": "idle"}'))
         clock.now += 0.01
         tick += 1
 
@@ -146,7 +146,7 @@ def test_the_legacy_topic_holds_while_republished(driver):
 def test_a_human_or_a_hold_ends_the_pulse_at_once(driver, mux_input):
     node, outputs, clock, published = driver
     node.test_pulse(PULSE, 3.0, 1)
-    node.guard_callback(String(data=json.dumps({'input': mux_input})))
+    node.guard_callback(String(data=json.dumps({'schema': 'mhseals.mux/1', 'input': mux_input})))
     assert outputs.pulses == NEUTRAL and node.test is None
     assert 'test' not in (published[-1]['source'],)
     node.test_pulse(PULSE, 3.0, 2)                       # refused while they drive
@@ -245,7 +245,7 @@ def test_a_command_frame_takes_over_before_its_mux_state_arrives(driver):
 
 def test_pulses_are_refused_while_autonomy_drives(driver):
     node, outputs, clock, _ = driver
-    node.guard_callback(String(data='{"input": "auto"}'))
+    node.guard_callback(String(data='{"schema": "mhseals.mux/1", "input": "auto"}'))
     node.test_pulse(PULSE, 3.0, 1)
     assert node.test is None and outputs.pulses == NEUTRAL
 
@@ -258,7 +258,7 @@ def test_a_refused_pulse_says_why_in_the_output(driver, case, reason):
     if case == 'estop':
         node.estop_step(node.estop.trip, 'operator')
     elif case == 'auto':
-        node.guard_callback(String(data='{"input": "auto"}'))
+        node.guard_callback(String(data='{"schema": "mhseals.mux/1", "input": "auto"}'))
     elif case == 'stale':
         clock.now += thruster_pwm_node.GUARD_MAX_AGE + 1
     node.held_pulses_callback(held(PULSE[:3] if case == 'shape' else PULSE, 1.0, seq=9))

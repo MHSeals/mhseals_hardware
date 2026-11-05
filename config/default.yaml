@@ -77,6 +77,19 @@ command_mux:
   stick_release: 0.5
   ramp: 1.0
 
+# The motion topics; the mux, the driver and the velocity controller read them (no remaps).
+# auto is the only SI lane: body velocity from Nav2, which only the velocity controller reads.
+# Every mux input is effort: effort (the auto lane: the controller's output or an effort
+# publisher), manual (the keys) and rc. applied is the mux output the driver mixes, and
+# mux_state the mux state (contract in command_mux).
+topics:
+  auto: /cmd_vel
+  effort: /cmd_vel_effort
+  manual: /cmd_vel/manual
+  rc: /mavros/rc/in
+  applied: /cmd_vel/applied
+  mux_state: /command_mux/state
+
 # Bumped (never reset) when the hardware changes physically (ballast, prop swap,
 # remount): calibrations recorded under an older epoch count as invalid.
 hardware_epoch: 0
@@ -108,10 +121,6 @@ controller:
   proximity_distance: 0.5
   # s: obstacle data older than this (or none) leaves only the carry gate, as without it.
   obstacle_timeout: 0.5
-  input_topic: /cmd_vel
-  output_topic: /cmd_vel_effort
   odom_topic: /odom/local
-  # The command_mux ~/state: while it holds or idles the controller gives neutral effort.
-  mux_state_topic: /command_mux/state
   # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
   obstacle_topic: /perception/nearest_obstacle
