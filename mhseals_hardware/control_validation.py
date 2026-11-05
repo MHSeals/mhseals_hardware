@@ -21,8 +21,8 @@ def validate_controller(values):
             raise ValueError(f'{name} needs three numbers')
         for item in value:
             nonnegative(item, name)
-    for name in SCALAR_GAINS + ('command_timeout',):
-        nonnegative(values[name], name, positive=name in ('odom_timeout', 'command_timeout'))
+    for name in SCALAR_GAINS:
+        nonnegative(values[name], name, positive=name == 'odom_timeout')
     if type(values['feedback']) is not bool:
         raise ValueError('feedback must be a boolean')
     return values
@@ -39,7 +39,7 @@ def validate_drift_limit(drift_limit, limits):
 
 # The controller's own sensor inputs; its command lanes come from the topics: section.
 TOPIC_KEYS = ('odom_topic', 'obstacle_topic')
-CONTROLLER_KEYS = GAIN_KEYS + ('command_timeout', 'feedback') + TOPIC_KEYS
+CONTROLLER_KEYS = GAIN_KEYS + ('feedback',) + TOPIC_KEYS
 MOTION_TOPICS = ('auto', 'effort', 'manual', 'rc', 'applied', 'mux_state')
 
 
@@ -69,5 +69,5 @@ def controller_section(values):
     for name in TOPIC_KEYS:
         ros_topic(values[name], f'controller.{name}')
     return {name: [float(v) for v in value] if name in VECTOR_GAINS
-            else float(value) if name in SCALAR_GAINS + ('command_timeout',) else value
+            else float(value) if name in SCALAR_GAINS else value
             for name, value in values.items()}

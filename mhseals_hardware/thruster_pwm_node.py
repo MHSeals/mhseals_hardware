@@ -97,7 +97,7 @@ class ThrusterPWMNode(Node):
 
     def _start(self):
         """Everything after the outputs open; a failure here closes them again."""
-        self.estop = RemoteEstop(self.outputs, self.config['command_mux'],
+        self.estop = RemoteEstop(self.outputs, self.config,
                                  self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
         self.last_beat = None
         topics = self.config['topics']

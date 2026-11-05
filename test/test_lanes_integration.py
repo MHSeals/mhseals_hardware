@@ -38,7 +38,7 @@ def rig(tmp_path, monkeypatch):
     probe = rclpy.create_node('probe')
     nodes.append(probe)
     boat = {'x': 0.0, 'v': 0.0, 'applied': (0.0, 0.0, 0.0), 'effort': [], 'input': None,
-            'inputs': [], 'cmd_timeout': config['command_mux']['cmd_timeout']}
+            'inputs': [], 'command_timeout': config['command_timeout']}
 
     def applied(message):
         boat['applied'] = (message.linear.x, message.linear.y, message.angular.z)
@@ -100,8 +100,8 @@ def test_the_mux_stays_idle_after_nav_stops(rig):
     run, boat = rig
     run(1.0, auto=0.3)
     assert boat['input'] == 'auto'
-    run(boat['cmd_timeout'] + 0.5)                         # nav stops: the auto lane goes stale
+    run(boat['command_timeout'] + 0.5)                         # nav stops: the auto lane goes stale
     assert boat['input'] == 'idle'
     boat['inputs'].clear()
-    run(3 * boat['cmd_timeout'])                           # no zero from the controller refreshes it
+    run(3 * boat['command_timeout'])                           # no zero from the controller refreshes it
     assert boat['input'] == 'idle' and 'auto' not in boat['inputs'], boat['inputs']

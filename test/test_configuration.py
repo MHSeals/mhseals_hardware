@@ -229,6 +229,30 @@ def test_old_controller_topic_keys_still_arm_with_one_warning(tmp_path, monkeypa
     assert len(warned) == 1 and 'controller.input_topic no longer exist' in warned[0]
 
 
+def test_old_stage_timeouts_migrate_with_one_line_and_still_arm(tmp_path, monkeypatch):
+    from mhseals_hardware import configuration
+    warned = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda text, *args: warned.append(text % args))
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_timeout: 0.4\ncommand_mux: {cmd_timeout: 0.9, ramp: 2.0}\n'
+                    'controller: {command_timeout: 1}\n')
+    config = load_config(str(path))
+    assert config['command_timeout'] == 0.4 and config['command_mux']['ramp'] == 2.0
+    assert 'cmd_timeout' not in config['command_mux']
+    assert 'command_timeout' not in config['controller']
+    assert len(warned) == 1
+    assert 'controller.command_timeout' in warned[0] and 'command_mux.cmd_timeout' in warned[0]
+    update_config({'manual_amplitude': 0.5}, path)  # the next write drops them
+    assert 'cmd_timeout' not in path.read_text() and path.read_text().count('command_timeout') == 1
+
+
+def test_command_timeout_inside_command_mux_refuses(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('command_mux: {command_timeout: 0.9}\n')
+    with pytest.raises(ValueError, match='top-level'):
+        load_config(path)
+
+
 @pytest.mark.parametrize('section', ['{auto: relative}', '{extra: /a}', '[1]'])
 def test_a_bad_topics_section_is_refused(tmp_path, section):
     path = tmp_path / 'hardware.yaml'
@@ -252,20 +276,17 @@ def test_schema_documents_the_mosfet_heartbeat_floor():
     assert '10-100' in schema['mosfet_heartbeat']['doc']
 
 
-def test_controller_partial_merge_and_independent_deadline(tmp_path):
+def test_controller_partial_merge(tmp_path):
     path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.4\ncontroller: {kp: [1, 2, 3], command_timeout: 1}\n')
+    path.write_text('controller: {kp: [1, 2, 3]}\n')
     selected = load_config(path)
-    assert selected['command_timeout'] == 0.4
-    assert selected['controller']['command_timeout'] == 1.0
-    assert type(selected['controller']['command_timeout']) is float
     assert selected['controller']['kp'] == [1., 2., 3.]
     assert selected['controller']['ki'] == load_defaults()['controller']['ki']
 
 
 @pytest.mark.parametrize('section', ['null', '{unknown: 1}', '{kp: [1, 2]}',
     '{ki: [true, 0, 0]}', '{feedback: 1}', '{odom_timeout: 0}',
-    '{command_timeout: .inf}', '{odom_topic: relative}', '{obstacle_topic: /bad//topic}'])
+    '{odom_timeout: .inf}', '{odom_topic: relative}', '{obstacle_topic: /bad//topic}'])
 def test_controller_invalid_section(tmp_path, section):
     path = tmp_path / 'hardware.yaml'
     path.write_text('controller: ' + section + '\n')

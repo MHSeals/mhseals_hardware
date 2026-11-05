@@ -204,8 +204,8 @@ edit to the file applies at the next arm. The only live changes go through the
 standard SetParameters service, refused with the old value kept when validation fails
 and read back with GetParameters: on the driver `decoupling`, `decoupling_negative` (a
 `decoupling` set alone carries it along while the two are equal) and
-`command_timeout`; on `command_mux` `rc_scale`, `cmd_timeout` and `ramp` (applied at
-once); on the velocity controller its gains. Any other set is refused with "applies at
+`command_timeout`; on `command_mux` `rc_scale`, `command_timeout` and `ramp` (applied at
+once); on the velocity controller its gains and `command_timeout`. Any other set is refused with "applies at
 the next arm". The driver's latched
 `~/status` reports what is in force under `live`. Agents set them through
 `boat_agent set`, so the TUI shows and logs the change.
@@ -221,10 +221,12 @@ controller:
 ```
 
 Other leaves: `integral_limit`, `feedback`, `drift_time_constant`,
-`command_timeout`, `drift_command_limit`, `drift_limit`, `drift_carry`,
+`drift_command_limit`, `drift_limit`, `drift_carry`,
 `odom_topic`, `obstacle_topic` (its lanes come from `topics:`). Vectors are
-surge, sway, yaw. Unknown leaves and nulls refuse startup. Driver `command_timeout`,
-`controller.command_timeout` and mux `cmd_timeout` are independent watchdogs.
+surge, sway, yaw. Unknown leaves and nulls refuse startup. The one top-level
+`command_timeout` is the watchdog of all three stages (controller, mux, driver); an old
+file's `controller.command_timeout` or `command_mux.cmd_timeout` is dropped on read
+with one warning.
 
 ## Characterization and velocity control
 

@@ -16,8 +16,9 @@ velocity controller drives only while it is ``auto``, and a watchdog is outranke
 but ``auto`` and ``idle``. Another schema or a missing input is unknown, and unknown fails safe:
 no pulse, a reset controller, outranked. Every other field is for display.
 
-The node reads the ``command_mux`` section of its arm snapshot once (``-p`` overrides win) and
-never watches the YAML. Only ``rc_scale``, ``cmd_timeout`` and ``ramp`` change live, through
+The node reads the ``command_mux`` section of its arm snapshot, plus the top-level
+``command_timeout`` the driver and the controller also read, once (``-p`` overrides win) and
+never watches the YAML. Only ``rc_scale``, ``command_timeout`` and ``ramp`` change live, through
 SetParameters: validated, then applied at once. Every other edit applies at the next arm.
 """
 
@@ -33,7 +34,7 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
 from std_msgs.msg import String
 
 from mhseals_hardware import hold_store
-from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, MUX_SCHEMA
+from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, MUX_SCHEMA, mux_section
 from mhseals_hardware.configuration import declared, load_config
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 
@@ -41,7 +42,7 @@ STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
 
-LIVE_PARAMETERS = ('rc_scale', 'cmd_timeout', 'ramp')
+LIVE_PARAMETERS = ('rc_scale', 'command_timeout', 'ramp')
 
 
 # Fields that move on every call (ages, rates, wall conversions, timing).
@@ -74,7 +75,7 @@ class CommandMux(Node):
         self.declare_parameter('config_file', '')
         # The mux takes only the command_mux and topics sections.
         config = load_config(self.get_parameter('config_file').value or None)
-        section, self.topics = config['command_mux'], config['topics']
+        section, self.topics = mux_section(config), config['topics']
         self.section = declared(self, section, LIVE_PARAMETERS)
         self.arbitration = Arbitration.from_config(self.section)
         self.add_on_set_parameters_callback(self._check_parameters)

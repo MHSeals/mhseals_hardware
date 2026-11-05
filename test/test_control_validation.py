@@ -3,13 +3,13 @@ from array import array
 
 import pytest
 
-from mhseals_hardware.command_arbitration import Arbitration
+from mhseals_hardware.command_arbitration import Arbitration, mux_section
 from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.control_validation import validate_controller, validate_drift_limit
 
 
 def arbitration(**changes):
-    return Arbitration(**{**load_defaults()['command_mux'], **changes})
+    return Arbitration(**{**mux_section(load_defaults()), **changes})
 
 
 def values():
@@ -17,13 +17,13 @@ def values():
                 drift_time_constant=5., odom_timeout=.3,
                 drift_command_limit=.1, drift_limit=.5, drift_carry=.02,
                 proximity_distance=.5, obstacle_timeout=.5,
-                command_timeout=.5, feedback=True)
+                feedback=True)
 
 
 @pytest.mark.parametrize('key,bad', [
     ('kp', [True, 0, 0]), ('ki', [float('nan')]*3),
     ('integral_limit', [-1, 0, 0]), ('kp', [1]),
-    ('odom_timeout', 0), ('command_timeout', True),
+    ('odom_timeout', 0),
     ('drift_time_constant', -1), ('drift_command_limit', float('inf')), ('drift_limit', -0.1),
     ('drift_carry', float('nan')), ('proximity_distance', -0.5), ('obstacle_timeout', True),
     ('feedback', 1)])
@@ -35,11 +35,11 @@ def test_controller_domains(key, bad):
 @pytest.mark.parametrize('key,bad', [
     ('mode_ch', 1.5), ('stop_ch', True), ('modes', [0, 0, 0, 0, 0, -1]),
     ('rc_scale', [float('nan')]*3), ('rc_scale', [1]),
-    ('rc_scale', [True, 0, 0]), ('ramp', -1), ('cmd_timeout', 0),
+    ('rc_scale', [True, 0, 0]), ('ramp', -1), ('command_timeout', 0),
     ('rc_max_age', True), ('stick_time', float('inf'))])
 def test_mux_domains(key, bad):
     with pytest.raises(ValueError):
-        Arbitration.from_config({**load_defaults()['command_mux'], key: bad})
+        Arbitration.from_config({**mux_section(load_defaults()), key: bad})
 
 
 def test_valid_domains_keep_effort_only_defaults_valid():

@@ -125,9 +125,9 @@ def test_live_parameter_set_reaches_the_arbitration():
         node = command_mux.CommandMux()
         assert node.set_parameters([Parameter('ramp', value=2.0)])[0].successful
         assert node.arbitration.ramp == 2.0 and node.get_parameter('ramp').value == 2.0
-        bad = node.set_parameters([Parameter('cmd_timeout', value=0.0)])[0]
-        assert not bad.successful and node.arbitration.cmd_timeout == 0.5
-        assert node.get_parameter('cmd_timeout').value == 0.5
+        bad = node.set_parameters([Parameter('command_timeout', value=0.0)])[0]
+        assert not bad.successful and node.arbitration.command_timeout == 0.5
+        assert node.get_parameter('command_timeout').value == 0.5
         node.destroy_node()
     finally:
         rclpy.try_shutdown()

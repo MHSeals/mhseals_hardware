@@ -7,7 +7,8 @@ drift estimate on ``~/drift`` (odom frame, m/s). It drives only while the mux in
 (the contract in command_mux); any other input, or an unknown state, resets the law and sends
 neutral effort, so a hold, rc or manual leaves no stale integral behind. The node
 reads its arm snapshot (``config_file``, ``-p`` overrides win) once and never watches the
-YAML; only the gains change live, through SetParameters. Callbacks run on one
+YAML; only the gains and the shared top-level ``command_timeout`` change live, through
+SetParameters. Callbacks run on one
 single-threaded executor, so a parameter batch never interleaves with a command.
 """
 from __future__ import annotations
@@ -25,8 +26,8 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String
 
 from mhseals_hardware.control_validation import (
-    GAIN_KEYS, SCALAR_GAINS, TOPIC_KEYS, VECTOR_GAINS, controller_section, validate_controller,
-    validate_drift_limit,
+    GAIN_KEYS, SCALAR_GAINS, TOPIC_KEYS, VECTOR_GAINS, controller_section, nonnegative,
+    validate_controller, validate_drift_limit,
 )
 from mhseals_hardware.command_arbitration import mux_input
 from mhseals_hardware.configuration import declared, load_config
@@ -52,6 +53,7 @@ class VelocityController(Node):
         value = lambda name: self.get_parameter(name).value  # noqa: E731
         config = load_config(value('config_file') or None)
         controller_section(declared(self, config['controller']))
+        declared(self, config, ['command_timeout'])  # the one watchdog, shared with mux and driver
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
                                 value('drift_time_constant'), value('odom_timeout'),
                                 value('drift_command_limit'), value('drift_limit'),
@@ -85,6 +87,7 @@ class VelocityController(Node):
                 values[parameter.name] = parameter.value
         try:
             validate_controller(values)
+            nonnegative(values['command_timeout'], 'command_timeout', positive=True)
         except (TypeError, ValueError) as error:
             return SetParametersResult(successful=False, reason=str(error))
         candidate = copy.copy(self._law)

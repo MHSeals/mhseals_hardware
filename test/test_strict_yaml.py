@@ -8,8 +8,8 @@ from test_mux_configuration import mux
 BAD = {
     'duplicate': 'command_timeout: 0.3\ncommand_timeout: 0.4\n',
     'duplicate-nested': 'controller:\n  kp: [1, 1, 1]\n  kp: [2, 2, 2]\n',
-    'duplicate-mux': 'command_mux:\n  cmd_timeout: 0.9\n  cmd_timeout: 0.8\n',
-    'merge': 'command_mux:\n  <<: {cmd_timeout: 0.9}\n',
+    'duplicate-mux': 'command_mux:\n  ramp: 0.9\n  ramp: 0.8\n',
+    'merge': 'command_mux:\n  <<: {ramp: 0.9}\n',
     'recursive': 'command_mux:\n  modes: &x [*x]\n',
     'alias': 'controller:\n  kp: &g [1, 1, 1]\n  ki: *g\n',
     'nan': 'command_timeout: .nan\n',
@@ -65,8 +65,8 @@ def test_mux_startup_refuses_bad_file(tmp_path, name):
 
 def test_mux_startup_reads_the_operator_file(tmp_path):
     path = tmp_path / 'hardware.yaml'
-    path.write_text('command_mux:\n  cmd_timeout: 0.9\n')
-    assert build_mux(path).arbitration.cmd_timeout == 0.9
+    path.write_text('command_timeout: 0.9\n')
+    assert build_mux(path).arbitration.command_timeout == 0.9
 
 
 def test_unknown_key_keeps_wording_and_origin(tmp_path):
