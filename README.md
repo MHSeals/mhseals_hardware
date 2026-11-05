@@ -20,6 +20,9 @@ navigation and mission tests live in
 (`ros2 run mhseals_testing boat_test`), which arms `thruster_pwm_node` and
 `calibrated_velocity_controller` as supervised children.
 
+[docs/authority.md](docs/authority.md) holds the reasoning behind the mux, the
+e-stop, the MOSFET heartbeat and the on-boat checks those paths still need.
+
 ## Hardware
 
 Outputs 1-4 are fixed J2 pins; `channel_map` (canonical FL, FR, RR, RL -> output)
