@@ -144,11 +144,8 @@ on stands; agents never run it):
 
 ## Driver
 
-```bash
-ros2 run mhseals_hardware thruster_pwm_node
-```
-
-This arms real outputs; secure the boat first. It reads `topics.applied`, the
+Armed by `boat_test` (`motion.children`); never started by hand on the boat, since
+that would power the ESCs outside the arm gate. It reads `topics.applied`, the
 command_mux output (`geometry_msgs/msg/Twist`, normalized **effort**, not m/s):
 `linear.x` is forward, `linear.y` port, `angular.z` counterclockwise. After
 `command_timeout` (0.5 s) without a command every channel returns to neutral.
@@ -188,6 +185,7 @@ as on the boat, so crane_ml (`--crane-ros-thruster-pwm`) and `thruster_identify`
 work against it:
 
 ```bash
+# sim only: no pins are driven
 ros2 run mhseals_hardware thruster_pwm_node --ros-args -p output_backend:=topic
 ```
 
@@ -266,13 +264,9 @@ ros2 run mhseals_testing thrust_characterize \
 The optional controller then applies feed-forward through the model, a
 world-frame current and wind estimate (`~/drift`), and bounded PI feedback.
 `boat_test --velocity-control` arms it in front of the mux, on the auto lane;
-it drives only while the mux input is `auto` and resets otherwise:
-
-```bash
-ros2 run mhseals_hardware calibrated_velocity_controller
-ros2 run mhseals_hardware command_mux
-ros2 run mhseals_hardware thruster_pwm_node
-```
+it drives only while the mux input is `auto` and resets otherwise. The arm starts
+the nodes in `motion.children`'s order (`mhseals_hardware/motion.py`): the driver,
+the controller, then the mux.
 
 ## Keyboard control
 
