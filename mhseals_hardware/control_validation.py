@@ -29,7 +29,7 @@ def validate_controller(values):
 
 
 def validate_drift_limit(drift_limit, limits):
-    """Startup: drift_limit must sit below the slower of surge and sway, else contact with a
+    """Startup and live sets: drift_limit must sit below the slower of surge and sway, else contact with a
     dock can still wind the effort up to full before the backstop bites."""
     slowest = min(limits[:2])
     if drift_limit >= slowest:
