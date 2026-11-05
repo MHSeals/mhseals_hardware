@@ -26,7 +26,7 @@ commands:
 
   - name: command_mux
     run: ros2 run mhseals_hardware command_mux
-    summary: Choose which command reaches the driver - rc > manual > hold > auto.
+    summary: Choose which command reaches the driver - duplicate > rc > manual > hold > auto (docs/authority.md 2.2).
 
   - name: thruster_test
     run: ros2 run mhseals_hardware thruster_test

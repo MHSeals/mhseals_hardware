@@ -24,3 +24,11 @@ def test_every_cited_section_exists():
     assert found
     for path, invariant, number in found:
         assert number in (invariants if invariant else sections), (path, number)
+
+
+def test_the_mux_order_always_leads_with_duplicate():
+    """A duplicate hold outranks rc (docs/authority.md 2.2), so no summary of the order drops it."""
+    for path in SOURCES + [ROOT / 'help.yaml']:
+        text = path.read_text(errors='ignore')
+        for match in re.finditer(r'rc > manual', text):
+            assert text[:match.start()].endswith('duplicate > '), path

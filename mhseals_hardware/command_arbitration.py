@@ -1,4 +1,4 @@
-"""Pick which command drives the boat: rc > manual > hold > auto.
+"""Pick which command drives the boat: duplicate > rc > manual > hold > auto.
 
 ROS-free and clock-injected: every call takes ``now`` in seconds, so a node
 feeds it monotonic time and a test feeds it a fake clock.  The mux node only
