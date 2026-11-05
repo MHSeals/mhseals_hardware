@@ -302,6 +302,23 @@ def declared(node, section, names=None):
     return dict(section, **{name: plain(node.get_parameter(name).value) for name in names})
 
 
+def moved_parameters(node, config):
+    """A ``-p`` for a MOVED key (an older arming argv) lands in its new home with one warning.
+
+    rclpy ignores an override for an undeclared name, so without this the binding would vanish silently.
+    """
+    for (_, old), (target, new) in MOVED.items():
+        node.declare_parameter(old, '')
+        value = node.get_parameter(old).value
+        node.undeclare_parameter(old)
+        if value:
+            node.get_logger().warning(
+                f'-p {old} is deprecated, read as {target}.{new} (set it in the snapshot)')
+            config[target] = dict(config[target], **{new: value})
+    topics_section(config['topics'])
+    return config
+
+
 def plain(value):
     """ROS array parameters arrive as sequences other than list; YAML and validators want lists.
 

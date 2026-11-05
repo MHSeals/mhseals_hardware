@@ -30,7 +30,7 @@ from mhseals_hardware.control_validation import (
     validate_controller, validate_drift_limit,
 )
 from mhseals_hardware.command_arbitration import mux_input
-from mhseals_hardware.configuration import declared, load_config, plain
+from mhseals_hardware.configuration import declared, load_config, moved_parameters, plain
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 
@@ -51,7 +51,7 @@ class VelocityController(Node):
         super().__init__('calibrated_velocity_controller')
         self.declare_parameter('config_file', '')
         value = lambda name: self.get_parameter(name).value  # noqa: E731
-        config = load_config(value('config_file') or None)
+        config = moved_parameters(self, load_config(value('config_file') or None))
         controller_section(declared(self, config['controller']))
         declared(self, config, ['command_timeout'])  # the one watchdog, shared with mux and driver
         self._law = VelocityLaw(Plant(config), value('kp'), value('ki'), value('integral_limit'),
