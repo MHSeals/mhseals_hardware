@@ -16,7 +16,9 @@ out, on an all-neutral pulse, or at once when the guard reports another input (m
 auto, a hold) or goes stale, or a cmd_vel frame is not neutral (a takeover whose mux state
 has not arrived yet: that frame drives); cmd_vel drives again after. cmd_vel goes neutral after
 ``command_timeout`` without a message. ``~/output`` (String JSON, 10 Hz and on each test
-change) reports what the outputs hold, read back from them, its source and the test seq. With
+change) reports what the outputs hold, read back from them, its source, the test seq, the last
+refused pulse and the last ended test with their reasons (e-stop latched, mux not idle, guard
+stale, a bad pulse), and the code version this process runs (version.py). With
 ``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
 MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
@@ -52,6 +54,7 @@ from mhseals_hardware.configuration import (
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
+from mhseals_hardware.version import code_version
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
     validate_reverse_ratio, validate_reversed,
@@ -127,6 +130,8 @@ class ThrusterPWMNode(Node):
                                      qos_profile_sensor_data)
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.test = None  # the live test pulse: {pulses, seq, until}
+        self.refused = self.ended = None  # the last refused pulse and ended test: {reason, seq, t_ns}
+        self.version = code_version()
         self.source = 'neutral'  # what last wrote the outputs: cmd_vel, test, neutral, estop
         self.output_pub = self.create_publisher(String, '~/output', 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
@@ -329,24 +334,28 @@ class ThrusterPWMNode(Node):
             if not (math.isfinite(hold) and hold > 0):
                 raise ValueError(f'hold_s must be positive, got {hold}')
         except (ValueError, TypeError, KeyError, AttributeError) as error:
-            self.get_logger().error(f'test pulses rejected: {error}')
+            self.refuse(f'bad test pulse message: {error}', None)
             return
         self.test_pulse(pulses, min(hold, TEST_HOLD_MAX_S), seq)
 
+    def refuse(self, reason, seq):
+        """Drop a test pulse with its reason: logged (throttled) and kept for ~/output."""
+        self.get_logger().warning(f'test pulses rejected: {reason}', throttle_duration_sec=1.0)
+        self.refused = dict(reason=reason, seq=seq, t_ns=time.time_ns())
+        self.publish_output()
+
     def test_pulse(self, pulses, hold, seq):
         """Take the outputs for ``hold`` seconds (all neutral ends a test); validated here."""
+        if self.estop.latched:
+            self.refuse(self.estop_reason(), seq)
+            return
         refusal = self.pulse_refusal()
         if refusal:
-            self.get_logger().warning(f'test pulses rejected: {refusal}',
-                                      throttle_duration_sec=1.0)
+            self.refuse(refusal, seq)
             return
         if (len(pulses) != 4 or any(isinstance(pulse, bool) or not isinstance(pulse, int)
                                     or not MIN_PWM <= pulse <= MAX_PWM for pulse in pulses)):
-            self.get_logger().error(
-                f'test pulses rejected: need four pulses within {MIN_PWM}-{MAX_PWM} us, '
-                f'got {pulses}')
-            return
-        if self.estop.latched:
+            self.refuse(f'need four pulses within {MIN_PWM}-{MAX_PWM} us, got {pulses}', seq)
             return
         if all(pulse == self.outputs_neutral() for pulse in pulses):
             self.end_test(None)
@@ -358,6 +367,9 @@ class ThrusterPWMNode(Node):
         if changed:
             self.publish_output()
 
+    def estop_reason(self):
+        return f'e-stop latched ({self.estop.cause}): ESC power is cut until re-armed'
+
     def outputs_neutral(self):
         return int(getattr(self.outputs, 'neutral_us', 1500))
 
@@ -365,7 +377,8 @@ class ThrusterPWMNode(Node):
         """End a live test pulse at neutral; ``reason`` None: its sender ended it."""
         if self.test is None:
             return
-        self.test = None
+        seq, self.test = self.test['seq'], None
+        self.ended = dict(reason=reason or 'ended by its sender', seq=seq, t_ns=time.time_ns())
         if reason:
             self.get_logger().warning(f'test pulse ended: {reason}; thrusters neutral')
         if not self.estop.latched:
@@ -388,13 +401,13 @@ class ThrusterPWMNode(Node):
                 self.end_test(refusal)  # a human or a hold takes over at once
 
     def pulse_refusal(self):
-        """Why test pulses are refused now, or None when autonomy holds the thrusters."""
+        """Why test pulses are refused now, or None while the mux is idle."""
         if not self.guard_topic:
             return None
         if time.monotonic() - self.mux_time > GUARD_MAX_AGE or self.mux_input is None:
-            return f'no fresh {self.guard_topic}'
+            return f'guard stale: no fresh {self.guard_topic} (is command_mux running?)'
         if self.mux_input not in PULSE_INPUTS:
-            return f'command_mux input is {self.mux_input}'
+            return f'command_mux input is {self.mux_input}, not idle'
         return None
 
     def rc_callback(self, message):
@@ -455,14 +468,15 @@ class ThrusterPWMNode(Node):
             'source': 'estop' if self.estop.latched else 'test' if test else self.source,
             'test': None if test is None else {
                 'pulses': test['pulses'], 'seq': test['seq'],
-                'remaining_s': round(max(0.0, test['until'] - time.monotonic()), 3)}})))
+                'remaining_s': round(max(0.0, test['until'] - time.monotonic()), 3)},
+            'refused': self.refused, 'ended': self.ended, 'version': self.version})))
 
     def watchdog_callback(self):
         if self.estop.enabled or self.estop.on_rc_loss:
             self.estop_step(self.estop.tick)  # RC gone stale while it controlled the boat
         self.retry_cut()
-        if self.estop.latched:
-            self.test = None
+        if self.estop.latched and self.test is not None:
+            self.end_test(self.estop_reason())
         if self.test is not None:
             # The test pulse has its own deadman: its hold, and the guard staying fresh.
             refusal = self.pulse_refusal()

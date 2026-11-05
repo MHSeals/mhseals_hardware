@@ -248,3 +248,46 @@ def test_pulses_are_refused_while_autonomy_drives(driver):
     node.guard_callback(String(data='{"input": "auto"}'))
     node.test_pulse(PULSE, 3.0, 1)
     assert node.test is None and outputs.pulses == NEUTRAL
+
+
+@pytest.mark.parametrize('case, reason', [
+    ('estop', 'e-stop latched (operator)'), ('auto', 'command_mux input is auto, not idle'),
+    ('stale', 'guard stale'), ('shape', 'need four pulses')])
+def test_a_refused_pulse_says_why_in_the_output(driver, case, reason):
+    node, outputs, clock, published = driver
+    if case == 'estop':
+        node.estop_step(node.estop.trip, 'operator')
+    elif case == 'auto':
+        node.guard_callback(String(data='{"input": "auto"}'))
+    elif case == 'stale':
+        clock.now += thruster_pwm_node.GUARD_MAX_AGE + 1
+    node.held_pulses_callback(held(PULSE[:3] if case == 'shape' else PULSE, 1.0, seq=9))
+    assert node.test is None and outputs.pulses == NEUTRAL
+    assert reason in published[-1]['refused']['reason'] and published[-1]['refused']['seq'] == 9
+
+
+def test_an_estop_mid_pulse_says_it_ended_the_pulse(driver):
+    node, outputs, clock, published = driver
+    node.held_pulses_callback(held(PULSE, 3.0, seq=4))
+    node.estop_step(node.estop.trip, 'rc-lost')
+    node.watchdog_callback()
+    assert node.test is None and published[-1]['source'] == 'estop'
+    assert 'e-stop latched (rc-lost)' in published[-1]['ended']['reason']
+    assert published[-1]['ended']['seq'] == 4
+
+
+def test_the_output_carries_the_code_version(driver):
+    from mhseals_hardware.version import code_version
+    node, _, _, published = driver
+    node.watchdog_callback()
+    version = published[-1]['version']
+    assert version == code_version() and len(version['digest']) == 12
+
+
+def test_the_version_digest_follows_the_sources(tmp_path):
+    from mhseals_hardware.version import code_version
+    (tmp_path / 'a.py').write_text('x = 1\n')
+    first = code_version(tmp_path)['digest']
+    code_version.cache_clear()
+    (tmp_path / 'a.py').write_text('x = 2\n')
+    assert code_version(tmp_path)['digest'] != first and code_version(tmp_path)['git'] is None
