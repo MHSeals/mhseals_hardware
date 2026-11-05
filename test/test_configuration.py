@@ -4,7 +4,7 @@ import os
 import pytest
 
 from mhseals_hardware.configuration import (
-    ConfigWatcher, configure_args, load_config, load_defaults, save_config, update_config, validate_config,
+    configure_args, load_config, load_defaults, save_config, update_config, validate_config,
 )
 from mhseals_hardware.keyboard import decode_key
 
@@ -97,59 +97,6 @@ def test_update_only_persists_explicit_settings(tmp_path):
     assert path.read_text() == before
 
 
-def test_watcher_reports_an_edit_once_and_rejects_a_bad_one(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-
-    def edit(text, tick):
-        path.write_text(text)
-        os.utime(path, ns=(tick, tick))  # a coarse filesystem clock could repeat an mtime
-
-    edit('command_timeout: 0.4\n', 1)
-    watch = ConfigWatcher(path)
-    assert watch.poll() is None
-    edit('command_timeout: 0.3\n', 2)
-    assert watch.poll() is None  # first sight of a change: wait for it to settle
-    assert watch.poll()['command_timeout'] == 0.3
-    assert watch.poll() is None
-    edit('command_timeout: -1\n', 3)
-    assert watch.poll() is None
-    with pytest.raises(ValueError):
-        watch.poll()
-    assert watch.poll() is None  # a bad edit is reported once, not every tick
-
-
-def test_watcher_ignores_a_half_written_file(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, true]\n')
-    watch = ConfigWatcher(path)
-    path.write_text('channel_map: [3, 1, 2, 4]\n')  # first chunk of an in-place rewrite
-    assert watch.poll() is None
-    path.write_text('channel_map: [3, 1, 2, 4]\nreversed: [true, false, false, false]\n')
-    assert watch.poll() is None  # still changing between ticks
-    config = watch.poll()
-    assert config['channel_map'] == [3, 1, 2, 4]
-    assert config['reversed'] == [True, False, False, False]
-
-
-@pytest.mark.parametrize('text', [
-    'reversed: [true, false\n',  # unterminated flow sequence: a half-saved file
-    'channel_map: 5\n',
-    'pwm_channels: 5\n',
-    'characterization: {motion_limits: [\n',
-])
-def test_watcher_reports_yaml_and_type_errors_as_value_error(tmp_path, text):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.4\n')
-    os.utime(path, ns=(1, 1))
-    watch = ConfigWatcher(path)
-    path.write_text(text)
-    os.utime(path, ns=(2, 2))
-    assert watch.poll() is None
-    with pytest.raises(ValueError):
-        watch.poll()
-    assert watch.poll() is None
-
-
 def test_unset_negative_decoupling_follows_decoupling_and_is_not_frozen_on_save(tmp_path):
     import yaml
     path = tmp_path / 'hardware.yaml'
@@ -222,19 +169,6 @@ def test_concurrent_updates_do_not_lose_edits(tmp_path):
         job.join()
     config = load_config(path)
     assert config['decoupling'][6] == 0.3 and config['manual_amplitude'] == 0.4
-
-
-@pytest.mark.parametrize('text', ['reversed: [true, false', 'manual_amplitude: "x"\n'])
-def test_watcher_turns_a_syntax_or_type_error_into_value_error(text, tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.4\n')
-    os.utime(path, ns=(1, 1))
-    watch = ConfigWatcher(path)
-    path.write_text(text)
-    os.utime(path, ns=(2, 2))
-    assert watch.poll() is None
-    with pytest.raises(ValueError):
-        watch.poll()
 
 
 def test_command_mux_section_is_validated(tmp_path):

@@ -4,7 +4,6 @@ import ast
 import copy
 import json
 from pathlib import Path
-import threading
 from types import SimpleNamespace as NS
 
 import numpy
@@ -42,14 +41,13 @@ def node():
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), env)
     n = env['VelocityController']()
-    n._law_lock = threading.RLock()
     n._law = VelocityLaw(Plant(config()))
     n.values = {key: getattr(n._law, key).tolist() if key in validation.VECTOR_GAINS
                 else getattr(n._law, key) for key in validation.GAIN_KEYS}
     n.values.update(command_timeout=.5, feedback=True)
     n.get_parameter = lambda key: NS(value=n.values[key])
     n.late = lambda ps: NS(successful=True)
-    n._fault, n._held, n.sent = '', False, []
+    n._held, n.sent = False, []
     n._pub = NS(publish=n.sent.append)
     return n
 
@@ -87,33 +85,13 @@ def test_commit_preserves_observer_and_reprojects_integral():
     assert n.sent[-1][0] > .2  # actual new PI law consumed
 
 
-@pytest.mark.parametrize('name', validation.RESTART_KEYS)
-def test_restart_parameter_refused(name):
+@pytest.mark.parametrize('name', validation.TOPIC_KEYS + ('config_file',))
+def test_an_arm_parameter_is_refused(name):
     n = node()
     old = n._law
-    assert not n.set_parameters_atomically(patch(**{name: '/new'})).successful
+    result = n.set_parameters_atomically(patch(**{name: '/new'}))
+    assert not result.successful and 'next arm' in result.reason
     assert n._law is old
-
-
-def test_commands_cannot_observe_partially_committed_batch():
-    n = node()
-    entered, release, done = threading.Event(), threading.Event(), threading.Event()
-    def late(ps):
-        entered.set()
-        assert release.wait(2)
-        return NS(successful=True)
-    n.late = late
-    setter = threading.Thread(target=lambda: n.set_parameters_atomically(patch(kp=[2.]*3, ki=[3.]*3)))
-    setter.start()
-    assert entered.wait(2)
-    command = threading.Thread(target=lambda: (n._command((.12, 0, 0)), done.set()))
-    command.start()
-    assert not done.wait(.03)
-    release.set()
-    setter.join(2)
-    command.join(2)
-    assert done.is_set()
-    assert list(n._law.kp) == [2.]*3 and list(n._law.ki) == [3.]*3
 
 
 def test_ros_service_double_array_consumes_new_law_and_rejection_retains_it():
@@ -134,18 +112,15 @@ def test_ros_service_double_array_consumes_new_law_and_rejection_retains_it():
 
 def constructor(overrides, resources):
     """Execute the unchanged class body, including __init__, with inert ROS seams."""
-    from mhseals_hardware.configuration import ConfigWatcher
-    from mhseals_hardware.configuration import startup_config
+    from mhseals_hardware.configuration import declared, load_config
 
     class InertNode(ParameterOwner):
         def __init__(self, name):
-            self._parameter_overrides = {k: NS(value=v) for k, v in overrides.items()}
             self.values = {}
             self.late = lambda ps: NS(successful=True)
 
-        def declare_parameter(self, name, default, *, ignore_override=False):
-            parameter = self._parameter_overrides.get(name)
-            self.values[name] = default if ignore_override or parameter is None else parameter.value
+        def declare_parameter(self, name, default):
+            self.values[name] = overrides.get(name, default)  # a -p override wins
 
         def get_parameter(self, name):
             return NS(value=self.values[name])
@@ -173,10 +148,9 @@ def constructor(overrides, resources):
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
     clock = NS(now=1.)
     env = dict(vars(validation),
-        Node=InertNode, copy=copy, numpy=numpy, threading=threading, Plant=Plant,
-        VelocityLaw=VelocityLaw, startup_config=startup_config,
-        ConfigWatcher=ConfigWatcher, PLANT_KEYS=('thruster_matrix', 'characterization',
-            'decoupling', 'decoupling_negative'), Twist=lambda: (0., 0., 0.),
+        Node=InertNode, copy=copy, numpy=numpy, Plant=Plant,
+        VelocityLaw=VelocityLaw, load_config=load_config, declared=declared,
+        Twist=lambda: (0., 0., 0.),
         Vector3Stamped=object, Odometry=object, String=object, STATE_QOS=1, yaw_of=lambda q: 0.,
         SetParametersResult=lambda **kw: NS(**kw),
         time=NS(monotonic=lambda: clock.now), twist_values=lambda x: x,
@@ -256,7 +230,7 @@ def test_constructor_consumes_drift_time_and_command_gate(tmp_path, command_limi
     assert resources[-1][-1] == pytest.approx((expected, 0., 0.))
 
 
-def test_constructor_restart_consumes_fresh_yaml(tmp_path):
+def test_a_yaml_edit_waits_for_the_next_arm(tmp_path):
     from mhseals_hardware.configuration import save_config
     path = tmp_path / 'hardware.yaml'
     selected = config()
@@ -266,27 +240,14 @@ def test_constructor_restart_consumes_fresh_yaml(tmp_path):
     resources = []
     cls, _ = constructor(overrides, resources)
     n = cls()
-    n._law.integral[:] = .1
     law = n._law
     selected['controller'].update(kp=[3., 0., 0.], output_topic='/second')
     save_config(selected, path)
-    n._watch.mtime = None
-    n._watch.seen = n._watch._stat()
-    n._reload()
-    assert n._reload_error == 'restart required: controller'
-    assert n._law is law and list(law.integral) == [.1]*3
-    cls, _ = constructor(overrides, resources)
-    fresh = cls()  # a restart consumes the edited YAML
+    assert not hasattr(n, '_reload') and n._law is law and list(law.kp) == [2., 0., 0.]
+    fresh = constructor(overrides, resources)[0]()  # the next arm consumes the edited YAML
     fresh._law.observe((0., 0., 0.), 0., 1.)
     fresh._command((.12, 0., 0.))
     assert resources[-1] == ('message', '/second', pytest.approx((.56, 0., 0.)))
-    # Returning the desired YAML to the original running section clears pending state.
-    selected['controller'].update(kp=[2., 0., 0.], output_topic='/first')
-    save_config(selected, path)
-    n._watch.mtime = None
-    n._watch.seen = n._watch._stat()
-    n._reload()
-    assert n._reload_error == '' and n._law is law
 
 
 def test_constructor_consumes_obstacle_topic_distance_and_timeout(tmp_path):

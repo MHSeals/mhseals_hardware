@@ -175,41 +175,6 @@ def config_sha(config):
     return hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
-class ConfigWatcher:
-    """Reload the hardware YAML once an edit has settled.
-
-    A change is parsed only when the file's (mtime, size, inode) is the same on two
-    consecutive polls, so an in-place save caught mid-write is never applied as a
-    partial file (whose missing keys would fall back to the defaults).
-    """
-
-    def __init__(self, path):
-        self.path = path
-        self.mtime = self.seen = self._stat()  # applied key, and last tick's key
-
-    def _stat(self):
-        try:
-            st = os.stat(config_path(self.path))
-        except OSError:
-            return None
-        return st.st_mtime_ns, st.st_size, st.st_ino
-
-    def poll(self):
-        """The new config after a settled edit, else None; raises OSError/ValueError/KeyError on a bad one.
-
-        YAML syntax errors and wrong-typed values surface as ValueError, so a typo in a
-        live edit is rejected by the callers instead of killing the node.
-        """
-        key, previous, self.seen = self._stat(), self.seen, self._stat()
-        if key is None or key == self.mtime or key != previous:
-            return None
-        self.mtime = key
-        try:
-            return load_config(self.path)
-        except (yaml.YAMLError, TypeError) as error:
-            raise ValueError(f'invalid hardware YAML: {error}') from error
-
-
 def load_strict_yaml(path):
     """Parse a YAML file, refusing what could silently change meaning.
 
@@ -276,23 +241,6 @@ def _read_overrides(path):
         where = ', '.join(f'{path}:{lines[key]}' for key in unknown)
         raise ValueError(f'unknown hardware settings: {unknown} at {where}')
     return overrides
-
-
-def startup_config(node, path, hardware_parameters=True):
-    """Load the YAML at node startup: ``(effective, baseline)``.
-
-    ``baseline`` is the file layer (package defaults, then the operator file);
-    ``effective`` adds the node's launch/CLI parameter overrides. With
-    ``hardware_parameters`` False only controller keys can be overridden (mux, controller).
-    """
-    baseline = load_config(path)
-    defaults = load_defaults()
-    names = defaults if hardware_parameters else defaults['controller']
-    found = {name: _plain(node._parameter_overrides[name].value)
-             for name in names if name in node._parameter_overrides}
-    effective = dict(baseline, **found) if hardware_parameters else dict(
-        baseline, controller=dict(baseline['controller'], **found))
-    return _merge_overrides(effective), baseline
 
 
 def declared(node, section, names=None):
