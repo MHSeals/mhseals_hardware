@@ -173,8 +173,9 @@ RL  +1  +1  -1
   for an axis commanded below zero.
 - The result is proportionally desaturated, then converted to 1100-1900 us.
 - `reversed` flips a thruster wired or mounted backwards.
-- Other parameters: `output_backend`, `pwm_topic`, `pwm_chips`, `pwm_channels`,
-  `mosfet_chip`, `mosfet_line`, `mosfet_active_high`.
+- Other parameters: `output_backend`, `pwm_topic`. The board addresses
+  (`pwm_chips`, `pwm_channels`, `mosfet_*`) come only from `config/default.yaml`;
+  a `-p` that changes one refuses at start.
 
 `~/test_pulses` (`std_msgs/msg/UInt16MultiArray`, 1100-1900 us per physical
 output) takes raw bench pulses under the same watchdog. They are accepted only

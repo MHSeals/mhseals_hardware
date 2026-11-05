@@ -50,7 +50,7 @@ from std_srvs.srv import Trigger
 from mhseals_hardware import vessel
 from mhseals_hardware.command_arbitration import mux_input
 from mhseals_hardware.configuration import (
-    channel_map_source, config_sha, declared, load_config, plain, validate_config,
+    board_unchanged, channel_map_source, config_sha, declared, load_config, plain, validate_config,
 )
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
@@ -81,7 +81,7 @@ class ThrusterPWMNode(Node):
         # mappings (command_mux, controller, characterization) come from the YAML only.
         self.declare_parameter('config_file', '')
         config_file = self.get_parameter('config_file').value or None
-        self.config = validate_config(declared(self, load_config(config_file)))
+        self.config = validate_config(board_unchanged(declared(self, load_config(config_file))))
         self.map_source = channel_map_source(config_file)  # the layer the ready line names
         self.declared = {key for key, value in self.config.items() if not isinstance(value, dict)}
         self.session = uuid.uuid4().hex[:8]
