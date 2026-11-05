@@ -97,3 +97,10 @@ def test_a_symlinked_env_reads_the_vessel_it_points_at(boat, tmp_path, monkeypat
 def test_update_config_validates_over_the_vessel_layer(boat, tmp_path):
     update_config({'reversed': [True, False, False, False]}, tmp_path / 'hardware.yaml')
     assert load_config(tmp_path / 'hardware.yaml')['channel_map'] == [1, 3, 2, 4]
+
+
+def test_a_vessel_profile_edit_is_seen_by_the_next_load(boat, tmp_path):
+    """Bench check step 6 fixes the profile's value; a long-lived process (TUI, agent) sees it on its next load."""
+    assert load_config(empty(tmp_path))['channel_map'] == [1, 3, 2, 4]
+    boat('{channel_map: [4, 3, 2, 1]}')
+    assert load_config(empty(tmp_path))['channel_map'] == [4, 3, 2, 1]
