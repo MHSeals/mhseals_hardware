@@ -1,4 +1,4 @@
-"""The driver reads its arm snapshot once; only C and command_timeout change live (SetParameters)."""
+"""The driver reads its arm snapshot once; only C changes live (SetParameters)."""
 
 import pytest
 
@@ -237,8 +237,8 @@ def test_outside_set_edit_is_refused_with_a_reason(tmp_path, monkeypatch):
         result = node.set_parameters([thruster_pwm_node.Parameter('frequency', value=60.0)])[0]
         assert not result.successful and 'next arm' in result.reason
         result = node.set_parameters([thruster_pwm_node.Parameter('command_timeout', value=1.0)])[0]
-        assert result.successful and node.command_timeout == 1.0
-        assert node.get_parameter('command_timeout').value == 1.0
+        assert not result.successful and 'next arm' in result.reason
+        assert node.command_timeout == node.get_parameter('command_timeout').value != 1.0
     finally:
         node.destroy_node()
         rclpy.shutdown()

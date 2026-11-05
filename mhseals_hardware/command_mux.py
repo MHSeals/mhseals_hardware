@@ -18,7 +18,7 @@ no pulse, a reset controller, outranked. Every other field is for display.
 
 The node reads the ``command_mux`` section of its arm snapshot, plus the top-level
 ``command_timeout`` the driver and the controller also read, once (``-p`` overrides win) and
-never watches the YAML. Only ``rc_scale``, ``command_timeout`` and ``ramp`` change live, through
+never watches the YAML. Only ``rc_scale`` and ``ramp`` change live, through
 SetParameters: validated, then applied at once. Every other edit applies at the next arm.
 """
 
@@ -42,7 +42,9 @@ STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 
 
-LIVE_PARAMETERS = ('rc_scale', 'command_timeout', 'ramp')
+LIVE_PARAMETERS = ('rc_scale', 'ramp')
+# Declared so a -p override wins, but fixed for the arm: the driver and controller share it.
+ARM_PARAMETERS = ('config_file', 'command_timeout')
 
 
 # Fields that move on every call (ages, rates, wall conversions, timing).
@@ -76,7 +78,7 @@ class CommandMux(Node):
         # The mux takes only the command_mux and topics sections.
         config = load_config(self.get_parameter('config_file').value or None)
         section, self.topics = mux_section(config), config['topics']
-        self.section = declared(self, section, LIVE_PARAMETERS)
+        self.section = declared(self, section, LIVE_PARAMETERS + ('command_timeout',))
         self.arbitration = Arbitration.from_config(self.section)
         self.add_on_set_parameters_callback(self._check_parameters)
         self.add_post_set_parameters_callback(self._commit_parameters)
@@ -105,9 +107,10 @@ class CommandMux(Node):
                 for p in parameters if p.name in LIVE_PARAMETERS}
 
     def _check_parameters(self, parameters):
-        """Live tunables are validated against the section they would join; config_file is fixed."""
-        if any(p.name == 'config_file' for p in parameters):
-            return SetParametersResult(successful=False, reason='applies at the next arm: config_file')
+        """Live tunables are validated against the section they would join; ARM_PARAMETERS are fixed."""
+        fixed = [p.name for p in parameters if p.name in ARM_PARAMETERS]
+        if fixed:
+            return SetParametersResult(successful=False, reason='applies at the next arm: ' + fixed[0])
         changes = self._live_changes(parameters)
         if changes:
             try:

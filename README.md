@@ -203,10 +203,10 @@ YAML, so the driver's e-stop and the mux always share one `command_mux` section.
 edit to the file applies at the next arm. The only live changes go through the
 standard SetParameters service, refused with the old value kept when validation fails
 and read back with GetParameters: on the driver `decoupling`, `decoupling_negative` (a
-`decoupling` set alone carries it along while the two are equal) and
-`command_timeout`; on `command_mux` `rc_scale`, `command_timeout` and `ramp` (applied at
-once); on the velocity controller its gains and `command_timeout`. Any other set is refused with "applies at
-the next arm". The driver's latched
+`decoupling` set alone carries it along while the two are equal); on `command_mux`
+`rc_scale` and `ramp` (applied at once); on the velocity controller its gains. Any other
+set, `command_timeout` included (all three stages read it once per arm, so they never
+diverge), is refused with "applies at the next arm". The driver's latched
 `~/status` reports what is in force under `live`. Agents set them through
 `boat_agent set`, so the TUI shows and logs the change.
 

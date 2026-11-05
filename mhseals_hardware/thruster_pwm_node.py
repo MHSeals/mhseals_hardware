@@ -26,9 +26,8 @@ shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
 heartbeat circuit. The ``~/estop`` service (std_srvs/Trigger) is the operator's
 e-stop: the same latched cut. The node reads its arm snapshot (``config_file``, with
 ``-p`` overrides) once and never watches the YAML: it lives one arm. Only the correction C
-(``decoupling``, ``decoupling_negative``) and ``command_timeout`` change live, through
-SetParameters, validated as a batch: a bad value is refused and the old one kept. A
-``decoupling`` set alone moves ``decoupling_negative`` with it while the two are equal (unset
+(``decoupling``, ``decoupling_negative``) changes live, through SetParameters, validated as a
+batch: a bad value is refused and the old one kept. A ``decoupling`` set alone moves ``decoupling_negative`` with it while the two are equal (unset
 in the YAML). Every other edit applies at the next arm; this node never reopens outputs.
 """
 
@@ -65,7 +64,7 @@ GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 TEST_HOLD_MAX_S = 5.0  # s; the longest a held test pulse lasts without another message
 HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s timeout
 # The only settings that change in a running driver, through SetParameters.
-PARAMETER_KEYS = ('command_timeout', 'decoupling', 'decoupling_negative')
+PARAMETER_KEYS = ('decoupling', 'decoupling_negative')
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
@@ -180,8 +179,6 @@ class ThrusterPWMNode(Node):
 
     def live_config(self, changes):
         """The running config with ``changes``, fully validated; raises on a bad one."""
-        if isinstance(changes.get('command_timeout'), bool):
-            raise ValueError('command_timeout must be numeric, not bool')
         return validate_config(dict(self.config, **changes))
 
     @staticmethod
