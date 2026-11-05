@@ -11,6 +11,7 @@ import pytest
 
 from mhseals_hardware import control_validation as validation
 from mhseals_hardware.command_arbitration import mux_input
+from mhseals_hardware.configuration import plain
 from mhseals_hardware.velocity_law import Plant, VelocityLaw
 from test_velocity_law import config
 
@@ -36,7 +37,7 @@ def node():
     cls.body = [n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name != '__init__']
     cls.bases = [ast.Name(id='ParameterOwner', ctx=ast.Load())]
     env = dict(vars(validation),
-               ParameterOwner=ParameterOwner, copy=copy, numpy=numpy, mux_input=mux_input,
+               ParameterOwner=ParameterOwner, plain=plain, copy=copy, numpy=numpy, mux_input=mux_input,
                Twist=lambda: (0., 0., 0.),
                SetParametersResult=lambda **kw: NS(**kw), time=NS(monotonic=lambda: 1.),
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
@@ -158,7 +159,7 @@ def constructor(overrides, resources):
     cls = next(n for n in ast.parse(path.read_text()).body if isinstance(n, ast.ClassDef))
     clock = NS(now=1.)
     env = dict(vars(validation),
-        Node=InertNode, copy=copy, numpy=numpy, Plant=Plant, mux_input=mux_input,
+        Node=InertNode, plain=plain, copy=copy, numpy=numpy, Plant=Plant, mux_input=mux_input,
         VelocityLaw=VelocityLaw, load_config=load_config, declared=declared,
         Twist=lambda: (0., 0., 0.),
         Vector3Stamped=object, Odometry=object, String=object, STATE_QOS=1, yaw_of=lambda q: 0.,

@@ -35,7 +35,7 @@ from std_msgs.msg import String
 
 from mhseals_hardware import hold_store
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, MUX_SCHEMA, mux_section
-from mhseals_hardware.configuration import declared, load_config
+from mhseals_hardware.configuration import declared, load_config, plain
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
 
 STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
@@ -103,8 +103,7 @@ class CommandMux(Node):
 
     @staticmethod
     def _live_changes(parameters):
-        return {p.name: list(p.value) if p.name == 'rc_scale' else p.value
-                for p in parameters if p.name in LIVE_PARAMETERS}
+        return {p.name: plain(p.value) for p in parameters if p.name in LIVE_PARAMETERS}
 
     def _check_parameters(self, parameters):
         """Live tunables are validated against the section they would join; ARM_PARAMETERS are fixed."""

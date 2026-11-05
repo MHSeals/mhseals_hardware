@@ -278,11 +278,13 @@ def declared(node, section, names=None):
     names = [k for k, v in section.items() if not isinstance(v, dict)] if names is None else names
     for name in names:
         node.declare_parameter(name, section[name])
-    return dict(section, **{name: _plain(node.get_parameter(name).value) for name in names})
+    return dict(section, **{name: plain(node.get_parameter(name).value) for name in names})
 
 
-def _plain(value):
-    """ROS array parameters arrive as sequences other than list; YAML and validators want lists."""
+def plain(value):
+    """ROS array parameters arrive as sequences other than list; YAML and validators want lists.
+
+    The one conversion: declared(), the driver's and controller's live parameters and the mux all use it."""
     return list(value) if isinstance(value, (tuple, array.array)) else value
 
 
@@ -431,8 +433,8 @@ def configure_args(parser, args=None):
     for key in config:
         if hasattr(parsed, key):
             value = getattr(parsed, key)
-            if _plain(value) != _plain(config[key]):
-                changes[key] = _plain(value)
+            if plain(value) != plain(config[key]):
+                changes[key] = plain(value)
             config[key] = value
     validate_config(config)
     if parsed.save_config:

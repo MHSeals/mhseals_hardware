@@ -10,7 +10,7 @@ import pytest
 pytestmark = pytest.mark.smoke
 
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, mux_section
-from mhseals_hardware.configuration import declared, load_defaults
+from mhseals_hardware.configuration import declared, load_defaults, plain
 
 
 def full(section):
@@ -57,7 +57,7 @@ def mux(section, overrides=None, **replace):
                STATE_QOS=None, qos_profile_sensor_data=None,
                load_config=lambda path: dict(load_defaults(), **yaml_config(section)),
                mux_section=mux_section,
-               declared=declared, MUX_SCHEMA='mhseals.mux/1',
+               declared=declared, plain=plain, MUX_SCHEMA='mhseals.mux/1',
                hold_store=NS(default_path=lambda: '/default', load=lambda path: {}),
                SetParametersResult=lambda **kw: NS(**kw),
                **{n.targets[0].id: ast.literal_eval(n.value) for n in tree.body

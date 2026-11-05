@@ -50,7 +50,7 @@ from std_srvs.srv import Trigger
 from mhseals_hardware import vessel
 from mhseals_hardware.command_arbitration import mux_input
 from mhseals_hardware.configuration import (
-    channel_map_source, config_sha, declared, load_config, validate_config,
+    channel_map_source, config_sha, declared, load_config, plain, validate_config,
 )
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
@@ -159,7 +159,7 @@ class ThrusterPWMNode(Node):
         changes = {}
         for parameter in parameters:
             if parameter.name in PARAMETER_KEYS:
-                changes[parameter.name] = self._plain(parameter.value)
+                changes[parameter.name] = plain(parameter.value)
             elif parameter.name in self.declared | {'config_file'}:
                 return SetParametersResult(
                     successful=False, reason='applies at the next arm; edit hardware.yaml')
@@ -171,7 +171,7 @@ class ThrusterPWMNode(Node):
 
     def commit_parameters(self, parameters):
         """Runs once the batch is stored: the driver uses what GetParameters now reads."""
-        changes = {parameter.name: self._plain(parameter.value) for parameter in parameters
+        changes = {parameter.name: plain(parameter.value) for parameter in parameters
                    if parameter.name in PARAMETER_KEYS}
         if not changes:
             return
@@ -184,11 +184,6 @@ class ThrusterPWMNode(Node):
     def live_config(self, changes):
         """The running config with ``changes``, fully validated; raises on a bad one."""
         return validate_config(dict(self.config, **changes))
-
-    @staticmethod
-    def _plain(value):
-        """ROS arrays arrive as array.array; the validators and the YAML want lists."""
-        return value if isinstance(value, (bool, int, float, str)) else list(value)
 
     def publish_status(self):
         """Latched ~/status: what the driver runs, for the TUI's owner and sync checks."""
