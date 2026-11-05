@@ -42,7 +42,7 @@ def node():
                twist_values=lambda x: x, twist_from=lambda x: tuple(x))
     exec(compile(ast.fix_missing_locations(ast.Module(body=[cls], type_ignores=[])), str(path), 'exec'), env)
     n = env['VelocityController']()
-    n._law = VelocityLaw(Plant(config()))
+    n._law = VelocityLaw(Plant(config()), drift_limit=.3)  # below the test plant's .4 m/s
     n.values = {key: getattr(n._law, key).tolist() if key in validation.VECTOR_GAINS
                 else getattr(n._law, key) for key in validation.GAIN_KEYS}
     n.values.update(command_timeout=.5, feedback=True)
@@ -84,6 +84,15 @@ def test_commit_preserves_observer_and_reprojects_integral():
     n._law.observe((0, 0, 0), 0, 1.)
     n._command((.12, 0, 0))
     assert n.sent[-1][0] > .2  # actual new PI law consumed
+
+
+def test_a_live_drift_limit_at_the_slowest_planar_limit_is_refused():
+    n = node()
+    law = n._law
+    slowest = min(law.plant.limits[:2])
+    result = n.set_parameters_atomically(patch(drift_limit=float(slowest)))
+    assert not result.successful and 'drift_limit' in result.reason
+    assert n._law is law and n.values['drift_limit'] == law.drift_limit
 
 
 @pytest.mark.parametrize('name', validation.TOPIC_KEYS + ('config_file', 'command_timeout'))

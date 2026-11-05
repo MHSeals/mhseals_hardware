@@ -99,6 +99,26 @@ def test_schema_covers_real_keys_with_required_fields():
     assert schema['command_timeout']['tier'] == 'restart'  # one value per arm for all three stages
 
 
+def _constant(module, name):
+    """A module-level tuple, read from source so the ROS nodes need no rclpy here."""
+    import ast
+    path = Path(__file__).parents[1] / 'mhseals_hardware' / f'{module}.py'
+    return next(ast.literal_eval(node.value) for node in ast.parse(path.read_text()).body
+                if isinstance(node, ast.Assign) and any(
+                    getattr(t, 'id', None) == name for t in node.targets))
+
+
+def test_schema_live_tier_matches_each_nodes_live_set():
+    from mhseals_hardware.control_validation import GAIN_KEYS
+    schema = yaml.safe_load((Path(__file__).parents[1] / 'config/schema.yaml').read_text())
+    live = {'': _constant('thruster_pwm_node', 'PARAMETER_KEYS'),
+            'command_mux': _constant('command_mux', 'LIVE_PARAMETERS'),
+            'controller': GAIN_KEYS + ('feedback',)}
+    for key, row in schema.items():
+        section, _, leaf = key.rpartition('.')
+        assert (row['tier'] == 'live') == (leaf in live.get(section, ())), key
+
+
 def test_default_yaml_is_loaded_strictly(tmp_path, monkeypatch):
     import mhseals_hardware.configuration as configuration
     bad = tmp_path / 'default.yaml'

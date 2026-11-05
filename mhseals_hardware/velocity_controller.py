@@ -87,6 +87,7 @@ class VelocityController(Node):
                 values[parameter.name] = parameter.value
         try:
             validate_controller(values)
+            validate_drift_limit(values['drift_limit'], self._law.plant.limits)
         except (TypeError, ValueError) as error:
             return SetParametersResult(successful=False, reason=str(error))
         candidate = copy.copy(self._law)
