@@ -1,4 +1,4 @@
-"""Deadman keyboard control for an omni boat on the manual lane ``/cmd_vel/manual``."""
+"""Deadman keyboard control for an omni boat on the manual lane (``topics.manual``)."""
 
 import argparse
 import sys

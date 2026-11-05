@@ -8,7 +8,7 @@ or serial transport.
 | --- | --- |
 | `thruster_pwm_node` | Mixes the mux's `topics.applied` effort into thruster pulses (real pins or a simulator topic) |
 | `calibrated_velocity_controller` | Closes the loop from SI velocity on `topics.auto` (`/cmd_vel`) to effort on `topics.effort` (`/cmd_vel_effort`), the mux's auto input |
-| `command_mux` | Arbitrates the effort lanes `topics.rc`, `topics.manual` and `topics.effort` into `topics.applied` (rc > manual > hold > auto). The stop switch (`command_mux.stop_ch`) holds the mux; with `estop_cuts_power` true the driver also cuts ESC power on it, latched until the next arm, and with it false the switch only holds |
+| `command_mux` | Arbitrates the effort lanes `topics.rc`, `topics.manual` and `topics.effort` into `topics.applied` (duplicate > rc > manual > hold > auto, docs/authority.md 2.2). The stop switch (`command_mux.stop_ch`) holds the mux; with `estop_cuts_power` true the driver also cuts ESC power on it, latched until the next arm, and with it false the switch only holds |
 | `keyboard_control` | Deadman keyboard publisher of effort commands |
 | `thruster_test` | Direct per-output PWM test |
 | `thruster_identify` | Finds which output drives each thruster and saves `channel_map` / `reversed` |
