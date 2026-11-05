@@ -12,7 +12,7 @@ thruster outputs. "The TUI" is the mhseals_testing operator console on any stati
 
 | Layer | Where | What it decides |
 |---|---|---|
-| Physical precedence | `command_mux` on the driver host, an arm child | which *input* reaches the driver: rc > manual > hold > auto |
+| Physical precedence | `command_mux` on the driver host, an arm child | which *input* reaches the driver: duplicate > rc > manual > hold > auto |
 | Attribution | mhseals_testing (the arbiter in the session owner) | which *owner* is behind the input: rc, keyboard, hold, agent, task, nav, procedure |
 
 Only the mux carries safety. The attribution layer only labels inputs and pauses or preempts them
@@ -21,8 +21,10 @@ cooperatively. Agents arm only through `boat_agent arm`, which shows a countdown
 
 Invariants:
 
-1. **A human override always wins, at once.** The mux forwards the highest input in the same callback
-   that receives it, with no timer wait. Nothing between the mux and the driver consults the TUI, the
+1. **A human override always wins, at once, except over a duplicate mux.** The mux forwards the
+   highest input in the same callback that receives it, with no timer wait. The one exception: while a
+   second mux publishes the same output (`duplicate`), this mux sends zeros even under RC MANUAL or a
+   stick takeover (2.2). Nothing between the mux and the driver consults the TUI, the
    arbiter or an agent. `pipeline_ms` in `~/state` is the measured time from receipt to the applied
    publish.
 2. **Only the mux output drives.** The driver mixes `topics.applied` and nothing else. The only
@@ -61,10 +63,11 @@ conversions do not count as a change (`command_mux.change_key`).
 ### 2.2 Inputs, holds and release
 
 ```
-input ∈ {rc, manual, hold, auto, idle}            priority rc > manual > hold > auto
+input ∈ {rc, manual, hold, auto, idle}            priority duplicate > rc > manual > hold > auto
+duplicate ⇒ hold with zeros, ahead of rc: a second mux publishes the same output
 rc      ⇔ rc valid ∧ (mode switch == MANUAL ∨ stick takeover latched)
 manual  ⇔ a topics.manual message within command_timeout
-hold    ⇔ any hold cause is set (or a second mux publishes the same output: duplicate)
+hold    ⇔ any hold cause is set
 auto    ⇔ a topics.effort message within command_timeout, ramped in over ramp; otherwise idle
 ```
 
@@ -77,7 +80,9 @@ auto    ⇔ a topics.effort message within command_timeout, ramped in over ramp;
   hold.
 - **Hold causes:** `rc_switch` (the switch at HOLD or OTHER, a level that holds again after a release),
   `rc_lost` (RC was driving and its frames went invalid or stale), `rc_stop` (a falling edge on
-  `stop_ch`), `rc_stick`, `keys` (manual input ended), `duplicate`, and any cause a `~/request` names.
+  `stop_ch`), `rc_stick`, `keys` (manual input ended), and any cause a `~/request` names. `duplicate`
+  is not a hold cause in this list: it outranks rc and cannot be released (it clears when the other mux
+  goes).
   The TUI's Space places `keys`, and its E (revoke_agent) places its own cause.
 - **Release:** moving the switch to GUIDED clears only the RC causes. A release with a token clears
   only the hold that token placed. A tokenless release (the TUI's U) clears every hold, except that it
@@ -99,7 +104,8 @@ The contract is `schema == "mhseals.mux/1"` plus `input`. A consumer reads only 
 
 Every other field is for display, and none of them is a contract: `seq`, `t_ns`, `since_ns`, `cause`
 (the reason the input became active: `rc_switch | rc_stick | stop_channel | manual_end | release |
-manual | auto | idle`, or a requested hold cause), `hold` (the oldest hold: `{by, cause, since_ns}`),
+manual | auto | idle`, or the raw hold cause: `rc_lost`, `duplicate` or a requested one; only `rc_stop`
+and `keys` are renamed), `hold` (the oldest hold: `{by, cause, since_ns}`),
 `holds` (each one with `has_token`, never the token), `rc` (valid, mode, pwm_mode, stick, rate_hz,
 interval_p95_s, age_s, stop_edge), `manual`, `auto`, `rejected` (non-finite commands dropped),
 `pipeline_ms`, `last_release` and `configuration`.
@@ -175,13 +181,21 @@ force. Each step names its atlas issue.
    (re-arm between them). Each one must latch with its cause (`operator`, `rc-stop`, `rc-lost`), cut ESC
    power (hardware.log "ESC power cut", the ESCs unpowered), refuse drive and pulses with "e-stop latched
    (<cause>)", and appear in events.jsonl.
-2. **RC takeover and failsafe (#91).** Bind the receiver and confirm that pre.rc passes. Then:
-   - a stick move takes over from an agent (the mux input becomes rc, and the takeover is journaled);
+2. **RC takeover and failsafe (#91).** Props off on the bench, or in water at low power, with the
+   physical kill in reach. Bind the receiver and confirm that pre.rc passes. Then:
+   - with the switch at GUIDED and an agent driving, hold ch1, ch2 or ch4 past `stick_takeover` for
+     `stick_time`: the mux input becomes rc with cause `rc_stick`, and the takeover is journaled. rc with
+     the switch at MANUAL (cause `rc_switch`) does not prove a takeover. Centre the sticks for
+     `stick_release`: an `rc_stick` hold stays;
    - with the switch at HOLD or MANUAL, U refuses with "RC switch is ...";
-   - transmitter-off while RC is in control latches rc-lost.
+   - transmitter-off while RC is in control latches rc-lost (with `estop_on_rc_loss` true, the default).
 3. **Thrust reaches the ESCs (#88).** Read the close-out session's events.jsonl and hardware.log first.
    Then run Thruster set (i) at low power on each output: every prop spins, and the Rb column reads back
    the commanded µs.
-4. **Velocity mode (#97), after step 3.** Disarmed, run `boat_agent set command_mode=velocity`, then arm.
-   Run one forward manual hold and one low-speed `/cmd_vel` step: `/odom/local` tracks the command. This
-   runs in the same nav smoke block as #96.
+4. **Velocity mode (#97), after step 3.** Boat in water, in open area; velocity tracking means nothing
+   on a bench. Disarmed, run `boat_agent set command_mode=velocity`, then arm. Publish on `topics.auto`
+   (`/cmd_vel`) at 10 Hz a surge step of 0.3 m/s (other axes 0) for 15 s, then 0. During the step the mux
+   input must be `auto` (`~/state`), and `/odom/local` surge must settle within 5 s and then stay within
+   0.1 m/s of the command, with no sustained sway or yaw. Manual keys skip the velocity controller
+   (`topics.manual` enters the mux as effort), so they do not test this. This runs in the same nav smoke
+   block as #96.
