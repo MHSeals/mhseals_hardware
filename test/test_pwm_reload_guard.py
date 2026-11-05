@@ -49,6 +49,7 @@ def pwm():
     node.outputs, node.error, node.session = NS(), '', 'inert'
     node.events, node.statuses = [], []
     node.status_pub = NS(publish=lambda msg: node.statuses.append(json.loads(msg.data)))
+    node.test, node.source, node.output_pub = None, 'neutral', NS(publish=lambda msg: None)
     log = lambda message, **_: node.events.append(message)  # noqa: E731
     node.get_logger = lambda: NS(info=log, error=log)
     node.declared, node.own_write = set(node.config), False

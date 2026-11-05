@@ -1,12 +1,21 @@
 """Mix ROS effort commands into thruster pulses: ODROID PWM pins or a simulator topic.
 
-Two inputs drive the outputs, newest message wins:
-  cmd_vel        Twist effort, through the decoupling, mixer, reversals and channel map
-  ~/test_pulses  UInt16MultiArray raw pulses per physical output (bench tests)
+Inputs:
+  cmd_vel              Twist effort, through the decoupling, mixer, reversals and channel map
+  ~/test_pulses        UInt16MultiArray raw pulses per physical output (bench tests), held
+                       for ``command_timeout`` after each message
+  ~/test_pulses/held   String JSON {"pulses": [4 us], "hold_s": s, "seq": n}: the same, held
+                       for ``hold_s`` (at most TEST_HOLD_MAX_S) after each message, so a slow
+                       or stalled publisher does not chop the pulse
 Test pulses are accepted only while ``pulse_guard_topic`` (the command_mux ``~/state``)
 reports input ``auto`` or ``idle``, so they never outvote a human; no fresh state, no pulse.
 An empty ``pulse_guard_topic`` disables the guard (bench use without a mux).
-Either goes neutral after ``command_timeout`` without a message. With
+A live test pulse owns the outputs: the mux forwards cmd_vel (zeros too) at 25 Hz, which
+would otherwise overwrite the pulse within 40 ms. It ends, to neutral, when its hold runs
+out, on an all-neutral pulse, or at once when the guard reports another input (manual, rc,
+a hold) or goes stale; cmd_vel drives again after. cmd_vel goes neutral after
+``command_timeout`` without a message. ``~/output`` (String JSON, 10 Hz and on each test
+change) reports what the outputs hold, read back from them, its source and the test seq. With
 ``estop_cuts_power``, the RC stop-channel edge on ``/mavros/rc/in`` cuts the
 MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
@@ -50,6 +59,7 @@ from mhseals_hardware.thruster_mixer import (
 RELOAD_PERIOD = 1.0
 PULSE_INPUTS = ('auto', 'idle')  # mux inputs that leave the thrusters to autonomy or nobody
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
+TEST_HOLD_MAX_S = 5.0  # s; the longest a held test pulse lasts without another message
 HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s timeout
 # No runtime power/ownership proof permits structural changes in this node lifetime.
 RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
@@ -115,7 +125,11 @@ class ThrusterPWMNode(Node):
             self.create_subscription(RCIn, '/mavros/rc/in', self.rc_callback,
                                      qos_profile_sensor_data)
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
+        self.test = None  # the live test pulse: {pulses, seq, until}
+        self.source = 'neutral'  # what last wrote the outputs: cmd_vel, test, neutral, estop
+        self.output_pub = self.create_publisher(String, '~/output', 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
+        self.create_subscription(String, '~/test_pulses/held', self.held_pulses_callback, 10)
         self.declare_parameter('pulse_guard_topic', '/command_mux/state')
         self.guard_topic = self.get_parameter('pulse_guard_topic').value
         self.mux_input, self.mux_time = None, 0.0
@@ -286,25 +300,74 @@ class ThrusterPWMNode(Node):
             self.outputs.neutral()
             self.get_logger().warning('non-finite cmd_vel; thrusters neutral',
                                       throttle_duration_sec=1.0)
+            self.end_test('non-finite cmd_vel')
+            self.source = 'neutral'
             return
+        if self.test is not None:
+            return  # the test pulse owns the outputs until it ends
         self.drive(thruster_pulses(values, self.mixer, self.channel_map,
                                    self.reversed, self.decoupling, self.decoupling_negative,
                                    self.reverse_ratio))
 
     def pulses_callback(self, message):
-        """Raw pulses per physical output, for bench tests; validated by the outputs."""
-        pulses = list(message.data)
+        """Raw pulses per physical output, for bench tests, held for command_timeout."""
+        self.test_pulse(list(message.data), self.command_timeout, None)
+
+    def held_pulses_callback(self, message):
+        """Raw pulses per output held for the message's hold_s, tagged with its seq."""
+        try:
+            request = json.loads(message.data)
+            pulses, hold = list(request['pulses']), float(request['hold_s'])
+            seq = request.get('seq')
+            if not (math.isfinite(hold) and hold > 0):
+                raise ValueError(f'hold_s must be positive, got {hold}')
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            self.get_logger().error(f'test pulses rejected: {error}')
+            return
+        self.test_pulse(pulses, min(hold, TEST_HOLD_MAX_S), seq)
+
+    def test_pulse(self, pulses, hold, seq):
+        """Take the outputs for ``hold`` seconds (all neutral ends a test); validated here."""
         refusal = self.pulse_refusal()
         if refusal:
             self.get_logger().warning(f'test pulses rejected: {refusal}',
                                       throttle_duration_sec=1.0)
             return
-        try:
-            if len(pulses) != 4 or any(not MIN_PWM <= pulse <= MAX_PWM for pulse in pulses):
-                raise ValueError(f'need four pulses within {MIN_PWM}-{MAX_PWM} us, got {pulses}')
-            self.drive(pulses)
-        except ValueError as error:
-            self.get_logger().error(f'test pulses rejected: {error}')
+        if (len(pulses) != 4 or any(isinstance(pulse, bool) or not isinstance(pulse, int)
+                                    or not MIN_PWM <= pulse <= MAX_PWM for pulse in pulses)):
+            self.get_logger().error(
+                f'test pulses rejected: need four pulses within {MIN_PWM}-{MAX_PWM} us, '
+                f'got {pulses}')
+            return
+        if self.estop.latched:
+            return
+        if all(pulse == self.outputs_neutral() for pulse in pulses):
+            self.end_test(None)
+            self.drive(pulses, 'neutral')
+            return
+        changed = self.test is None or self.test['pulses'] != pulses or self.test['seq'] != seq
+        self.test = dict(pulses=pulses, seq=seq, until=time.monotonic() + hold)
+        self.drive(pulses, 'test')
+        if changed:
+            self.publish_output()
+
+    def outputs_neutral(self):
+        return int(getattr(self.outputs, 'neutral_us', 1500))
+
+    def end_test(self, reason):
+        """End a live test pulse at neutral; ``reason`` None: its sender ended it."""
+        if self.test is None:
+            return
+        self.test = None
+        if reason:
+            self.get_logger().warning(f'test pulse ended: {reason}; thrusters neutral')
+        if not self.estop.latched:
+            self.outputs.neutral()
+            self.source = 'neutral'
+            # Neutral now; cmd_vel takes over at its next frame, the deadman runs from here.
+            self.last_command_time = time.monotonic()
+            self.timed_out = False
+        self.publish_output()
 
     def guard_callback(self, message):
         try:
@@ -312,6 +375,10 @@ class ThrusterPWMNode(Node):
         except (ValueError, AttributeError):
             self.mux_input = None
         self.mux_time = time.monotonic()
+        if self.test is not None:
+            refusal = self.pulse_refusal()
+            if refusal:
+                self.end_test(refusal)  # a human or a hold takes over at once
 
     def pulse_refusal(self):
         """Why test pulses are refused now, or None when autonomy holds the thrusters."""
@@ -361,23 +428,47 @@ class ThrusterPWMNode(Node):
         self.last_beat = now
         self.outputs.mosfet.beat()
 
-    def drive(self, pulses):
+    def drive(self, pulses, source='cmd_vel'):
         if self.estop.latched:
             return  # cut and neutral; only a new driver (the arm path) powers on again
         self.outputs.set_pulse_widths(pulses)
+        self.source = source
         self.last_command_time = time.monotonic()
         self.timed_out = False
+
+    def publish_output(self):
+        """~/output: what the outputs hold now (read back from them), its source, the test."""
+        try:
+            pulses, error = [int(pulse) for pulse in self.outputs.readback()], ''
+        except Exception as failure:  # an unreadable pin must not stop the driver
+            pulses, error = None, str(failure)
+        test = self.test
+        self.output_pub.publish(String(data=json.dumps({
+            'session': self.session, 't_ns': time.time_ns(), 'pulses': pulses, 'error': error,
+            'source': 'estop' if self.estop.latched else 'test' if test else self.source,
+            'test': None if test is None else {
+                'pulses': test['pulses'], 'seq': test['seq'],
+                'remaining_s': round(max(0.0, test['until'] - time.monotonic()), 3)}})))
 
     def watchdog_callback(self):
         if self.estop.enabled or self.estop.on_rc_loss:
             self.estop_step(self.estop.tick)  # RC gone stale while it controlled the boat
         self.retry_cut()
+        if self.estop.latched:
+            self.test = None
+        if self.test is not None:
+            # The test pulse has its own deadman: its hold, and the guard staying fresh.
+            refusal = self.pulse_refusal()
+            if refusal or time.monotonic() > self.test['until']:
+                self.end_test(refusal or 'hold ran out (no test pulse message)')
         # Fail neutral when the command stream stops (crashed teleop, lost link).
-        if (not self.timed_out and time.monotonic() - self.last_command_time >
+        elif (not self.timed_out and time.monotonic() - self.last_command_time >
                 self.command_timeout):
             self.outputs.neutral()
+            self.source = 'neutral'
             self.timed_out = True
             self.get_logger().warning('commands timed out; thrusters neutral')
+        self.publish_output()
 
     def retry_cut(self):
         """Latched but the MOSFET write failed, so the line still powers the ESCs: retry."""
