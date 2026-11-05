@@ -114,7 +114,9 @@ thruster moved, which way it turned, and whether thrust pointed the expected
 way; a wrong way is saved as `reversed`. Space, Q or Esc returns every output
 to neutral, and nothing is saved until you confirm. `--manual` enters a known
 mapping without pulses; `--output-backend topic` identifies the simulator's
-thrusters. Only `channel_map` and `reversed` are written. The test suite's
+thrusters. Only `channel_map` and `reversed` are written to the operator file
+(`--save-config` writes only the flags given), so defaults and the vessel profile
+still apply underneath. The test suite's
 Thrusters panel does the same.
 
 **Bench check of a vessel's profile wiring** (owner present, props off or boat

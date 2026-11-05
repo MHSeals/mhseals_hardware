@@ -2,9 +2,11 @@ import argparse
 import os
 
 import pytest
+import yaml
 
 from mhseals_hardware.configuration import (
-    configure_args, load_config, load_defaults, save_config, update_config, validate_config,
+    config_path, configure_args, load_config, load_defaults, save_config, update_config,
+    validate_config,
 )
 from mhseals_hardware.keyboard import decode_key
 
@@ -62,6 +64,7 @@ def test_cli_overrides_then_saves(tmp_path, monkeypatch):
     args = configure_args(parser, ['--mosfet-line', '5', '--save-config'])
     assert args.mosfet_line == 5
     assert load_config()['mosfet_line'] == 5
+    assert yaml.safe_load(config_path().read_text()) == {'mosfet_line': 5}  # only the flag
 
 
 @pytest.mark.parametrize(('sequence', 'key'), [

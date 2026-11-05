@@ -403,6 +403,10 @@ def parse_csv(text, cast=str):
     return tuple(cast(value.strip()) for value in text.split(','))
 
 
+def _plain(value):
+    return list(value) if isinstance(value, tuple) else value
+
+
 def configure_args(parser, args=None):
     """Apply shared defaults before parsing explicit CLI overrides.
 
@@ -417,11 +421,15 @@ def configure_args(parser, args=None):
     config = load_config(preliminary.config)
     parser.set_defaults(**config)
     parsed = parser.parse_args(args)
+    changes = {}
     for key in config:
         if hasattr(parsed, key):
-            config[key] = getattr(parsed, key)
+            value = getattr(parsed, key)
+            if _plain(value) != _plain(config[key]):
+                changes[key] = _plain(value)
+            config[key] = value
     validate_config(config)
     if parsed.save_config:
-        save_config(config, parsed.config)
+        update_config(changes, parsed.config)  # only the flags given, not every default
     parsed.hardware_config = config
     return parsed
