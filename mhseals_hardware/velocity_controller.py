@@ -26,7 +26,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from std_msgs.msg import String
 
 from mhseals_hardware.control_validation import (
-    GAIN_KEYS, SCALAR_GAINS, TOPIC_KEYS, VECTOR_GAINS, controller_section,
+    GAIN_KEYS, SCALAR_GAINS, VECTOR_GAINS, controller_section,
     validate_controller, validate_drift_limit,
 )
 from mhseals_hardware.command_arbitration import mux_input
@@ -67,9 +67,9 @@ class VelocityController(Node):
         self._pub = self.create_publisher(Twist, topics['effort'], 10)
         self._drift = self.create_publisher(Vector3Stamped, '~/drift', 10)
         self.create_subscription(Twist, topics['auto'], self._command, 10)
-        self.create_subscription(Odometry, value('odom_topic'), self._odom, 10)
+        self.create_subscription(Odometry, topics['odom'], self._odom, 10)
         self.create_subscription(String, topics['mux_state'], self._mux_state, STATE_QOS)
-        self.create_subscription(Vector3Stamped, value('obstacle_topic'), self._obstacle, 10)
+        self.create_subscription(Vector3Stamped, topics['obstacle'], self._obstacle, 10)
         self.add_on_set_parameters_callback(self._validate_gains)
         self.add_post_set_parameters_callback(self._commit_gains)
         self.create_timer(0.05, self._watchdog)
@@ -80,7 +80,7 @@ class VelocityController(Node):
         values = {name: plain(self.get_parameter(name).value)
                   for name in GAIN_KEYS + ('feedback',)}
         for parameter in parameters:
-            if parameter.name in TOPIC_KEYS + ('config_file', 'command_timeout'):
+            if parameter.name in ('config_file', 'command_timeout'):
                 return SetParametersResult(successful=False,
                                            reason='applies at the next arm: ' + parameter.name)
             if parameter.name in values:

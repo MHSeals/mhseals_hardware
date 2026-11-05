@@ -43,7 +43,7 @@ def test_a_yaml_edit_keeps_the_running_law_and_gains_apply_live(tmp_path):
         assert list(node._law.kp) == [1., 1., 1.] and list(node._law.drift) == [0.1, -0.2]
         assert not node.set_parameters([Parameter('kp', value=[1., 2.])])[0].successful
         assert list(node._law.kp) == [1., 1., 1.]
-        result = node.set_parameters([Parameter('odom_topic', value='/other')])[0]
+        result = node.set_parameters([Parameter('command_timeout', value=1.0)])[0]
         assert not result.successful and 'next arm' in result.reason
     finally:
         if node is not None:

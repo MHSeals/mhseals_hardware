@@ -96,7 +96,7 @@ def test_a_live_drift_limit_at_the_slowest_planar_limit_is_refused():
     assert n._law is law and n.values['drift_limit'] == law.drift_limit
 
 
-@pytest.mark.parametrize('name', validation.TOPIC_KEYS + ('config_file', 'command_timeout'))
+@pytest.mark.parametrize('name', ('config_file', 'command_timeout'))
 def test_an_arm_parameter_is_refused(name):
     n = node()
     old = n._law
@@ -184,8 +184,9 @@ def test_actual_constructor_consumes_yaml_and_explicit_invocation(tmp_path):
     from mhseals_hardware.configuration import save_config
     path = tmp_path / 'hardware.yaml'
     selected = config()
-    selected['controller'].update(kp=[2., 0., 0.], ki=[0., 0., 0.], odom_topic='/selected/odom')
-    selected['topics'].update(auto='/selected/input', effort='/selected/output')
+    selected['controller'].update(kp=[2., 0., 0.], ki=[0., 0., 0.])
+    selected['topics'].update(auto='/selected/input', effort='/selected/output',
+                              odom='/selected/odom')
     save_config(selected, path)
     resources = []
     cls, _ = constructor(dict(config_file=str(path), kp=array('d', [3., 0., 0.])), resources)
@@ -275,8 +276,8 @@ def test_constructor_consumes_obstacle_topic_distance_and_timeout(tmp_path):
     from mhseals_hardware.configuration import save_config
     path = tmp_path / 'hardware.yaml'
     selected = config()
-    selected['controller'].update(obstacle_topic='/selected/obstacle', proximity_distance=.3,
-                                  obstacle_timeout=.2)
+    selected['controller'].update(proximity_distance=.3, obstacle_timeout=.2)
+    selected['topics']['obstacle'] = '/selected/obstacle'
     save_config(selected, path)
     resources = []
     cls, clock = constructor(dict(config_file=str(path)), resources)

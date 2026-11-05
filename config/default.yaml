@@ -84,7 +84,8 @@ command_mux:
 # auto is the only SI lane: body velocity from Nav2, which only the velocity controller reads.
 # Every mux input is effort: effort (the auto lane: the controller's output or an effort
 # publisher), manual (the keys) and rc. applied is the mux output the driver mixes, and
-# mux_state the mux state (contract in command_mux).
+# mux_state the mux state (contract in command_mux). odom and obstacle are the velocity
+# controller's sensor inputs.
 topics:
   auto: /cmd_vel
   effort: /cmd_vel_effort
@@ -92,6 +93,9 @@ topics:
   rc: /mavros/rc/in
   applied: /cmd_vel/applied
   mux_state: /command_mux/state
+  odom: /odom/local
+  # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
+  obstacle: /perception/nearest_obstacle
 
 # Bumped (never reset) when the hardware changes physically (ballast, prop swap,
 # remount): calibrations recorded under an older epoch count as invalid.
@@ -100,7 +104,7 @@ hardware_epoch: 0
 # Optional field characterization written by mhseals_testing (boat_test or thrust_characterize).
 characterization: {}
 
-# Standalone controller inputs; managed profiles capture their topic bindings.
+# The velocity controller's gains and observer; its topics are in topics:.
 controller:
   kp: [0.8, 0.8, 0.6]
   ki: [0.6, 0.6, 0.4]
@@ -117,12 +121,9 @@ controller:
   # m: the estimate grows only after the boat has been carried this far along the
   # supposed current since it last got under way; the boat against a contact is not.
   drift_carry: 0.02
-  # m: while obstacle_topic puts an obstacle this close to the hull, the estimate doesn't
+  # m: while topics.obstacle puts an obstacle this close to the hull, the estimate doesn't
   # grow away from it (that could be the obstacle's reaction); 0 turns this off. A real
   # current setting off the obstacle is then left to the PI integral (less effort, not more).
   proximity_distance: 0.5
   # s: obstacle data older than this (or none) leaves only the carry gate, as without it.
   obstacle_timeout: 0.5
-  odom_topic: /odom/local
-  # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
-  obstacle_topic: /perception/nearest_obstacle

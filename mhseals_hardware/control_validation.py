@@ -36,10 +36,8 @@ def validate_drift_limit(drift_limit, limits):
                          f'velocity limit {slowest} m/s')
 
 
-# The controller's own sensor inputs; its command lanes come from the topics: section.
-TOPIC_KEYS = ('odom_topic', 'obstacle_topic')
-CONTROLLER_KEYS = GAIN_KEYS + ('feedback',) + TOPIC_KEYS
-MOTION_TOPICS = ('auto', 'effort', 'manual', 'rc', 'applied', 'mux_state')
+CONTROLLER_KEYS = GAIN_KEYS + ('feedback',)
+MOTION_TOPICS = ('auto', 'effort', 'manual', 'rc', 'applied', 'mux_state', 'odom', 'obstacle')
 
 
 def ros_topic(topic, name):
@@ -69,8 +67,6 @@ def controller_section(values):
     if not isinstance(values, dict) or set(values) != set(CONTROLLER_KEYS):
         raise ValueError('controller must contain exactly the registered controller keys')
     validate_controller(values)
-    for name in TOPIC_KEYS:
-        ros_topic(values[name], f'controller.{name}')
     return {name: [float(v) for v in value] if name in VECTOR_GAINS
             else float(value) if name in SCALAR_GAINS else value
             for name, value in values.items()}

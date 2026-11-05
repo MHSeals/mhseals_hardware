@@ -49,7 +49,7 @@ def rig(tmp_path, monkeypatch):
         boat['input'] = json.loads(message.data)['input']
         boat['inputs'].append(boat['input'])
     probe.create_subscription(String, topics['mux_state'], state, command_mux.STATE_QOS)
-    odom = probe.create_publisher(Odometry, config['controller']['odom_topic'], 10)
+    odom = probe.create_publisher(Odometry, config['topics']['odom'], 10)
     pubs = {'auto': probe.create_publisher(Twist, topics['auto'], 10),
             'manual': probe.create_publisher(Twist, topics['manual'], 10)}
     executor = SingleThreadedExecutor()
