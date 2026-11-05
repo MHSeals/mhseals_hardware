@@ -12,7 +12,7 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 
-from mhseals_hardware.configuration import configure_args, load_config, save_config
+from mhseals_hardware.configuration import configure_args, update_config
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.menu import Cancelled, select_option  # noqa: F401 (Cancelled re-exported)
 from mhseals_hardware.outputs import BACKENDS, make_outputs
@@ -112,11 +112,11 @@ def save_mapping(console, channel_map, path, reversed=None):
     console.print(f'FL, FR, RR, RL -> physical outputs {list(channel_map)}{flips}')
     if console.input('Save this mapping? [y/N] ').strip().lower() != 'y':
         return
-    # Only the mapping is persisted; one-off overrides such as --output-backend are not.
-    config = dict(load_config(path), channel_map=list(channel_map))
+    # Only the mapping is persisted: defaults and the vessel profile stay underneath.
+    changes = {'channel_map': list(channel_map)}
     if reversed is not None:
-        config['reversed'] = list(reversed)
-    console.print(f'Saved {save_config(config, path)}')
+        changes['reversed'] = list(reversed)
+    console.print(f'Saved {update_config(changes, path)}')
 
 
 def main(args=None):
