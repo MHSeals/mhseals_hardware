@@ -48,13 +48,15 @@ def pushing():
 @pytest.mark.parametrize('name', TABLE)
 def test_the_controller_drives_only_while_the_mux_is_auto(name):
     n, plain = pushing(), pushing()
+    sent = len(n.sent)
     n._mux_state(message(name))
+    assert len(n.sent) == sent  # a zero here would refresh a stale auto lane
     n._command((.12, 0., 0.))
     plain._command((.12, 0., 0.))
     if TABLE[name][1]:
         assert n.sent[-1] == pytest.approx(plain.sent[-1]) and any(n.sent[-1])
     else:
-        assert n.sent[-2:] == [(0., 0., 0.)] * 2  # neutral at the state, and on each frame
+        assert n.sent[-1] == (0., 0., 0.)  # neutral on each frame
         assert not n._law.integral.any() and not n._law.effort.any()
         assert n._law.drift == pytest.approx((0.0, 0.1))  # the current estimate is kept
 

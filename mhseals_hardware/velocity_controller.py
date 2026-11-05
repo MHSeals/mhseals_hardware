@@ -132,11 +132,14 @@ class VelocityController(Node):
         self._last_command = now
 
     def _mux_state(self, message):
-        """Drive only while the mux input is auto; anything else, or unknown, resets."""
+        """Drive only while the mux input is auto; anything else, or unknown, resets.
+
+        Nothing is published here: the mux forwards the auto lane only while its input is auto,
+        and a zero on the transition would refresh a stale lane, so the mux would never idle.
+        """
         held = mux_input(message.data) != 'auto'
         if held and not self._held:
             self._law.reset()
-            self._pub.publish(Twist())
         self._held = held
 
     def _publish_drift(self):
