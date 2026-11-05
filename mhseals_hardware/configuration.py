@@ -413,10 +413,6 @@ def parse_csv(text, cast=str):
     return tuple(cast(value.strip()) for value in text.split(','))
 
 
-def _plain(value):
-    return list(value) if isinstance(value, tuple) else value
-
-
 def configure_args(parser, args=None):
     """Apply shared defaults before parsing explicit CLI overrides.
 
