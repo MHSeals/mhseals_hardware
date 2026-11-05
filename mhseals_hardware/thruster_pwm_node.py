@@ -24,12 +24,12 @@ MOSFET and latches: this process never powers the ESCs again (see estop.py);
 ``estop_on_rc_loss`` does the same when RC controlling the boat is lost. SIGTERM
 shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
 heartbeat circuit. The ``~/estop`` service (std_srvs/Trigger) is the operator's
-e-stop: the same latched cut. The correction C (``decoupling``,
-``decoupling_negative``) and ``command_timeout`` apply live, from the YAML (with
-``config_file`` set) or through SetParameters, validated as a batch: a bad value is refused
-and the old one kept. A ``decoupling`` set alone moves ``decoupling_negative`` with it while
-the two are equal (unset in the YAML). Wiring, pins and the mixer need a restart; this node
-never reopens outputs.
+e-stop: the same latched cut. The node reads its arm snapshot (``config_file``, with
+``-p`` overrides) once and never watches the YAML: it lives one arm. Only the correction C
+(``decoupling``, ``decoupling_negative``) and ``command_timeout`` change live, through
+SetParameters, validated as a batch: a bad value is refused and the old one kept. A
+``decoupling`` set alone moves ``decoupling_negative`` with it while the two are equal (unset
+in the YAML). Every other edit applies at the next arm; this node never reopens outputs.
 """
 
 import json
@@ -49,30 +49,22 @@ from std_msgs.msg import String, UInt16MultiArray
 from std_srvs.srv import Trigger
 
 from mhseals_hardware import vessel
-from mhseals_hardware.configuration import (
-    ConfigWatcher, config_sha, startup_config, validate_config,
-)
+from mhseals_hardware.configuration import config_sha, declared, load_config, validate_config
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.version import code_version
 from mhseals_hardware.thruster_mixer import (
-    MAX_PWM, MIN_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
+    MAX_PWM, MIN_PWM, NEUTRAL_PWM, thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
     validate_reverse_ratio, validate_reversed,
 )
 
-RELOAD_PERIOD = 1.0
 PULSE_INPUTS = ('idle',)  # the mux input that leaves the thrusters to nobody
 GUARD_MAX_AGE = 3.0  # s; the mux republishes ~/state at 1 Hz
 TEST_HOLD_MAX_S = 5.0  # s; the longest a held test pulse lasts without another message
 HEARTBEAT_STALL = 0.15  # s between flips; under the heartbeat circuit's ~0.22 s timeout
-# No runtime power/ownership proof permits structural changes in this node lifetime.
-RESTART_KEYS = OUTPUT_KEYS + ('frequency', 'channel_map', 'reversed', 'thruster_matrix',
-                              'reverse_thrust_ratio', 'characterization', 'hardware_epoch',
-                              'estop_cuts_power', 'estop_on_rc_loss', 'mosfet_heartbeat')
-# Settable through SetParameters as well as the YAML.
+# The only settings that change in a running driver, through SetParameters.
 PARAMETER_KEYS = ('command_timeout', 'decoupling', 'decoupling_negative')
-LIVE_KEYS = PARAMETER_KEYS + ('command_mux',)  # command_mux less its channels (see reload)
 STATUS_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                         durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 GUARD_QOS = STATUS_QOS  # the mux ~/state is latched the same way
@@ -83,28 +75,17 @@ class ThrusterPWMNode(Node):
 
     def __init__(self):
         super().__init__('thruster_pwm_node')
-        # Every hardware setting is a ROS parameter, defaulting to the YAML config.
+        # Every flat hardware setting is a ROS parameter defaulting to the arm snapshot; the
+        # mappings (command_mux, controller, characterization) come from the YAML only.
         self.declare_parameter('config_file', '')
-        self.config_file = self.get_parameter('config_file').value or None
-        config, file_layer = startup_config(self, self.config_file)
-        self.requested_config = file_layer
-        self.pending_restart_keys = []
-        self.file_config = file_layer  # the YAML as loaded, before any parameters
-        # Mappings (the characterization) can't be ROS parameters; they come
-        # from the YAML only.
-        keys = [key for key, value in config.items() if not isinstance(value, dict)]
-        for key in keys:
-            self.declare_parameter(key, config[key])
-        self.config = validate_config(dict(config, **{key: self.get_parameter(key).value
-                                                       for key in keys}))
-        if self.config != config:
-            raise ValueError('ROS overrides conflict with the loaded startup config')
-        self.declared = set(keys)
-        self.own_write = False  # true only while this node mirrors a reload into parameters
+        self.config = validate_config(declared(
+            self, load_config(self.get_parameter('config_file').value or None)))
+        self.declared = {key for key, value in self.config.items() if not isinstance(value, dict)}
         self.session = uuid.uuid4().hex[:8]
-        self.error = ''  # the last rejected reload; empty when the last one applied
         self.status_pub = self.create_publisher(String, '~/status', STATUS_QOS)
         self.apply(self.config)
+        # Before power: nothing slow runs between opening the outputs and the deadman.
+        self.version = code_version()
         # Opening arms the ESCs at neutral; destroy_node disarms them.
         self.outputs = make_outputs(self.config, node=self).open()
         try:
@@ -132,7 +113,6 @@ class ThrusterPWMNode(Node):
         self.create_subscription(Twist, 'cmd_vel', self.cmd_vel_callback, 10)
         self.test = None  # the live test pulse: {pulses, seq, until}
         self.refused = self.ended = None  # the last refused pulse and ended test: {reason, seq, t_ns}
-        self.version = code_version()
         self.source = 'neutral'  # what last wrote the outputs: cmd_vel, test, neutral, estop
         self.output_pub = self.create_publisher(String, '~/output', 10)
         self.create_subscription(UInt16MultiArray, '~/test_pulses', self.pulses_callback, 10)
@@ -149,9 +129,6 @@ class ThrusterPWMNode(Node):
         self.add_on_set_parameters_callback(self.check_parameters)
         self.add_post_set_parameters_callback(self.commit_parameters)
         self.create_timer(0.1, self.watchdog_callback)
-        if self.config_file:
-            self.watch = ConfigWatcher(self.config_file)
-            self.create_timer(RELOAD_PERIOD, self.reload_callback)
         source = vessel.env_path().parent if vessel.section('thrusters') else 'none'
         self.get_logger().info(
             f"thruster control ready ({self.config['output_backend']} outputs, channel_map "
@@ -167,33 +144,25 @@ class ThrusterPWMNode(Node):
         self.decoupling_negative = validate_decoupling(config['decoupling_negative'])
         self.reversed = validate_reversed(config['reversed'])
         self.reverse_ratio = validate_reverse_ratio(config['reverse_thrust_ratio'])
-        if getattr(self, 'estop', None) is not None:
-            self.estop.configure(config['command_mux'])
 
     def follow_correction(self, parameters):
         """A C set alone carries C- along while C- follows it, as an unset YAML C- does."""
         names = {parameter.name for parameter in parameters}
-        if (self.own_write or 'decoupling' not in names or 'decoupling_negative' in names
+        if ('decoupling' not in names or 'decoupling_negative' in names
                 or list(self.config['decoupling_negative']) != list(self.config['decoupling'])):
             return parameters
         source = next(parameter for parameter in parameters if parameter.name == 'decoupling')
         return list(parameters) + [Parameter('decoupling_negative', source.type_, source.value)]
 
     def check_parameters(self, parameters):
-        """Outside writes: live keys are validated as a batch, the rest are refused."""
-        if self.own_write:
-            return SetParametersResult(successful=True)
+        """Live keys are validated as a batch; every other setting applies at the next arm."""
         changes = {}
         for parameter in parameters:
             if parameter.name in PARAMETER_KEYS:
                 changes[parameter.name] = self._plain(parameter.value)
             elif parameter.name in self.declared | {'config_file', 'pulse_guard_topic'}:
-                reason = 'edit hardware.yaml'
-                if parameter.name in RESTART_KEYS + ('config_file', 'pulse_guard_topic'):
-                    reason = 'restart required; ' + reason
-                elif parameter.name not in LIVE_KEYS:
-                    reason = 'not a driver setting; ' + reason
-                return SetParametersResult(successful=False, reason=reason)
+                return SetParametersResult(
+                    successful=False, reason='applies at the next arm; edit hardware.yaml')
         try:
             self.live_config(changes)
         except (ValueError, TypeError, KeyError) as error:
@@ -202,8 +171,6 @@ class ThrusterPWMNode(Node):
 
     def commit_parameters(self, parameters):
         """Runs once the batch is stored: the driver uses what GetParameters now reads."""
-        if self.own_write:
-            return
         changes = {parameter.name: self._plain(parameter.value) for parameter in parameters
                    if parameter.name in PARAMETER_KEYS}
         if not changes:
@@ -232,77 +199,10 @@ class ThrusterPWMNode(Node):
                  'on' if mosfet.request is not None and mosfet.enabled else 'off')
         self.status_pub.publish(String(data=json.dumps({
             'session': self.session, 'mosfet': state, 'estop': self.estop.state(),
-            'config_sha': config_sha(self.file_config),
-            'requested_config_sha': config_sha(self.requested_config),
-            'effective_config_sha': config_sha(self.config),
-            'pending_restart_keys': self.pending_restart_keys,
+            'config_sha': config_sha(self.config),  # the snapshot, -p and live sets included
             'outputs': {key: self.config[key] for key in OUTPUT_KEYS},
             'live': {key: list(self.config[key]) if isinstance(self.config[key], (list, tuple))
-                     else self.config[key] for key in PARAMETER_KEYS},
-            'error': self.error})))
-
-    def reload_callback(self):
-        """Apply the YAML's edits; keep running on a bad one."""
-        try:
-            self.reload()
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            self.error = str(error)
-            self.get_logger().error(f'config reload rejected, keeping the old one: {error}')
-            self.publish_status()
-
-    def reload(self):
-        config = self.watch.poll()
-        if config is None:
-            return
-        self.requested_config = config
-        # The mux defers a stop or mode channel remap until nothing drives; this node can't
-        # tell when that is, so the e-stop takes those two only on a restart.
-        mux, old_mux = config.get('command_mux') or {}, self.file_config.get('command_mux') or {}
-        self.pending_restart_keys = sorted(
-            [key for key in RESTART_KEYS if config.get(key) != self.file_config.get(key)] +
-            ['command_mux.' + key for key in ('mode_ch', 'stop_ch')
-             if mux.get(key) != old_mux.get(key)])
-        if self.pending_restart_keys:
-            self.error = 'restart required: ' + ', '.join(self.pending_restart_keys)
-            self.get_logger().error(self.error)
-            self.publish_status()
-            return
-        # Diff against the accepted file so unrelated launch overrides survive.
-        changed = {key: config[key] for key in LIVE_KEYS
-                   if config[key] != self.file_config.get(key)}
-        if isinstance(config['command_timeout'], bool):
-            raise ValueError('command_timeout must be numeric, not bool')
-        new = validate_config(dict(self.config, **changed))
-        self.file_config, self.error = config, ''
-        self.config = new
-        self.apply(new)
-        self.sync_parameters({key: new[key] for key in changed if self.has_parameter(key)})
-        if changed:
-            self.get_logger().info('config reloaded: ' + ', '.join(
-                f'{key}={value}' for key, value in changed.items()))
-        self.publish_status()
-
-    def sync_parameters(self, values):
-        """Mirror applied values into the ROS parameters, matching each one's declared type."""
-        parameters = []
-        for key, value in values.items():
-            declared = self.get_parameter(key).value
-            # A hand-edited `1` for a float setting must not be refused as a type change.
-            if isinstance(declared, float) and isinstance(value, int) and not isinstance(value, bool):
-                value = float(value)
-            elif isinstance(declared, (list, tuple)) and declared and isinstance(declared[0], float):
-                value = [float(item) if isinstance(item, int) and not isinstance(item, bool) else item
-                         for item in value]
-            parameters.append(Parameter(key, value=value))
-        self.own_write = True
-        try:
-            results = self.set_parameters(parameters)
-        finally:
-            self.own_write = False
-        for result, parameter in zip(results, parameters):
-            if not result.successful:
-                self.get_logger().warning(
-                    f'parameter {parameter.name} not synced: {result.reason}')
+                     else self.config[key] for key in PARAMETER_KEYS}})))
 
     def cmd_vel_callback(self, message):
         # Twist effort -> per-thruster effort -> pulse widths -> physical outputs.
@@ -374,7 +274,7 @@ class ThrusterPWMNode(Node):
         return f'e-stop latched ({self.estop.cause}): ESC power is cut until re-armed'
 
     def outputs_neutral(self):
-        return int(getattr(self.outputs, 'neutral_us', 1500))
+        return int(getattr(self.outputs, 'neutral_us', NEUTRAL_PWM))
 
     def end_test(self, reason):
         """End a live test pulse at neutral; ``reason`` None: its sender ended it."""

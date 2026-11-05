@@ -295,6 +295,18 @@ def startup_config(node, path, hardware_parameters=True):
     return _merge_overrides(effective), baseline
 
 
+def declared(node, section, names=None):
+    """``section`` with each of ``names`` (default: every non-mapping key) as a ROS parameter.
+
+    Each is declared with its YAML value and read back, so a ``-p`` override wins and the file
+    gives the rest. A node reads its arm snapshot this way once, at startup; none watches the YAML.
+    """
+    names = [k for k, v in section.items() if not isinstance(v, dict)] if names is None else names
+    for name in names:
+        node.declare_parameter(name, section[name])
+    return dict(section, **{name: _plain(node.get_parameter(name).value) for name in names})
+
+
 def _plain(value):
     """ROS array parameters arrive as sequences other than list; YAML and validators want lists."""
     return list(value) if isinstance(value, (tuple, array.array)) else value
