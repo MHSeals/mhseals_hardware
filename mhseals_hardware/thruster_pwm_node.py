@@ -48,6 +48,7 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
 from std_msgs.msg import String, UInt16MultiArray
 from std_srvs.srv import Trigger
 
+from mhseals_hardware import vessel
 from mhseals_hardware.configuration import (
     ConfigWatcher, config_sha, startup_config, validate_config,
 )
@@ -151,8 +152,10 @@ class ThrusterPWMNode(Node):
         if self.config_file:
             self.watch = ConfigWatcher(self.config_file)
             self.create_timer(RELOAD_PERIOD, self.reload_callback)
+        source = vessel.env_path().parent if vessel.section('thrusters') else 'none'
         self.get_logger().info(
-            f"thruster control ready ({self.config['output_backend']} outputs)")
+            f"thruster control ready ({self.config['output_backend']} outputs, channel_map "
+            f"{self.config['channel_map']}, vessel thrusters: {source})")
 
     def apply(self, config):
         if isinstance(config['command_timeout'], bool):

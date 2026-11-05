@@ -2,6 +2,7 @@
 
 import array
 import contextlib
+import copy
 import fcntl
 import hashlib
 import json
@@ -14,6 +15,7 @@ import re
 
 import yaml
 
+from mhseals_hardware import vessel
 from mhseals_hardware.resources import config_resource
 from mhseals_hardware.command_arbitration import Arbitration
 from mhseals_hardware.control_validation import controller_section
@@ -146,16 +148,16 @@ def load_defaults():
 
 
 def load_config(path=None):
-    """Shipped defaults overlaid with the user's hardware YAML, if present.
+    """Defaults < the vessel profile's ``thrusters:`` < the operator YAML (README "Configuration").
 
     The YAML path is ``path``, else $MHSEALS_HARDWARE_CONFIG, else
-    ~/.config/mhseals/hardware.yaml. Unknown keys are rejected so typos fail
-    loudly instead of being ignored.
+    ~/.config/mhseals/hardware.yaml. Unknown keys in either layer are rejected so
+    typos fail loudly instead of being ignored.
     """
     selected = config_path(path)
     if not selected.exists() and (path or os.environ.get('MHSEALS_HARDWARE_CONFIG')):
         raise FileNotFoundError(selected)
-    return _merge_overrides(_read_overrides(selected))
+    return _merge_overrides({**copy.deepcopy(vessel.section('thrusters')), **_read_overrides(selected)})
 
 
 def config_sha(config):
