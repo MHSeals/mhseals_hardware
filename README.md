@@ -123,9 +123,13 @@ on stands; agents never run it):
    `reversed` if it equals the default).
 3. Restart the driver: `~/status` and the ready line show the profile's
    `thrusters: channel_map`.
-4. Pulse FL, FR, RR, RL one at a time through the guarded `~/test_pulses` path;
+4. Arm through the normal path (TUI or `boat_agent arm`, props off): the driver
+   runs from the session snapshot the arming process froze from its own
+   environment, so the snapshot's `channel_map` and the ready line must both show
+   the profile's map too.
+5. Pulse FL, FR, RR, RL one at a time through the guarded `~/test_pulses` path;
    each must spin the expected motor the expected way.
-5. On a wrong thruster restore the saved operator file and fix the profile's
+6. On a wrong thruster restore the saved operator file and fix the profile's
    value, not the operator file.
 
 ## Driver
@@ -180,8 +184,10 @@ Defaults live in `config/default.yaml` (installed to
 `share/mhseals_hardware/config/`); the operator file is
 `~/.config/mhseals/hardware.yaml` or `$MHSEALS_HARDWARE_CONFIG`. Startup order:
 package defaults, the vessel profile's `thrusters:` section (`vessel.py`: the
-profile holding `$ASTRO_NETWORK_ENV`; its keys are config keys, an unknown one
-refuses), the operator file, then explicit ROS parameters. The driver's ready
+profile holding `$ASTRO_NETWORK_ENV`; only `channel_map` and `reversed`, any
+other key refuses), the operator file, then explicit ROS parameters. A named
+vessel that cannot be read (env or a profile.yaml in its chain missing, or not
+strict YAML) refuses to load rather than falling back to the defaults. The driver's ready
 log line names the `channel_map` and the profile that supplied it, or `none`. Files go through
 a strict loader that refuses duplicate keys, anchors, aliases, merge keys and
 non-finite numbers, naming `file:line`. Python loading needs no ROS.
