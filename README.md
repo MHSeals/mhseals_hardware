@@ -144,7 +144,7 @@ on stands; agents never run it):
 
 ## Driver
 
-Armed by `boat_test` (`motion.children`); never started by hand on the boat, since
+Armed by `boat_test` (its arm adopts `motion.children` with the #102 companion); never started by hand on the boat, since
 that would power the ESCs outside the arm gate. It reads `topics.applied`, the
 command_mux output (`geometry_msgs/msg/Twist`, normalized **effort**, not m/s):
 `linear.x` is forward, `linear.y` port, `angular.z` counterclockwise. After
@@ -231,8 +231,8 @@ controller:
   odom_timeout: 0.4
 ```
 
-Other leaves: `integral_limit`, `feedback`, `drift_time_constant`,
-`drift_command_limit`, `drift_limit`, `drift_carry` (its topics, `odom` and
+The other leaves are the rest of `config/default.yaml`'s `controller:` section, the
+TUI's `proximity_distance` and `obstacle_timeout` among them (its topics, `odom` and
 `obstacle` included, come from `topics:`; an old file's `controller.odom_topic` or
 `controller.obstacle_topic` is read as `topics.odom` or `topics.obstacle`). Vectors are
 surge, sway, yaw. Unknown leaves and nulls refuse startup. The one top-level
