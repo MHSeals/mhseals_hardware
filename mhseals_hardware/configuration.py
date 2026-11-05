@@ -35,6 +35,9 @@ OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic', 'co
             'command_mux': ('cmd_timeout',)}
 SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
 WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
+# Board addresses: only config/default.yaml sets them, since host/mhseals-thruster-access prepares exactly those
+# files at boot. An operator file or arm snapshot may repeat them (a snapshot holds every key) but not change them.
+BOARD = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high')
 log = logging.getLogger(__name__)
 
 
@@ -293,6 +296,10 @@ def _merge_overrides(overrides):
     unknown = set(overrides) - set(defaults)
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
+    moved = [key for key in BOARD if key in overrides and plain(overrides[key]) != defaults[key]]
+    if moved:
+        raise ValueError(f'board address {", ".join(moved)}: set it in config/default.yaml and re-run '
+                         'scripts/install_odroid_access.sh (the boot service prepares only those files)')
     combined = dict(defaults, **overrides)
     for name in SECTIONS:
         if name in overrides:

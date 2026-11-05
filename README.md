@@ -43,6 +43,10 @@ The table is `odroid_pwm.J2_PINS`, which the TUI also reads. The addresses live
 only in `config/default.yaml`: `pwm_chips` (one stable platform glob per output,
 in output order; `pwmchipN` numbers are allocated at boot) and `pwm_channels`.
 `mosfet_chip` is a bank label resolved to `/dev/gpiochipN` at runtime.
+These five (`configuration.BOARD`, with `mosfet_line` and `mosfet_active_high`)
+are what `host/mhseals-thruster-access` prepares at boot, so an operator file or
+`--save-config` that changes one refuses: a new board is a `default.yaml` change
+plus `scripts/install_odroid_access.sh`. To move a thruster, edit `channel_map`.
 
 - Every entry point claims the MOSFET line first (inactive, so a second driver
   fails before it writes any PWM file), configures neutral PWM, then enables
