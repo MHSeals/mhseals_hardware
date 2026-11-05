@@ -4,8 +4,8 @@ import pytest
 
 pytestmark = pytest.mark.smoke
 
-from mhseals_hardware import vessel
-from mhseals_hardware.configuration import channel_map_source, load_config, update_config
+from mhseals_hardware import configuration, vessel
+from mhseals_hardware.configuration import load_config, load_layers, update_config
 
 
 def empty(tmp_path):
@@ -30,21 +30,33 @@ def boat(tmp_path, monkeypatch):
 
 
 def test_the_vessel_profile_sets_the_channel_map(boat, tmp_path):
-    assert load_config(empty(tmp_path))['channel_map'] == [1, 3, 2, 4]
-    # The driver's ready line names the layer that won.
-    assert channel_map_source(empty(tmp_path)) == f'vessel {(tmp_path / "boat").resolve()}'
+    config, source, profile = load_layers(empty(tmp_path))
+    assert config['channel_map'] == [1, 3, 2, 4]
+    # The driver's ready line names the layer that won and the profile, from the same read.
+    assert source == f'vessel {(tmp_path / "boat").resolve()}' and profile == (tmp_path / 'boat').resolve()
 
 
 def test_the_operator_file_wins_over_the_vessel(boat, tmp_path):
     operator = tmp_path / 'hardware.yaml'
     operator.write_text('channel_map: [2, 1, 3, 4]\n')
-    assert load_config(operator)['channel_map'] == [2, 1, 3, 4]
-    assert channel_map_source(operator) == str(operator)   # not the profile underneath
+    config, source, _ = load_layers(operator)
+    assert config['channel_map'] == [2, 1, 3, 4]
+    assert source == str(operator)   # not the profile underneath
 
 
 def test_without_a_vessel_env_the_defaults_stand(tmp_path):
-    assert load_config(empty(tmp_path))['channel_map'] == [1, 2, 3, 4]
-    assert channel_map_source(empty(tmp_path)) == 'defaults'
+    config, source, profile = load_layers(empty(tmp_path))
+    assert config['channel_map'] == [1, 2, 3, 4] and source == 'defaults' and profile is None
+
+
+def test_a_driver_load_warns_once_per_old_key(boat, tmp_path, monkeypatch):
+    """The ready line's source comes from load_config's read, so each migration warns once."""
+    operator = tmp_path / 'hardware.yaml'
+    operator.write_text('mosfet_heartbeat_hz: 0.0\ncontroller: {odom_topic: /odom/x}\n')
+    warnings = []
+    monkeypatch.setattr(configuration.log, 'warning', lambda *args: warnings.append(args))
+    load_layers(operator)
+    assert len(warnings) == 2
 
 
 def test_a_typo_in_the_vessel_thrusters_fails(boat, tmp_path):
