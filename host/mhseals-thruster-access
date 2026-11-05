@@ -37,7 +37,7 @@ for i in "${!globs[@]}"; do
         "${pwm}/enable" "${pwm}/period" "${pwm}/duty_cycle" "${pwm}/polarity"
 done
 
-selector=${MHSEALS_MOSFET_CHIP:-$bank}
+selector=$bank
 if [[ "$selector" =~ ^gpio[0-9]+$ ]]; then
     matches=()
     for label in /sys/bus/gpio/devices/gpiochip*/label; do
