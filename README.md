@@ -17,8 +17,8 @@ or serial transport.
 Run one driver and one selected command publisher only. Sensor, actuation,
 navigation and mission tests live in
 [`mhseals_testing`](https://github.com/mhseals/mhseals_testing)
-(`ros2 run mhseals_testing boat_test`), which arms `thruster_pwm_node` and
-`calibrated_velocity_controller` as supervised children.
+(`ros2 run mhseals_testing boat_test`), which arms `thruster_pwm_node`,
+`command_mux` and `calibrated_velocity_controller` as supervised children.
 
 [docs/authority.md](docs/authority.md) holds the reasoning behind the mux, the
 e-stop, the MOSFET heartbeat and the on-boat checks those paths still need.
@@ -290,7 +290,7 @@ python3 -m pytest -q                 # the full suite (CI reports it, never bloc
 ```
 
 The smoke tier covers config loading and the schema, the mixer, the driver's
-parameter guard and the live parameter callbacks; tests that start nodes skip without rclpy.
+parameter guard, the live parameter callbacks, the mux arbitration and the e-stop; tests that start nodes skip without rclpy.
 
 The package contains only pin-level and thruster code: PWM outputs, the ROS
 bridge, mixer, velocity controller, command mux, the test and identification
