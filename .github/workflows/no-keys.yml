@@ -1,0 +1,24 @@
+name: No committed keys
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  # No ssh or TLS private key and no ssh public key body is ever committed (keys live under ~/.ssh or
+  # ~/.config, never in a repo), nor a secrets or key file. A test dummy that must look like one
+  # carries "keyscan: dummy" on its line.
+  keys:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No key material or secrets files
+        run: |
+          found=$(git grep -nIE \
+              -e '-----BEGIN [A-Z ]*PRIVATE KEY' \
+              -e '(ssh-(ed25519|rsa|dss)|ecdsa-sha2-nistp[0-9]+|sk-(ssh-ed25519|ecdsa-sha2-nistp256)@openssh\.com) AAAA[A-Za-z0-9+/]{16,}' \
+              | grep -v 'keyscan: dummy' || true)
+          files=$(git ls-files | grep -E '(^|/)(\.env|secrets\.env|id_(rsa|dsa|ecdsa|ed25519)(_sk)?(\.pub)?|authorized_keys|[^/]+\.(pem|ppk|p12|pfx))$' || true)
+          if [ -n "$found$files" ]; then
+            printf '%s\n' "$found" "$files" | sed '/^$/d' | cut -c1-120
+            echo "::error::Key material or a secrets file is committed: remove it and rotate the key"
+            exit 1
+          fi
