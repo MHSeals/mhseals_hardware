@@ -15,8 +15,9 @@ J2_PINS = {
     2: (12, 'GPIO3_B2', 'PWM3'),
     3: (15, 'GPIO4_B3', 'PWM15'),
     4: (33, 'GPIO3_D0', 'PWM8'),
-    # MOSFET enable: (J2 pin, pad, GPIO bank label, line); moved from pin 11.
-    'mosfet': (13, 'GPIO3_D5', 'gpio3', 29),
+    # MOSFET enable: (J2 pin, pad); moved from pin 11. The bank and line live
+    # only in default.yaml mosfet_chip / mosfet_line.
+    'mosfet': (13, 'GPIO3_D5'),
 }
 
 

@@ -3,13 +3,18 @@ set -euo pipefail
 
 # The installed YAML is copied from the same defaults used by Python; the PWM
 # addresses (pwm_chips globs, pwm_channels) and the MOSFET bank come only from it.
-readonly CONFIG=/usr/local/share/mhseals/hardware-default.yaml
+# --print shows what was parsed and exits (the tests check it against Python).
+readonly CONFIG=${MHSEALS_HARDWARE_DEFAULTS:-/usr/local/share/mhseals/hardware-default.yaml}
 mapfile -t globs < <(awk '/^pwm_chips:/ {list = 1; next}
     list && /^ *- / {sub(/^ *- */, ""); sub(/ *#.*/, ""); print; next} {list = 0}' "$CONFIG")
 read -ra channels < <(awk '/^pwm_channels:/ {sub(/#.*/, ""); gsub(/[^0-9]+/, " "); print}' "$CONFIG") || true
 [[ ${#globs[@]} -gt 0 && ${#globs[@]} -eq ${#channels[@]} ]] || {
     echo "Expected matching pwm_chips and pwm_channels in $CONFIG" >&2; exit 1;
 }
+bank=$(awk '$1 == "mosfet_chip:" {print $2}' "$CONFIG")
+if [[ ${1:-} == --print ]]; then
+    printf '%s\n' "${globs[@]}" "${channels[*]}" "$bank"; exit 0
+fi
 
 for i in "${!globs[@]}"; do
     # shellcheck disable=SC2206  # the glob must expand
@@ -32,7 +37,7 @@ for i in "${!globs[@]}"; do
         "${pwm}/enable" "${pwm}/period" "${pwm}/duty_cycle" "${pwm}/polarity"
 done
 
-selector=${MHSEALS_MOSFET_CHIP:-$(awk '$1 == "mosfet_chip:" {print $2}' "$CONFIG")}
+selector=${MHSEALS_MOSFET_CHIP:-$bank}
 if [[ "$selector" =~ ^gpio[0-9]+$ ]]; then
     matches=()
     for label in /sys/bus/gpio/devices/gpiochip*/label; do
