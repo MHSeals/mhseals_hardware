@@ -2,7 +2,8 @@
 
 A velocity step on topics.auto moves a simulated boat (a first-order surge plant fed by the
 driver's topic outputs through the mux's applied effort), and manual effort reaches the driver
-unchanged, bypassing the controller, which resets while the mux input is not auto.
+unchanged, bypassing the controller, which resets while the mux input is not auto. Once nav
+stops, the mux goes idle and stays idle: the controller's reset publishes nothing.
 """
 
 import json
@@ -36,15 +37,18 @@ def rig(tmp_path, monkeypatch):
              thruster_pwm_node.ThrusterPWMNode()]
     probe = rclpy.create_node('probe')
     nodes.append(probe)
-    boat = {'x': 0.0, 'v': 0.0, 'applied': (0.0, 0.0, 0.0), 'effort': [], 'input': None}
+    boat = {'x': 0.0, 'v': 0.0, 'applied': (0.0, 0.0, 0.0), 'effort': [], 'input': None,
+            'inputs': [], 'cmd_timeout': config['command_mux']['cmd_timeout']}
 
     def applied(message):
         boat['applied'] = (message.linear.x, message.linear.y, message.angular.z)
     probe.create_subscription(Twist, topics['applied'], applied, 10)
     probe.create_subscription(Twist, topics['effort'],
                               lambda m: boat['effort'].append(m.linear.x), 10)
-    probe.create_subscription(String, topics['mux_state'], lambda m: boat.update(
-        input=json.loads(m.data)['input']), command_mux.STATE_QOS)
+    def state(message):
+        boat['input'] = json.loads(message.data)['input']
+        boat['inputs'].append(boat['input'])
+    probe.create_subscription(String, topics['mux_state'], state, command_mux.STATE_QOS)
     odom = probe.create_publisher(Odometry, config['controller']['odom_topic'], 10)
     pubs = {'auto': probe.create_publisher(Twist, topics['auto'], 10),
             'manual': probe.create_publisher(Twist, topics['manual'], 10)}
@@ -90,3 +94,14 @@ def test_a_velocity_step_moves_the_boat_and_manual_effort_bypasses_the_controlle
     assert boat['input'] == 'manual'
     assert boat['applied'] == pytest.approx((0.5, 0.0, 0.0))   # the keys' effort, unchanged
     assert boat['effort'][-1] == 0.0                       # the controller resets: neutral
+
+
+def test_the_mux_stays_idle_after_nav_stops(rig):
+    run, boat = rig
+    run(1.0, auto=0.3)
+    assert boat['input'] == 'auto'
+    run(boat['cmd_timeout'] + 0.5)                         # nav stops: the auto lane goes stale
+    assert boat['input'] == 'idle'
+    boat['inputs'].clear()
+    run(3 * boat['cmd_timeout'])                           # no zero from the controller refreshes it
+    assert boat['input'] == 'idle' and 'auto' not in boat['inputs'], boat['inputs']
