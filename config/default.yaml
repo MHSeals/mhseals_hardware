@@ -39,7 +39,7 @@ thruster_matrix: [
 ]
 # Rows and columns surge, sway, yaw, applied before the mixer: cancels the
 # cross-coupling the characterization measured. Identity means none. Entries within
-# +/-2, diagonal positive. Applies live (this file or SetParameters on the driver).
+# +/-2, diagonal positive. Read at arm; SetParameters on the driver changes it live.
 decoupling: [
   1.0, 0.0, 0.0,
   0.0, 1.0, 0.0,
@@ -61,7 +61,7 @@ manual_yaw_scale: 0.5
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
-# command_mux (Arbitration arguments). Applied live, but only while idle or holding.
+# command_mux (Arbitration arguments). Read at arm; only rc_scale and ramp change live (SetParameters).
 # mode_ch/stop_ch: 1-based RC channels. modes: the FCU MODE1..6 numbers (0 MANUAL,
 # 4 HOLD, 15 GUIDED). rc_scale: surge, sway, yaw fraction at full stick.
 # rc_max_age, stick_time, stick_release, ramp: seconds.
