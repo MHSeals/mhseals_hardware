@@ -130,21 +130,29 @@ def validate_reverse_ratio(value):
 
 def thruster_pulses(command, mixer, channel_map, reversed=(False,) * 4, decoupling=IDENTITY,
                     decoupling_negative=None, reverse_ratio=1.0):
-    """Effort command -> ESC pulse per physical output (outputs 1-4 in order).
+    """Effort command -> ESC pulse per physical output (outputs 1-4 in order); see mix_stages."""
+    return mix_stages(command, mixer, channel_map, reversed, decoupling, decoupling_negative,
+                      reverse_ratio)['outputs']
+
+
+def mix_stages(command, mixer=THRUSTER_MIXER, channel_map=(1, 2, 3, 4), reversed=(False,) * 4,
+               decoupling=IDENTITY, decoupling_negative=None, reverse_ratio=1.0):
+    """Every stage from an effort command to the physical pulses (docs/CONTROL.md L0-L3).
 
     Decouple the axes, mix and desaturate, flip reversed thrusters (a motor
     wired or a propeller mounted backwards), convert to pulses, then route each
     position to its output. Efforts are normalised, so the command is clamped
     to [-1, 1] first: a huge finite value must not overflow the mixer into NaN.
-    ``reverse_ratio`` is the thrust below 1500 us relative to above it.
+    ``reverse_ratio`` is the thrust below 1500 us relative to above it. The driver
+    uses only ``outputs``; ``mix`` prints them all.
     """
     command = tuple(max(-1.0, min(1.0, component)) for component in command)
     # The weak side of a flipped thruster is its positive canonical effort.
     ratios = [1.0 / reverse_ratio if flip else reverse_ratio for flip in reversed]
-    efforts = [-effort if flip else effort
-               for effort, flip in zip(mix_thrusters(*command, mixer, ratios, decoupling,
-                                                    decoupling_negative), reversed)]
-    return map_channels([effort_to_pulse(effort) for effort in efforts], channel_map)
+    stages = _mix(command, mixer, ratios, decoupling, decoupling_negative)
+    flipped = [-effort if flip else effort for effort, flip in zip(stages['effort'], reversed)]
+    pulses = [effort_to_pulse(effort) for effort in flipped]
+    return dict(stages, flipped=flipped, pulses=pulses, outputs=map_channels(pulses, channel_map))
 
 
 def map_channels(values, channel_map):
@@ -157,28 +165,41 @@ def map_channels(values, channel_map):
 
 def mix_thrusters(surge, sway, yaw, mixer=THRUSTER_MIXER, reverse_ratio=(1.0,) * 4,
                   decoupling=IDENTITY, decoupling_negative=None):
-    """Return normalized, desaturated outputs in FL, FR, RR, RL order.
+    """Normalized, desaturated efforts in FL, FR, RR, RL order (before reversal); see _mix."""
+    return _mix((surge, sway, yaw), mixer, reverse_ratio, decoupling, decoupling_negative)['effort']
 
-    Mixed in thrust, not effort: thrust goes as e|e| (``reverse_ratio`` weaker
-    below zero, per thruster), so each thruster sums the thrust every axis alone
+
+def thrust_of(effort, ratio=1.0):
+    """L1 thruster law: thrust goes as e|e|, ``ratio`` weaker below zero."""
+    return effort * abs(effort) * (ratio if effort < 0 else 1.0)
+
+
+def effort_of(force, ratio=1.0):
+    """The inverse of thrust_of."""
+    return math.copysign(math.sqrt(abs(force) / (ratio if force < 0 else 1.0)), force)
+
+
+def _mix(command, mixer, ratios, decoupling, decoupling_negative):
+    """The L3 and L2 stages, per thruster ratio.
+
+    Mixed in thrust, not effort: each thruster sums the thrust every axis alone
     (decoupled as before) would ask of it and takes the effort that produces the
     total. A single axis is unchanged; a combined command is the sum of its
     single-axis wrenches, so a diagonal neither turns (unequal forward and reverse
     thrust on a diagonal pair) nor bends toward the larger axis. Summing efforts
     instead gets both wrong.
     """
-    def thrust(effort, ratio):
-        return effort * abs(effort) * (ratio if effort < 0 else 1.0)
-
-    def effort(force, ratio):
-        return math.copysign(math.sqrt(abs(force) / (ratio if force < 0 else 1.0)), force)
-
+    columns = ['C-' if value < 0 else 'C' for value in command]
     parts = [decouple(axis_command(axis, value), decoupling, decoupling_negative)
-             for axis, value in zip(AXES, (surge, sway, yaw))]
-    commands = [effort(sum(thrust(sum(gain * part[k] for k, gain in enumerate(row)), ratio)
-                           for part in parts), ratio)
-                for row, ratio in zip(mixer, reverse_ratio)]
+             for axis, value in zip(AXES, command)]
+    # per_axis[i][k]: the effort thruster i would take for axis k alone (row i of M times part k).
+    per_axis = [[sum(gain * part[j] for j, gain in enumerate(row)) for part in parts]
+                for row in mixer]
+    thrust = [sum(thrust_of(value, ratio) for value in row)
+              for row, ratio in zip(per_axis, ratios)]
+    raw = [effort_of(force, ratio) for force, ratio in zip(thrust, ratios)]
     # Scale every thruster down together when any would exceed full effort: every
     # thrust shrinks by the same factor, so the wrench keeps its direction.
-    peak = max(1.0, *(abs(command) for command in commands))
-    return [command / peak for command in commands]
+    peak = max(1.0, *(abs(value) for value in raw))
+    return dict(command=command, columns=columns, parts=parts, per_axis=per_axis,
+                thrust=thrust, raw=raw, peak=peak, effort=[value / peak for value in raw])

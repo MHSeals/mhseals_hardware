@@ -252,3 +252,18 @@ def test_shipped_reverse_ratio_is_off():
     from pathlib import Path
     default = Path(__file__).resolve().parent.parent / 'config' / 'default.yaml'
     assert yaml.safe_load(default.read_text())['reverse_thrust_ratio'] == 1.0
+
+
+def test_mix_stages_are_the_driver_path_and_mix_prints_them():
+    from mhseals_hardware.configuration import load_defaults
+    from mhseals_hardware.mix import render
+    from mhseals_hardware.thruster_mixer import THRUSTER_MIXER, mix_stages, thruster_pulses
+    command = (0.9, -0.8, 0.7)
+    stages = mix_stages(command, THRUSTER_MIXER, (2, 1, 4, 3), (True, False, False, False),
+                        reverse_ratio=0.8)
+    assert stages['outputs'] == thruster_pulses(command, THRUSTER_MIXER, (2, 1, 4, 3),
+                                                (True, False, False, False), reverse_ratio=0.8)
+    assert stages['columns'] == ['C', 'C-', 'C'] and stages['peak'] > 1
+    assert stages['effort'] == pytest.approx([raw / stages['peak'] for raw in stages['raw']])
+    text = '\n'.join(render((0.5, 0, 0), load_defaults()))
+    assert 'outputs 1-4 (us): 1300 1300 1700 1700' in text
