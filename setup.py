@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 
@@ -11,7 +13,8 @@ setup(
         ('share/ament_index/resource_index/packages',
          ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        ('share/' + package_name + '/config', ['config/default.yaml', 'config/schema.yaml']),
+        ('share/' + package_name + '/config', sorted(glob('config/*.yaml'))),
+        ('share/' + package_name + '/launch', ['launch/drive.launch.py']),
     ],
     install_requires=['setuptools', 'rich', 'gpiod', 'PyYAML', 'numpy'],
     zip_safe=False,

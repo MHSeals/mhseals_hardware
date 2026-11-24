@@ -161,7 +161,11 @@ class VelocityController(Node):
 
 
 def main(args=None):
-    run_node(VelocityController, args)
+    try:
+        run_node(VelocityController, args)
+    except ValueError as error:  # no or bad characterization: one line, not a traceback
+        raise SystemExit(f'calibrated_velocity_controller refused to start: {error} '
+                         '(apply the speed tests first, or launch without controller:=true)')
 
 
 if __name__ == '__main__':
