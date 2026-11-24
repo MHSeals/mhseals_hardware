@@ -59,7 +59,7 @@ def test_empty_short_or_wild_frames_are_invalid():
         assert not a.valid(t * 0.01 + 0.005)
 
 
-def test_priority_rc_manual_hold_auto_idle():
+def test_priority_rc_manual_auto_idle():
     a = boat()
     assert a.select(0) == ('idle', (0, 0, 0))
     a.update_auto((1, 0, 0), 0)
@@ -68,30 +68,45 @@ def test_priority_rc_manual_hold_auto_idle():
     assert a.select(0.01)[0] == 'rc'
     a.update_rc(frame(mode=HIGH), 0.1)
     assert a.select(0.11) == ('manual', (0.2, 0, 0))
-    a.request('hold', 'space', 'tui', 0.12)
-    assert a.select(0.13)[0] == 'manual'            # manual outranks hold
-    assert a.select(1.1)[0] == 'hold'               # keys ended: still held
     a2 = boat()
     a2.update_auto((0.3, 0, 0), 0)
     assert a2.select(0.1) == ('auto', (0.3, 0, 0))
     assert a2.select(0.7)[0] == 'idle'
 
 
-def test_rc_lost_while_active_holds():
+def test_keyboard_stopping_falls_through_to_auto_with_the_ramp_then_idle():
+    """The owner's rule: a lost input goes neutral and nothing stays locked."""
+    a = boat()
+    for i in range(10):                               # keys held for 0.5 s
+        a.update_manual((0.4, 0, 0), i * 0.05)
+        assert a.select(i * 0.05) == ('manual', (0.4, 0, 0))
+    # Ctrl-C with a key down: no more manual frames. A controller publishes effort.
+    for t in (0.6, 0.8, 1.0):
+        a.update_auto((1.0, 0, 0), t)
+    assert a.select(0.5)[0] == 'manual'              # within command_timeout
+    source, cmd = a.select(1.0)                       # manual stale: auto, ramping from zero
+    assert source == 'auto' and cmd[0] < 0.5
+    a.update_auto((1.0, 0, 0), 2.0)
+    assert a.select(2.0) == ('auto', (1.0, 0, 0))     # fully ramped, no release step
+    assert a.select(2.6) == ('idle', (0, 0, 0))       # auto stopped too: neutral
+    assert a.state(2.6)['holds'] == []
+    b = boat()
+    b.update_manual((0.4, 0, 0), 0)
+    assert b.select(0.6) == ('idle', (0, 0, 0))       # no other lane: neutral, no hold
+    b.update_manual((0.2, 0, 0), 5.0)
+    assert b.select(5.0) == ('manual', (0.2, 0, 0))   # the keys again drive at once
+
+
+def test_rc_lost_falls_through_without_a_hold():
     a = boat()
     a.update_rc(frame(mode=LOW), 0)
     assert a.select(0.1)[0] == 'rc'
-    assert a.select(0.5) == ('hold', (0, 0, 0))     # frame older than 0.3 s
-    assert 'rc_lost' in a.holds
+    assert a.select(0.5) == ('idle', (0, 0, 0))      # frame older than 0.3 s
+    a.update_auto((0.3, 0, 0), 1.0)
+    assert a.select(1.1)[0] == 'auto'
 
 
-def test_stale_rc_that_was_never_active_does_not_hold():
-    a = boat()
-    a.update_rc(frame(mode=HIGH), 0)
-    assert a.select(1.0)[0] == 'idle' and not a.holds
-
-
-def test_switch_to_hold_sets_a_hold_and_guided_clears_it():
+def test_switch_at_hold_holds_while_there_and_frees_when_moved():
     a = boat()
     a.update_rc(frame(mode=HIGH), 0)
     a.update_rc(frame(mode=MID), 0.1)
@@ -102,55 +117,28 @@ def test_switch_to_hold_sets_a_hold_and_guided_clears_it():
     assert a.select(0.21)[0] == 'auto'
 
 
-def test_guided_never_clears_a_keys_hold():
-    a = boat()
-    a.update_rc(frame(mode=MID), 0)
-    a.request('hold', 'keys', 'tui', 0.01)
-    a.update_rc(frame(mode=HIGH), 0.1)
-    assert list(a.holds) == ['keys']
-
-
-def test_keyboard_ending_sets_a_keys_hold():
-    a = boat()
-    a.update_manual((0.2, 0, 0), 0)
-    assert a.select(0.1)[0] == 'manual'
-    assert a.select(0.6)[0] == 'hold' and a.holds['keys']['by'] == 'keys'
-
-
-def test_placing_a_cause_again_restarts_its_since():
-    a = boat()
-    a.request('hold', 'space', 'tui', 0.0)
-    a.request('hold', 'space', 'tui', 0.4)
-    assert a.holds['space']['since'] == 0.4
-
-
-def test_a_tokened_repeat_keeps_its_since_and_a_new_token_restarts_it():
-    a = boat()
-    a.request('hold', 'watchdog', 'nav', 0.0, token='t')
-    a.request('hold', 'watchdog', 'nav', 0.4, token='t')
-    assert a.holds['watchdog']['since'] == 0.0
-    a.request('hold', 'watchdog', 'nav', 0.8, token='u')
-    assert a.holds['watchdog']['since'] == 0.8
-
-
-def test_stop_switch_falling_edge_holds():
+def test_stop_switch_edge_holds_until_it_goes_back_up():
     a = boat()
     a.update_rc(frame(arm=1900), 0)
     a.update_rc(frame(arm=1100), 0.05)
-    assert 'rc_stop' in a.holds
-    a.update_rc(frame(mode=MID), 0.15)
-    a.update_rc(frame(mode=HIGH), 0.2)               # GUIDED clears RC causes
-    assert not a.holds
+    a.update_auto((0.3, 0, 0), 0.1)
+    assert a.select(0.1)[0] == 'hold' and a.state(0.1)['cause'] == 'stop_channel'
+    a.update_rc(frame(arm=1100), 0.15)                # still down: still held
+    assert a.select(0.15)[0] == 'hold'
+    a.update_rc(frame(arm=1900), 0.2)                 # back up: cleared
+    a.update_auto((0.3, 0, 0), 0.2)
+    assert a.select(0.2)[0] == 'auto'
 
 
-def test_stick_latch_takes_over_then_holds_on_release():
+def test_stick_takeover_then_release_falls_through():
     a = boat()
     a.update_rc(frame(sticks=PUSH), 0)
     assert a.select(0.1)[0] != 'rc'                  # not held long enough
     latch(a)
     for t in (0.3, 0.5, 0.7, 0.9):                   # sticks centered
         a.update_rc(frame(), t)
-    assert a.select(0.9)[0] == 'hold' and 'rc_stick' in a.holds
+        a.update_auto((0.3, 0, 0), t)
+    assert a.select(0.9)[0] == 'auto' and not a.latched
 
 
 def test_latched_takeover_survives_a_gentle_offset():
@@ -171,60 +159,22 @@ def test_small_stick_movement_does_not_latch():
 def test_rc_loss_drops_the_latch_until_a_new_takeover():
     a = boat()
     latch(a)
-    assert a.select(1.0)[0] == 'hold' and not a.latched
+    assert a.select(1.0)[0] == 'idle' and not a.latched
     a.update_rc(frame(), 2.0)
-    assert a.select(2.0)[0] == 'hold'
+    assert a.select(2.0)[0] == 'idle'
 
 
-def test_release_refused_at_hold_or_manual_switch():
+def test_hold_ramps_auto_from_zero_over_one_second():
     a = boat()
     a.update_rc(frame(mode=MID), 0)
-    ok, why = a.request('release', 'keys', 'u', 0.01)
-    assert not ok and 'HOLD' in why
-    a.update_rc(frame(mode=LOW), 0.1)
-    assert not a.request('release', 'keys', 'u', 0.11)[0]
-
-
-def test_u_release_clears_every_cause_in_guided():
-    a = boat()
-    a.request('hold', 'keys', 'tui', 0)
-    a.request('hold', 'space', 'tui', 0)
-    a.update_rc(frame(mode=HIGH), 0.1)
-    assert a.request('release', None, 'tui', 0.11) == (True, '')
-    assert not a.holds
-
-
-def test_token_release_clears_only_its_cause():
-    a = boat()
-    a.request('hold', 'apply', 'config', 0, token='t1')
-    a.request('hold', 'keys', 'tui', 0)
-    assert not a.request('release', 'apply', 'x', 0.1, token='bad')[0]
-    assert a.request('release', 'apply', 'config', 0.1, token='t1')[0]
-    assert list(a.holds) == ['keys']
-
-
-def test_release_ramps_auto_from_zero_over_one_second():
-    a = boat()
-    a.request('hold', 'space', 'tui', 0)
     a.update_auto((1.0, 0, 0), 0)
     assert a.select(0.1)[0] == 'hold'
-    a.request('release', None, 'tui', 1.0)
+    a.update_rc(frame(mode=HIGH), 1.0)
     a.update_auto((1.0, 0, 0), 1.0)
     assert a.select(1.0) == ('auto', (0.0, 0, 0))
+    a.update_rc(frame(mode=HIGH), 1.5)
     a.update_auto((1.0, 0, 0), 1.5)
     assert a.select(1.5)[1][0] == pytest.approx(0.5)
-    a.update_auto((1.0, 0, 0), 2.1)
-    assert a.select(2.1)[1][0] == 1.0
-
-
-def test_hold_between_selects_still_ramps():
-    a = boat()
-    a.update_auto((1, 0, 0), 0)
-    assert a.select(0)[0] == 'auto'
-    a.request('hold', 'space', 'tui', 0.01)
-    a.request('release', None, 'tui', 0.1)
-    a.update_auto((1, 0, 0), 0.1)
-    assert a.select(0.1) == ('auto', (0.0, 0, 0))
 
 
 def test_idle_to_auto_is_not_ramped():
@@ -259,14 +209,14 @@ def test_zero_ramp_means_no_ramp():
     assert a.select(0.31)[1] == (0.4, 0.0, 0.0)
 
 
-def test_switch_left_at_hold_holds_again_after_dropout_and_release():
+def test_switch_left_at_hold_frees_on_dropout_and_holds_again_when_back():
     a = boat()
     a.update_rc(frame(mode=MID), 0)
     a.update_auto((0.4, 0.0, 0.0), 0)
     assert a.select(0.01)[0] == 'hold'
-    assert a.request('release', None, 'tui', 5)[0]     # RC stale: allowed
-    a.update_rc(frame(mode=MID), 5.1)                  # back, still at HOLD
-    a.update_auto((0.4, 0.0, 0.0), 5.1)
+    a.update_auto((0.4, 0.0, 0.0), 5)
+    assert a.select(5)[0] == 'auto'                   # RC gone: no stop is chosen any more
+    a.update_rc(frame(mode=MID), 5.1)                 # back, still at HOLD
     assert a.select(5.11)[0] == 'hold'
 
 
@@ -277,7 +227,7 @@ def test_non_finite_commands_never_reach_select(bad):
     a.update_manual((0.1, 0, 0), 0)
     a.update_manual(bad, 0.1)
     assert a.select(0.2) == ('manual', (0.1, 0, 0))
-    assert a.select(0.7)[0] == 'hold'       # keys timed out: the bad frame did not refresh it
+    assert a.select(0.7)[0] == 'idle'       # keys timed out: the bad frame did not refresh it
     b = boat()
     b.update_auto((0.2, 0, 0), 0)
     b.update_auto(bad, 0.1)
@@ -286,42 +236,16 @@ def test_non_finite_commands_never_reach_select(bad):
     assert a.rejected == b.rejected == 1
 
 
-def test_state_never_publishes_a_hold_token():
-    a = arbitration()
-    a.request('hold', 'apply', 'config_revert', 0, token='s3cret')
-    state = a.state(0.1)
-    assert 's3cret' not in repr(state)
-    assert state['holds'][0]['has_token'] is True
-    assert 'token' not in state['holds'][0]
-
-
-def test_releases_record_who_and_whether_tokenless():
-    a = arbitration()
-    a.request('hold', 'apply', 'config', 0, token='t1')
-    a.request('release', 'apply', 'config', 0.1, token='t1')
-    assert a.state(0.2)['last_release'] == {
-        'by': 'config', 'cause': 'apply', 'tokenless': False, 'cleared': 1}
-    a.request('hold', 'keys', 'tui', 0.3)
-    a.request('release', '', 'tui', 0.4)
-    assert a.state(0.5)['last_release']['tokenless'] is True
-    assert a.state(0.5)['last_release']['by'] == 'tui'
-
-
 def test_duplicate_mux_never_forwards_a_nonzero_frame():
-    held, other = boat(), boat()
-    held.request('hold', 'space', 'tui', 0)
-    held.set_duplicate(True, 0)
-    other.set_duplicate(True, 0)
+    a = boat()
+    a.set_duplicate(True, 0)
     for i in range(1, 60):
         t = i * 0.04
-        held.update_auto((0.5, 0, 0), t)
-        other.update_auto((0.5, 0, 0), t)
-        other.update_manual((0.3, 0, 0), t)
-        for a in (held, other):
-            assert a.select(t)[1] == (0.0, 0.0, 0.0)
-    assert held.request('release', '', 'tui', 3.0)[0]
-    assert held.select(3.0)[1] == (0.0, 0.0, 0.0)
-    assert 'duplicate' in [h['cause'] for h in held.state(3.0)['holds']]
+        a.update_auto((0.5, 0, 0), t)
+        a.update_manual((0.3, 0, 0), t)
+        a.update_rc(frame(mode=LOW, sticks=PUSH), t)
+        assert a.select(t)[1] == (0.0, 0.0, 0.0)
+    assert 'duplicate' in [h['cause'] for h in a.state(2.4)['holds']]
 
 
 def test_duplicate_cleared_resumes_through_the_ramp():
@@ -333,13 +257,6 @@ def test_duplicate_cleared_resumes_through_the_ramp():
     a.update_auto((1, 0, 0), 1.4)
     source, cmd = a.select(1.6)
     assert source == 'auto' and 0 < cmd[0] < 1
-
-
-@pytest.mark.parametrize('cause', ['', 5, None])
-def test_hold_needs_a_named_cause(cause):
-    a = boat()
-    assert a.request('hold', cause, 'tui', 0)[0] is False
-    assert not a.holds
 
 
 def test_bad_layout_is_rejected():
@@ -356,7 +273,7 @@ def test_first_auto_after_start_ramps_in():
 
 
 STATE_FIELDS = {'input', 'since_ns', 'cause', 'hold', 'rc', 'manual', 'auto',
-                'rejected', 'pipeline_ms', 'holds', 'last_release'}
+                'rejected', 'pipeline_ms', 'holds'}
 RC_FIELDS = {'valid', 'mode', 'latched', 'stick', 'pwm_mode', 'rate_hz',
              'interval_p95_s', 'age_s', 'stop_edge'}
 
@@ -374,19 +291,12 @@ def test_state_has_the_authority_fields_and_wall_clock_times():
     assert state['since_ns'] == 10**18 - int(0.2e9)
 
 
-def test_state_cause_names_the_hold_and_the_release():
+def test_state_cause_names_the_hold():
     a = arbitration()
     a.update_rc([1500, 1500, 1500, 1500, 1500, 1800, 1500, 1500], 0.0)   # HOLD switch
     state = a.state(0.01, wall_ns=10**18)
     assert state['cause'] == 'rc_switch' and state['hold']['by'] == 'rc'
     assert state['holds'][0]['since_ns'] == 10**18 - int(0.01e9)
-    b = arbitration()
-    b.request('hold', 'tui', 'tui', 0.0)
-    b.update_auto((0.1, 0, 0), 0.1)
-    assert b.state(0.1)['cause'] == 'tui'
-    b.request('release', 'tui', 'tui', 0.2)
-    b.update_auto((0.1, 0, 0), 0.2)
-    assert b.state(0.2)['cause'] == 'release'
 
 
 def test_yaml_section_equals_the_former_python_defaults():

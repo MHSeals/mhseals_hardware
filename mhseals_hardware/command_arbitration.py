@@ -1,20 +1,23 @@
-"""Pick which command drives the boat: duplicate > rc > manual > hold > auto.
+"""Pick which command drives the boat: duplicate > rc > manual > stop > auto > idle.
 
 ROS-free and clock-injected: every call takes ``now`` in seconds, so a node
 feeds it monotonic time and a test feeds it a fake clock.  The mux node only
 forwards ``select(now)``; all the rules live here.
 
-Every lane is effort (``topics`` in default.yaml):
+The rule: a lost input goes neutral, and nothing stays locked afterwards. A lane that goes
+stale (older than ``command_timeout``) or invalid just falls through to the next one, so
+whoever next means to move the boat moves it at once. Only stops someone chooses hold:
 
-* rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
+* duplicate: another publisher drives the same output, so this one sends only zeros
+  (``set_duplicate``) until it goes.
+* rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover in GUIDED.
 * manual: ``topics.manual`` (keyboard_control) newer than ``command_timeout``.
-* hold: any hold cause is set.  Output is zero until it is released.
-* duplicate: another publisher drives the same output, so this one sends
-  only zeros (``set_duplicate``) and cannot be released.
-* auto: ``topics.effort`` newer than ``command_timeout``, ramped in over ``ramp``.
+* stop (input ``hold``): the RC mode switch at HOLD (or an unknown mode) holds while it stays
+  there; the RC stop channel's falling edge holds until that switch goes back up.
+* auto: ``topics.effort`` newer than ``command_timeout``, ramped in from zero over ``ramp``
+  after a start, a stop, rc or manual.
 """
 
-import hashlib
 import json
 import math
 from collections import deque
@@ -25,12 +28,9 @@ MODE_NAMES = {0: MANUAL, 4: HOLD, 15: GUIDED}
 # Upper edges (microseconds) of MODE1..5; MODE6 is everything above.
 MODE_BANDS = (1231, 1361, 1491, 1621, 1750)
 
-# Hold causes renamed for the ``~/state`` ``cause`` field (docs/authority.md 2.3).
-STATE_CAUSES = {'rc_stop': 'stop_channel', 'keys': 'manual_end'}
 RC_CENTER = 1500                  # stick centre and stop-switch threshold, µs
 RC_WINDOW = 50                    # frame intervals kept for rate and p95
 
-RC_CAUSES = ('rc_switch', 'rc_lost', 'rc_stop', 'rc_stick')
 MUX_SCHEMA = 'mhseals.mux/1'
 
 
@@ -48,13 +48,6 @@ def mux_input(text):
         return None
     value = state.get('input')
     return value if isinstance(value, str) else None
-
-
-def token_hash(token):
-    """The stored form of a hold token: its hash, or None for no token."""
-    if token is None:
-        return None
-    return hashlib.sha256(str(token).encode()).hexdigest()
 
 
 def mode_from_pwm(pwm, modes):
@@ -112,15 +105,13 @@ class Arbitration:
         self.manual, self.manual_time = (0.0, 0.0, 0.0), None
         self.auto, self.auto_time = (0.0, 0.0, 0.0), None
         self.rejected = 0             # non-finite commands dropped
-        self.holds = {}               # cause -> {cause, by, since, token}
-        self.last_release = None      # {by, cause, tokenless, cleared} of the newest
+        self.stop_since = None        # the stop channel's falling edge, until it goes back up
         self.duplicate = False        # a second mux publishes the same output
         self.latched = False          # stick takeover while in GUIDED
         self._deflected = None        # since when a stick is past the takeover
         self._centered = None         # since when all sticks are centered
         self._prev_mode = None
-        self._rc_active = False       # was rc driving at the last advance
-        self._manual_fresh = False
+        self._switch_since = None     # when the mode switch last changed
         # Start pending: the first auto after a (re)start always ramps in.
         self._ramp_pending = True
         self._ramp_start = None
@@ -156,10 +147,12 @@ class Arbitration:
             self._intervals.append(now - self.rc_time)
         self.channels, self.rc_time = tuple(channels), now
         stop = self._channel(self.channels, self.stop_ch)
-        edge = (self.valid(now) and was is not None and stop is not None
-                and was >= RC_CENTER > stop)
-        if edge:
-            self._hold('rc_stop', 'rc', now)       # stop switch falling edge
+        valid = self.valid(now)
+        edge = valid and was is not None and stop is not None and was >= RC_CENTER > stop
+        if edge and self.stop_since is None:
+            self.stop_since = now                  # stop switch falling edge
+        elif valid and stop is not None and stop >= RC_CENTER:
+            self.stop_since = None                 # the switch back up clears it
         self._advance(now)
         return edge
 
@@ -168,7 +161,6 @@ class Arbitration:
         if not self._finite(cmd):
             return
         self.manual, self.manual_time = tuple(cmd), now
-        self._advance(now)
 
     def update_auto(self, cmd, now):
         """Store an auto command; a NaN or inf one is counted and dropped."""
@@ -189,39 +181,6 @@ class Arbitration:
             return True
         self.rejected += 1
         return False
-
-    def request(self, op, cause, by, now, token=None):
-        """Apply a hold or release request; return ``(ok, reason)``.
-
-        The one release rule: a release with a token clears only the hold that token placed
-        (its own cause). A tokenless release clears every hold, unless a valid
-        RC frame puts the mode switch at MANUAL, HOLD or OTHER, which refuses it.
-        """
-        self._advance(now)
-        if op == 'hold':
-            if not isinstance(cause, str) or not cause:
-                return False, 'cause must be a non-empty string'
-            self._hold(cause, by, now, token)
-            return True, ''
-        if op != 'release':
-            return False, 'unknown op'
-        if token is not None:
-            held = self.holds.get(cause)
-            if held is None or held['token'] != token_hash(token):
-                return False, 'no hold with that token'
-            del self.holds[cause]
-            self._released(by, cause, False, 1)
-            return True, ''
-        if self.valid(now) and self.mode in (MANUAL, HOLD, OTHER):
-            return False, 'mode switch is at %s' % self.mode
-        self._released(by, cause, True, len(self.holds))
-        self.holds.clear()
-        return True, ''
-
-    def _released(self, by, cause, tokenless, cleared):
-        """Record who released, so ``~/state`` and the journal can name them."""
-        self.last_release = {'by': by, 'cause': cause, 'tokenless': tokenless,
-                             'cleared': cleared}
 
     # Decoding
 
@@ -255,48 +214,29 @@ class Arbitration:
 
     # State machine
 
-    def _hold(self, cause, by, now, token=None):
-        # Placing a cause again restarts its since, so ``~/state`` shows a new hold,
-        # except a repeat with the same token (a watchdog refreshing its own hold).
-        held = self.holds.get(cause)
-        stored = token_hash(token)
-        same = held is not None and stored is not None and held['token'] == stored
-        since = held['since'] if same else now
-        self.holds[cause] = {'cause': cause, 'by': by, 'since': since,
-                             'token': token_hash(token)}
-        self._ramp_pending = True     # auto resumes through the ramp
+    def stops(self, now):
+        """The chosen stops in force now: [(cause, since)], oldest first."""
+        held = []
+        if self.duplicate:
+            held.append(('duplicate', self._since))
+        if self.stop_since is not None:
+            held.append(('stop_channel', self.stop_since))
+        if self.valid(now) and self.mode not in (MANUAL, GUIDED):
+            held.append(('rc_switch', self._switch_since))
+        return held
 
     def _advance(self, now):
-        """Fold elapsed time and the newest inputs into the hold set."""
+        """Fold elapsed time and the newest RC frame into the takeover latch; True when rc drives."""
         valid = self.valid(now)
         mode = self.mode if valid else None
-        if valid and mode != self._prev_mode:
-            if mode == GUIDED and self._prev_mode is not None:
-                # Moving the switch to GUIDED releases only the RC causes; the
-                # first frame after a start is not a move.
-                for cause in RC_CAUSES:
-                    self.holds.pop(cause, None)
-            self._prev_mode = mode
-        if valid and mode not in (MANUAL, GUIDED) and 'rc_switch' not in self.holds:
-            # The switch is a level: a held position holds again after a
-            # release (U during an RC dropout) without needing a new edge.
-            self._hold('rc_switch', 'rc', now)
+        if mode != self._prev_mode:
+            self._switch_since, self._prev_mode = now, mode
         if not valid or mode != GUIDED:
             self.latched = False
             self._deflected = self._centered = None
         if valid and mode == GUIDED:
             self._track_sticks(now)
-
-        rc = valid and (mode == MANUAL or self.latched)
-        if self._rc_active and not valid:
-            self._hold('rc_lost', 'rc', now)
-        self._rc_active = rc
-
-        fresh = self._fresh(self.manual_time, now)
-        if self._manual_fresh and not fresh:
-            self._hold('keys', 'keys', now)
-        self._manual_fresh = fresh
-        return rc, fresh
+        return valid and (mode == MANUAL or self.latched)
 
     def _track_sticks(self, now):
         if self._past_takeover():
@@ -311,35 +251,33 @@ class Arbitration:
         elif self.latched:
             self._centered = now if self._centered is None else self._centered
             if now - self._centered >= self.stick_release:
-                # Sticks let go: stay put until the human releases the hold.
+                # Sticks let go: the takeover ends and the next lane drives.
                 self.latched, self._centered = False, None
-                self._hold('rc_stick', 'rc', now)
 
     def _fresh(self, stamp, now):
         return stamp is not None and now - stamp <= self.command_timeout
 
     def select(self, now):
         """Return ``(source, (surge, sway, yaw))`` for this instant."""
-        rc, manual = self._advance(now)
+        rc = self._advance(now)
         zero = (0.0, 0.0, 0.0)
+        stops = self.stops(now)
         if self.duplicate:
-            self._ramp_pending = True
-            self._track_input('hold', now)
-            return 'hold', zero
-        if rc:
+            cmd, source = zero, 'hold'
+        elif rc:
             cmd = tuple(v * s for v, s in zip(self._sticks(), self.rc_scale))
             source = 'rc'
-        elif manual:
+        elif self._fresh(self.manual_time, now):
             cmd, source = self.manual, 'manual'
-        elif self.holds:
+        elif stops:
             cmd, source = zero, 'hold'
         elif self._fresh(self.auto_time, now):
             cmd, source = self.auto, 'auto'
         else:
             cmd, source = zero, 'idle'
 
-        self._track_input(source, now)
-        if source in ('rc', 'manual'):
+        self._track_input(source, stops, now)
+        if source in ('hold', 'rc', 'manual'):
             self._ramp_pending = True
         if source == 'auto':
             if self._ramp_pending:
@@ -349,19 +287,15 @@ class Arbitration:
                 cmd = tuple(v * scale for v in cmd)
         return source, cmd
 
-    def _track_input(self, source, now):
+    def _track_input(self, source, stops, now):
         """Remember when and why the source changed (for ``~/state``)."""
         if source == self._input:
             return
-        previous, self._input, self._input_since = self._input, source, now
+        self._input, self._input_since = source, now
         if source == 'rc':
             self._cause = 'rc_stick' if self.latched else 'rc_switch'
         elif source == 'hold':
-            first = min(self.holds.values(), key=lambda h: h['since'], default=None)
-            cause = first['cause'] if first else 'duplicate'
-            self._cause = STATE_CAUSES.get(cause, cause)
-        elif source == 'auto' and previous == 'hold':
-            self._cause = 'release'
+            self._cause = stops[0][0]
         else:
             self._cause = source if source in ('manual', 'auto') else 'idle'
 
@@ -390,17 +324,14 @@ class Arbitration:
             return None if wall_ns is None or stamp is None else int(
                 wall_ns - (now - stamp) * 1e9)
 
-        holds = sorted(self.holds.values(), key=lambda h: h['since'])
-        if self.duplicate:
-            holds.append({'cause': 'duplicate', 'by': 'mux', 'since': self._since,
-                          'token': None})
+        stops = self.stops(now)
         valid = self.valid(now)
         rate, p95 = self._rc_rate()
         pwm = self._channel(self.channels, self.mode_ch)
         hold = None
-        if holds:
-            hold = {k: holds[0][k] for k in ('by', 'cause')}
-            hold['since_ns'] = wall(holds[0]['since'])
+        if stops:
+            hold = {'by': 'mux' if stops[0][0] == 'duplicate' else 'rc', 'cause': stops[0][0],
+                    'since_ns': wall(stops[0][1])}
         return {'input': source, 'since_ns': wall(self._input_since),
                 'cause': self._cause, 'hold': hold,
                 'rc': {'valid': valid, 'mode': self.mode if valid else None,
@@ -408,14 +339,9 @@ class Arbitration:
                        'pwm_mode': pwm, 'rate_hz': rate and round(rate, 1),
                        'interval_p95_s': p95 and round(p95, 3),
                        'age_s': self._age(self.rc_time, now),
-                       'stop_edge': 'rc_stop' in self.holds},
+                       'stop_edge': self.stop_since is not None},
                 'manual': {'age_s': self._age(self.manual_time, now), 'node': None},
                 'auto': {'age_s': self._age(self.auto_time, now),
                          'active': self._fresh(self.auto_time, now)},
                 'rejected': self.rejected, 'pipeline_ms': pipeline_ms,
-                # The token is a secret of the holder: only its presence shows.
-                'holds': [{**{k: v for k, v in h.items() if k != 'token'},
-                           'since_ns': wall(h['since']),
-                           'has_token': h['token'] is not None}
-                          for h in holds],
-                'last_release': self.last_release}
+                'holds': [{'cause': cause, 'since_ns': wall(since)} for cause, since in stops]}

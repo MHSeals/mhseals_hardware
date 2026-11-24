@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
-"""Choose which command reaches the driver: duplicate > rc > manual > hold > auto.
+"""Choose which command reaches the driver: duplicate > rc > manual > stop > auto > idle.
 
 All rules live in ``command_arbitration.Arbitration``; this node only wires
 the ``topics`` section of the YAML. Every input is effort: ``topics.rc``, ``topics.manual`` and
 ``topics.effort`` (the auto lane: the velocity controller's output, or an effort publisher). The
 winner goes to ``topics.applied``, which the driver mixes. A human input is forwarded in the
-callback that receives it, and a 25 Hz timer keeps the output alive between frames.
+callback that receives it, and a 25 Hz timer keeps the output alive between frames. A lane
+that goes stale falls through to the next one; nothing stays locked (command_arbitration).
 
 The state contract: ``topics.mux_state`` (latched, on a change and at 1 Hz) carries JSON with
 ``schema`` 'mhseals.mux/1' and ``input``, the lane that drives now: ``rc``, ``manual``,
@@ -79,7 +80,6 @@ class CommandMux(Node):
         self.arbitration = Arbitration.from_config(self.section)
         self.add_on_set_parameters_callback(self._check_parameters)
         self.add_post_set_parameters_callback(self._commit_parameters)
-        # A started mux is clean: no holds carry over from an earlier process.
 
         topics = self.topics
         self.applied = self.create_publisher(Twist, topics['applied'], 10)
@@ -87,7 +87,6 @@ class CommandMux(Node):
         self.create_subscription(RCIn, topics['rc'], self._rc, qos_profile_sensor_data)
         self.create_subscription(Twist, topics['manual'], self._manual, 10)
         self.create_subscription(Twist, topics['effort'], self._auto, 10)
-        self.create_subscription(String, '~/request', self._request, 10)
         self.create_timer(0.04, self.forward)
         self.create_timer(0.5, self.check_duplicate)
         self.create_timer(1.0, lambda: self.publish_state(force=True))
@@ -173,24 +172,6 @@ class CommandMux(Node):
 
     def _auto(self, message):
         self.arbitration.update_auto(twist_values(message), time.monotonic())
-
-    def _request(self, message):
-        try:
-            request = json.loads(message.data)
-            ok, reason = self.arbitration.request(
-                request['op'], request.get('cause', ''), request.get('by', ''),
-                time.monotonic(), request.get('token'))
-        except (ValueError, KeyError, TypeError) as error:
-            ok, reason = False, str(error)
-        if not ok:
-            self.get_logger().warning(f'mux request rejected: {reason}')
-        elif request.get('op') == 'release':
-            # Journal event; the release rule is Arbitration.request's.
-            self.get_logger().info(
-                f"hold_release by={request.get('by', '')!r} "
-                f"cause={request.get('cause', '')!r} "
-                f"tokenless={request.get('token') is None}")
-        self.forward()
 
 
 def main(args=None):
