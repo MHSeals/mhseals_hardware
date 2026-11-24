@@ -2,7 +2,7 @@
 # range appears only where validate_config enforces it; the mux values are checked as non-negative by Arbitration.
 # tier: live = changes in the running node through SetParameters; restart = applies at the next start
 # (every node reads the config once and never watches this file).
-estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until the driver restarts."}
+estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until astro estop clear (the driver ~/clear)."}
 mosfet_heartbeat: {type: float, units: Hz, range: [0, 100], tier: restart, doc: "Toggle rate of the MOSFET enable for a heartbeat circuit: 0 holds a steady level, otherwise 10-100 (slower stalls the driver's 0.15 s heartbeat check)."}
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
@@ -11,7 +11,7 @@ decoupling: {type: list, units: "1", range: [-2, 2], tier: live, doc: "Correctio
 command_timeout: {type: float, units: s, range: [0.0, 2.0], tier: restart, doc: "The one watchdog of all three stages: the velocity controller resets without topics.auto, the mux drops a manual or auto lane, and the driver puts the thrusters at neutral without topics.applied, each after this long. Read once at start by all three, so they never diverge."}
 command_mux.mode_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel carrying the FCU mode switch."}
 command_mux.modes: {type: list, units: enum, tier: restart, doc: "FCU mode number for each of the six mode switch positions."}
-command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch: its falling edge holds the mux until it goes back up, and with estop_cuts_power also the driver's latched power cut (restart drive.launch to clear)."}
+command_mux.stop_ch: {type: int, units: count, tier: restart, doc: "1-based RC channel of the stop switch: its falling edge holds the mux until it goes back up, and with estop_cuts_power also the driver's latched power cut (astro estop clear once it is up)."}
 command_mux.rc_scale: {type: list, units: "1", tier: live, doc: "Surge, sway, yaw fraction of full command at full stick."}
 command_mux.rc_max_age: {type: float, units: s, tier: restart, doc: "RC frames older than this count as no receiver."}
 command_mux.stick_takeover: {type: int, units: count, tier: restart, doc: "Stick deflection in PWM microseconds past center that takes over."}
@@ -20,7 +20,7 @@ command_mux.stick_release: {type: float, units: s, tier: restart, doc: "How long
 command_mux.ramp: {type: float, units: s, tier: live, doc: "Seconds to ramp the auto lane in from zero, after a start, idle, a stop, rc or manual."}
 topics.auto: {type: str, units: topic, tier: restart, doc: "SI body velocity from Nav2 (the only velocity lane); only the velocity controller reads it."}
 topics.effort: {type: str, units: topic, tier: restart, doc: "The mux auto input, effort: the velocity controller's output, or an effort publisher."}
-topics.manual: {type: str, units: topic, tier: restart, doc: "The mux manual input, effort (keyboard_control, a deadman lane)."}
+topics.manual: {type: str, units: topic, tier: restart, doc: "The mux manual input, effort (keyboard, a deadman lane)."}
 topics.rc: {type: str, units: topic, tier: restart, doc: "RC frames (mavros RCIn): the mux rc input, and the driver's stop channel."}
 topics.applied: {type: str, units: topic, tier: restart, doc: "The mux output, effort, which the driver mixes."}
 topics.mux_state: {type: str, units: topic, tier: restart, doc: "The mux state, latched (contract in command_mux): the driver pulses only while idle, the controller drives only while auto."}

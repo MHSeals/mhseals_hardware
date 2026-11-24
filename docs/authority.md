@@ -34,7 +34,7 @@ velocity controller each read that section, so no node uses remaps.
 | Dir | Key (default) | Notes |
 |---|---|---|
 | in | `rc` (`/mavros/rc/in`) | RCIn, sensor QoS |
-| in | `manual` (`/cmd_vel/manual`) | effort from `keyboard_control` |
+| in | `manual` (`/cmd_vel/manual`) | effort from `keyboard` |
 | in | `effort` (`/cmd_vel_effort`) | the auto lane: the velocity controller's output, or an effort publisher |
 | out | `applied` (`/cmd_vel/applied`) | what drove the boat: the driver mixes it, and analyses read it |
 | out | `mux_state` (`/command_mux/state`) | String JSON, reliable, transient-local, depth 1 |
@@ -65,8 +65,8 @@ auto    ⇔ a topics.effort message within command_timeout, ramped in over ramp;
 - **HOLD switch:** a level. It holds while the switch is there (the keyboard and auto included) and
   frees when it moves out. When RC is lost, it holds nothing.
 - **Stop channel:** a falling edge on `stop_ch` holds until that switch goes back up. With
-  `estop_cuts_power` it also latches the driver's e-stop, which only a restart of `drive.launch` clears
-  (3).
+  `estop_cuts_power` it also latches the driver's e-stop, which `astro estop clear` clears once the
+  switch is back up (3).
 - **Output:** a stop and idle send zeros. Entering auto after anything else (a start, idle, a stop, rc or
   manual) ramps from zero over `ramp`, so a controller that kept publishing cannot lurch the boat.
 
@@ -88,9 +88,9 @@ interval_p95_s, age_s, stop_edge), `manual`, `auto`, `rejected` (non-finite comm
 
 ## 3. E-stop
 
-A cut turns the MOSFET off first, then sets the outputs to neutral, and latches for the life of the
-driver (`estop.RemoteEstop`). Only a restart of the driver powers the ESCs again, with every
-channel at neutral. While the cut is latched, the driver ignores drive commands, and `~/status` reports `estop.cause`.
+A cut turns the MOSFET off first, then sets the outputs to neutral, and latches (`estop.RemoteEstop`).
+The driver's `~/clear` service (`astro estop clear`) powers the ESCs again with every channel at neutral;
+it refuses while the RC stop switch is still down. While the cut is latched, the driver ignores drive commands, and `~/status` reports `estop.cause`.
 
 | Cause | Trigger | Governed by |
 |---|---|---|
@@ -104,8 +104,16 @@ steady low on the stop switch is no edge, so a transmitter left "disarmed" does 
 
 Losing RC never cuts: the mux falls through and the command timeout brings neutral.
 
-Clearing a latched cut: `rc-stop`, `operator` and `stall` all clear only by restarting drive
-(`astro down drive && astro up drive`). `astro estop` trips `operator`.
+`astro estop` trips `operator`. Every block on the outputs and the one command that removes it:
+
+| Blocks the outputs | Removes it |
+|---|---|
+| RC mode switch at HOLD | move the switch out of HOLD |
+| RC stop channel (`rc-stop` latch) | flip the switch up, then `astro estop clear` |
+| `astro estop` (`operator` latch) | `astro estop clear` |
+| heartbeat `stall` latch (only with `mosfet_heartbeat` > 0) | `astro estop clear` |
+| another program holds the pins or the MOSFET line | `astro thrusters free` |
+| command timeout (neutral) | send any command |
 
 ## 4. MOSFET heartbeat
 
@@ -144,7 +152,7 @@ Only hardware can prove these.
 
 1. **E-stop latches.** Props off, ESCs on the bench. Start `drive`, then trigger in turn:
    `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger`, the RC stop-channel edge, and
-   transmitter-off while RC is in control (restart between them). Each one must latch with its cause
+   transmitter-off while RC is in control (`astro estop clear` between them). Each one must latch with its cause
    (`operator`, `rc-stop`, in `/thruster_pwm_node/status`), cut ESC power, and leave the outputs at
    neutral. Transmitter-off while RC is in control must NOT latch: the outputs go neutral within 0.5 s.
 2. **RC takeover and failsafe.** Props off on the bench, or in water at low power, with the physical
@@ -154,7 +162,7 @@ Only hardware can prove these.
      sticks for `stick_release`: the effort lane drives again;
    - with the switch at HOLD, the input is `hold`; moved back to GUIDED, effort drives again;
    - transmitter-off while RC is in control: neutral within 0.5 s, no latch.
-3. **Thrust reaches the ESCs.** `thruster_test` at low power on each output: every prop spins, and
+3. **Thrust reaches the ESCs.** `astro thrusters` at low power on each output: every prop spins, and
    `/thrusters/pwm` reads back the commanded µs while `drive` runs.
 4. **Velocity mode, after step 3.** Boat in water, in open area. `drive controller:=true`, then publish
    on `topics.auto` (`/cmd_vel`) at 10 Hz a surge step of 0.3 m/s for 15 s, then 0. The mux input must

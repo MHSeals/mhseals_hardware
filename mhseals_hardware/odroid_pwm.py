@@ -6,19 +6,54 @@ import time
 from mhseals_hardware.thruster_mixer import NEUTRAL_PWM
 
 
-# Header labels for the README pin table:
-# output -> (J2 pin, pad, PWM controller). The addresses (stable platform
-# globs; pwmchip numbers are allocated at boot) live only in default.yaml
-# pwm_chips, in the same output order.
+# The ODROID-M2's J2 header, for the README pin table and `thrusters config`:
+# PWM platform device -> (J2 pin, pad, PWM controller). Which output uses which
+# device is pwm_chips (default.yaml < the vessel profile), as stable platform
+# globs (pwmchip numbers are allocated at boot).
 J2_PINS = {
-    1: (7, 'GPIO0_D0', 'PWM7'),
-    2: (12, 'GPIO3_B2', 'PWM3'),
-    3: (15, 'GPIO4_B3', 'PWM15'),
-    4: (33, 'GPIO3_D0', 'PWM8'),
-    # MOSFET enable: (J2 pin, pad); moved from pin 11. The bank and line live
-    # only in default.yaml mosfet_chip / mosfet_line.
+    'febd0030.pwm': (7, 'GPIO0_D0', 'PWM7'),
+    'fd8b0030.pwm': (12, 'GPIO3_B2', 'PWM3'),
+    'febf0030.pwm': (15, 'GPIO4_B3', 'PWM15'),
+    'febe0000.pwm': (33, 'GPIO3_D0', 'PWM8'),
+    # MOSFET enable: (J2 pin, pad); the bank and line are mosfet_chip / mosfet_line.
     'mosfet': (13, 'GPIO3_D5'),
 }
+OVERLAY = 'host/odroid-m2-thruster-pwm-overlay.dts'   # enables the PWM controllers above
+PLATFORM = '/sys/devices/platform'
+
+
+def pwm_device(chip_glob):
+    """The platform device (``febd0030.pwm``) a pwm_chips glob names, or None."""
+    return next((part for part in Path(str(chip_glob)).parts if part.endswith('.pwm')), None)
+
+
+def chip_glob(device, platform=PLATFORM):
+    """The stable pwm_chips glob for a platform device."""
+    return f'{platform}/{device}/pwm/pwmchip*'
+
+
+def exposed_chips(platform=PLATFORM):
+    """The PWM platform devices this host exposes (the overlay enabled), sorted."""
+    return sorted({pwm_device(path) for path in glob.glob(f'{platform}/*.pwm/pwm/pwmchip*')})
+
+
+def pin_label(chip):
+    """``J2 7 PWM7`` for a pwm_chips glob, or its device when the header table lacks it."""
+    device = pwm_device(chip)
+    pin = J2_PINS.get(device)
+    return f'J2 {pin[0]} {pin[2]}' if pin else (device or str(chip))
+
+
+def check_pins(config):
+    """One line per pwm_chips glob that does not resolve to exactly one chip here, naming the overlay."""
+    problems = []
+    for output, chip in enumerate(config['pwm_chips'], 1):
+        found = len(glob.glob(str(chip)))
+        if found != 1:
+            hint = (f'; {pwm_device(chip)} is not enabled: add it to {OVERLAY}'
+                    if found == 0 and pwm_device(chip) else '')
+            problems.append(f'output {output}: {chip} matches {found} chips{hint}')
+    return problems
 
 
 def resolve_gpio_chip(value, sysfs='/sys/bus/gpio/devices'):

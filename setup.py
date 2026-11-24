@@ -25,11 +25,9 @@ setup(
     entry_points={
         'console_scripts': [
             'thruster_pwm_node = mhseals_hardware.thruster_pwm_node:main',
-            'thruster_test = mhseals_hardware.thruster_test:main',
-            'mosfet_test = mhseals_hardware.mosfet_test:main',
-            'thruster_identify = mhseals_hardware.identification:main',
+            'thrusters = mhseals_hardware.thrusters:main',
             'calibrated_velocity_controller = mhseals_hardware.velocity_controller:main',
-            'keyboard_control = mhseals_hardware.keyboard_control:main',
+            'keyboard = mhseals_hardware.keyboard_control:main',
             'command_mux = mhseals_hardware.command_mux:main',
             'config_check = mhseals_hardware.config_check:main',
             'mix = mhseals_hardware.mix:main',

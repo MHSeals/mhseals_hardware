@@ -3,6 +3,8 @@ package: mhseals_hardware
 summary: Thruster stack (driver, command mux, velocity controller), mixer tools and bench tests.
 commands:
   - name: drive
+    level: core
+    host: boat_computer
     run: ros2 launch mhseals_hardware drive.launch.py
     summary: Start the thruster stack - thruster_pwm_node and command_mux, plus the velocity controller with controller:=true.
     notes: The only way the stack starts. Effort on topics.effort drives through the mux; RC and the keys take over. Ctrl-C stops it at neutral.
@@ -16,11 +18,22 @@ commands:
       - ros2 launch mhseals_hardware drive.launch.py output_backend:=topic use_sim_time:=true
 
   - name: estop
+    level: core
+    host: boat_computer
     run: ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger
-    summary: Stop the thrusters now; restart drive.launch to clear.
+    summary: Stop the thrusters now (ESC power cut, latched); astro estop clear clears it.
     notes: Cuts ESC power through the MOSFET and latches (cause operator). The RC stop channel does the same.
 
+  - name: estop clear
+    level: core
+    host: boat_computer
+    run: ros2 service call /thruster_pwm_node/clear std_srvs/srv/Trigger
+    summary: Clear a latched e-stop; the ESCs power up again at neutral.
+    notes: Refused while the RC stop switch is still down (flip it up first). Also clears a heartbeat stall.
+
   - name: mix
+    level: core
+    host: boat_computer
     run: ros2 run mhseals_hardware mix
     summary: Print every mixer stage (C/C-, M rows, thrust sum, e|e|, desaturation, reversed, PWM, channel) for one effort command.
     params:
@@ -33,16 +46,10 @@ commands:
       - ros2 run mhseals_hardware mix 0.5 0 0
       - ros2 run mhseals_hardware mix --live
 
-  - name: config_check
-    run: ros2 run mhseals_hardware config_check
-    summary: Check a hardware YAML through the driver's loader; exit 0 (ok) or 1 with the reason.
-    params:
-      - {name: file, type: path, description: The hardware YAML to check.}
-    examples:
-      - ros2 run mhseals_hardware config_check ~/.config/mhseals/hardware.yaml
-
-  - name: keyboard_control
-    run: ros2 run mhseals_hardware keyboard_control
+  - name: keyboard
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware keyboard
     summary: Deadman keyboard driving on the manual lane (topics.manual); WASD/arrows, Space neutral, X exit.
     notes: Needs the stack (drive). Secure the boat and clear the propellers.
     params:
@@ -50,50 +57,75 @@ commands:
       - {name: --dry-run, type: bool, description: Test terminal keys without publishing.}
       - {name: --config, type: path, description: Hardware YAML.}
     examples:
-      - ros2 run mhseals_hardware keyboard_control --speed 0.3
+      - ros2 run mhseals_hardware keyboard --speed 0.3
 
-  - name: wiring
-    run: ros2 run mhseals_hardware thruster_identify
-    summary: Pulse each output in turn to map PWM outputs to thrusters; saves channel_map and reversed.
-    notes: Stop the stack first (it opens the outputs itself). Boat tied up, propellers clear and submerged; you answer what moved.
+  - name: thrusters
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware thrusters
+    summary: The thrusters screen - drive each output with a strength bar, set wiring and pins, save to the vessel profile.
+    notes: 'Keys on its bottom line. A pulse opens the outputs (MOSFET on, ESCs held neutral 3 s). k frees pins another program holds. s shows the profile diff, then y saves. Secure the boat and clear the propellers.'
+    examples:
+      - astro thrusters
+
+  - name: thrusters test
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware thrusters test
+    summary: Same screen as thrusters - set each output's pulse by hand.
+
+  - name: thrusters config
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware thrusters config
+    summary: Same screen as thrusters - thruster to output (t), reversed (r), PWM pin (p); s saves to the vessel profile thrusters:.
+
+  - name: thrusters wiring
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware thrusters wiring
+    summary: Pulse each output in turn and answer what moved; saves channel_map and reversed to hardware.yaml.
+    notes: Stop the stack first (astro down drive, or thrusters free). Boat tied up, propellers clear and submerged.
     params:
       - {name: --manual, type: bool, description: Enter the mapping by hand instead of pulsing outputs.}
       - {name: --output-backend, choices: [odroid, topic], description: ODROID pins or the simulator topic (default from the config).}
       - {name: --config, type: path, description: Hardware YAML the channel_map is saved to.}
 
-  - name: thruster_test
-    run: ros2 run mhseals_hardware thruster_test
-    summary: Interactive four-thruster PWM test straight on the physical outputs.
-    notes: Stop the stack first. Secure the boat and clear the propellers.
+  - name: thrusters mosfet
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware thrusters mosfet
+    summary: Hold the MOSFET enable (ESC power) on; writes no PWM. Ctrl-C, SIGTERM or thrusters free releases it.
     params:
-      - {name: --pulse-step, type: int, default: 10, description: Pulse change per key press (microseconds).}
-      - {name: --config, type: path, description: Hardware YAML.}
-
-  - name: mosfet_test
-    run: ros2 run mhseals_hardware mosfet_test
-    summary: Bounded MOSFET enable check; writes no PWM.
-    params:
-      - {name: --seconds, type: float, default: 5, description: 'How long to hold the enable (max 900 s).'}
-      - {name: --yes, type: bool, description: Skip the ENABLE prompt (remote or scripted runs).}
+      - {name: --seconds, type: float, description: 'Release after this long (default: hold until stopped).'}
       - {name: --config, type: path, description: Hardware YAML.}
     examples:
-      - astro mosfet_test --seconds 600 --yes
+      - astro thrusters mosfet --seconds 5
 
-  - name: thruster_pwm_node
-    run: ros2 run mhseals_hardware thruster_pwm_node
-    summary: The driver node (drive starts it) - mixes topics.applied into pulses, publishes them on pwm_topic.
-    ros: ros2 param set /thruster_pwm_node decoupling "[...9 values]"
+  - name: thrusters free
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware thrusters free
+    summary: Stop every program holding the thruster pins or MOSFET, set neutral, release them; one row per output.
+    notes: Exit 0 when every row is free.
+    params:
+      - {name: --check, type: bool, description: Only report who holds what.}
+    examples:
+      - astro thrusters free --check
 
-  - name: command_mux
-    run: ros2 run mhseals_hardware command_mux
-    summary: The mux node (drive starts it) - duplicate > rc > stop > manual > auto onto topics.applied; a stale lane falls through.
-
-  - name: calibrated_velocity_controller
-    run: ros2 run mhseals_hardware calibrated_velocity_controller
-    summary: The velocity loop node (drive controller:=true) - Nav2 body velocity to effort.
-    ros: ros2 param set /calibrated_velocity_controller kp "[0.8, 0.8, 0.6]"
+  - name: config_check
+    level: setup
+    host: boat_computer
+    run: ros2 run mhseals_hardware config_check
+    summary: Check a hardware YAML through the driver's loader; exit 0 (ok) or 1 with the reason.
+    params:
+      - {name: file, type: path, description: The hardware YAML to check.}
+    examples:
+      - ros2 run mhseals_hardware config_check ~/.config/mhseals/hardware.yaml
 
   - name: odroid_access
+    level: setup
+    host: boat_computer
     run: ~/astro_dock/src/mhseals_hardware/scripts/install_odroid_access.sh
     summary: Install the ODROID host service that exports the PWM channels and grants access to them and the MOSFET bank.
     notes: Once per ODROID, on the host (sudo); then recreate the container.

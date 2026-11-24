@@ -1,47 +1,47 @@
-"""Bounded MOSFET enable check; does not configure or write PWM."""
+"""Hold the MOSFET enable on (ESC power) until Ctrl-C, SIGTERM/SIGHUP or --seconds; writes no PWM."""
 
 import argparse
+import signal
 import time
 
 from mhseals_hardware.configuration import configure_args
 from mhseals_hardware.odroid_pwm import MosfetEnable, resolve_gpio_chip
 
 
+def interrupt(_signum, _frame):
+    raise KeyboardInterrupt
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mosfet-chip', help='bank label or /dev/gpiochipN')
     parser.add_argument('--mosfet-line', type=int)
-    parser.add_argument('--seconds', type=float, default=5, help='how long to hold it enabled (max 900)')
-    parser.add_argument('--yes', action='store_true', help='skip the ENABLE prompt (remote or scripted runs)')
+    parser.add_argument('--seconds', type=float, help='release after this long (default: hold until stopped)')
     parsed = configure_args(parser, args)
-    if not 0 < parsed.seconds <= 900:
-        parser.error('--seconds must be within (0, 900]')
-    chip = resolve_gpio_chip(parsed.mosfet_chip)
-    print(f'{parsed.mosfet_chip} -> {chip}, offset {parsed.mosfet_line}, '
-          f'active_high={parsed.mosfet_active_high}')
-    print('Disconnect propulsion power and stop all PWM/controller programs. '
-          'This toggles the enable only; existing PWM is NOT changed. '
-          'Measure the trigger against signal ground.')
-    if not parsed.yes and input('Type ENABLE to test, anything else cancels: ').strip() != 'ENABLE':
-        return
-    output = MosfetEnable(chip, parsed.mosfet_line, parsed.mosfet_active_high)
+    if parsed.seconds is not None and parsed.seconds <= 0:
+        parser.error('--seconds must be positive')
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, interrupt)
+    output = MosfetEnable(parsed.mosfet_chip, parsed.mosfet_line, parsed.mosfet_active_high)
     try:
         output.open()
-        print('Inactive for 2 seconds.', flush=True)
-        time.sleep(2)
+    except OSError as error:
+        output.close()
+        raise SystemExit(f'MOSFET line busy ({error}); `thrusters free` shows and stops its holder')
+    try:
         output.set_enabled(True)
-        print(f'ENABLED for {parsed.seconds:g} seconds (Ctrl-C releases it early).', flush=True)
-        end = time.monotonic() + parsed.seconds
-        while time.monotonic() < end:
-            time.sleep(min(30.0, end - time.monotonic()))
-            left = end - time.monotonic()
-            if left > 1:
-                print(f'  enabled, {left:.0f} s left', flush=True)
+        print(f'{parsed.mosfet_chip} -> {resolve_gpio_chip(parsed.mosfet_chip)} line {parsed.mosfet_line} '
+              f'(active {"high" if parsed.mosfet_active_high else "low"}): MOSFET on. '
+              'Ctrl-C or `thrusters free` releases it', flush=True)
+        if parsed.seconds is None:
+            while True:
+                signal.pause()
+        time.sleep(parsed.seconds)
     except KeyboardInterrupt:
         pass
     finally:
         output.close()
-        print('Released; use an external pull-down for a defined idle level.')
+        print('MOSFET released', flush=True)
 
 
 if __name__ == '__main__':

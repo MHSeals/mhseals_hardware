@@ -66,13 +66,13 @@ def test_cli_overrides_then_saves(tmp_path, monkeypatch):
     assert yaml.safe_load(config_path().read_text()) == {'reverse_thrust_ratio': 0.8}  # only the flag
 
 
-def test_a_board_address_is_set_only_in_the_defaults(tmp_path, monkeypatch):
-    """The boot access service prepares default.yaml's PWM and MOSFET files, so no other layer moves them."""
+def test_an_operator_file_never_moves_a_board_address(tmp_path, monkeypatch):
+    """The boot access service prepares the defaults' and vessel's PWM and MOSFET files, not the operator's."""
     monkeypatch.setenv('HOME', str(tmp_path))
     monkeypatch.delenv('MHSEALS_HARDWARE_CONFIG', raising=False)
     path = tmp_path / 'hardware.yaml'
     path.write_text(f'mosfet_line: {load_defaults()["mosfet_line"] + 1}\n')
-    with pytest.raises(ValueError, match='default.yaml'):
+    with pytest.raises(ValueError, match='vessel profile'):
         load_config(path)
     chips = load_defaults()['pwm_chips']
     with pytest.raises(ValueError, match='pwm_chips'):

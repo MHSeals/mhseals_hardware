@@ -7,7 +7,8 @@ four pulses on the ODROID-M2's hardware PWM. In the simulator the same pulses go
 astro up drive                      # driver + mux on the boat computer (drive.launch.py)
 astro up drive --with controller    # ... plus the velocity controller (needs a characterization)
 astro mix 0.5 0 0                   # what surge 0.5 becomes, stage by stage
-astro estop                         # cut ESC power now; restart drive to clear
+astro estop                         # cut ESC power now; astro estop clear powers it again
+astro thrusters                     # drive each output, set wiring and pins (the thrusters screen)
 ```
 
 How a command becomes thrust, layer by layer, and which test sets each layer:
@@ -32,14 +33,18 @@ counterclockwise, each in [-1, 1]. Anything published on `topics.effort` (`/cmd_
 through the mux's auto lane. `astro test` uses that lane.
 
 Losing an input sends neutral, and nothing stays locked: whoever next means to move the boat moves it
-at once. Only chosen stops hold, and each clears in a known way:
+at once. Only chosen stops hold, and each has one command that removes it:
 
-- **RC mode switch at HOLD:** holds while it is there. Moving the switch out clears it.
-- **RC stop channel:** cuts ESC power and latches (`estop_cuts_power`, on by default). Restart drive
-  to clear it: `astro down drive && astro up drive`.
-- **`astro estop`** (`ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger`): the same
-  latched cut, cleared the same way.
+| Blocks the outputs | Removes it |
+| --- | --- |
+| RC mode switch at HOLD | move the switch out of HOLD |
+| RC stop channel: ESC power cut and latched (`estop_cuts_power`, on by default) | flip the switch up, then `astro estop clear` |
+| `astro estop`: the same latched cut | `astro estop clear` |
+| heartbeat stall latch (only with `mosfet_heartbeat` > 0) | `astro estop clear` |
+| another program holds the pins or the MOSFET line | `astro thrusters free` |
+| command timeout (neutral) | send any command |
 
+`astro estop clear` powers the ESCs again at neutral; it refuses while the stop switch is still down.
 Losing RC never cuts power; the command timeout (0.5 s) brings neutral.
 
 ## Commands
@@ -47,16 +52,35 @@ Losing RC never cuts power; the command timeout (0.5 s) brings neutral.
 | `astro …` | Plain ROS 2 | Does |
 | --- | --- | --- |
 | `drive` | `ros2 launch mhseals_hardware drive.launch.py` | Starts the stack |
-| `estop` | `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger` | Stops the thrusters now (ESC power cut). Restart `drive.launch` to clear it |
+| `estop` | `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger` | Stops the thrusters now (ESC power cut, latched) |
+| `estop clear` | `ros2 service call /thruster_pwm_node/clear std_srvs/srv/Trigger` | Powers the ESCs again at neutral; refused while the RC stop switch is down |
 | `mix` | `ros2 run mhseals_hardware mix S W Y` / `--live` | Prints every mixer stage for a command, or follows `topics.applied` |
-| `config_check` | `ros2 run mhseals_hardware config_check FILE` | Validates a hardware YAML through the driver's loader. Exits 0, or prints the reason and exits 1 |
-| `keyboard_control` | `ros2 run mhseals_hardware keyboard_control` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit |
-| `wiring` | `ros2 run mhseals_hardware thruster_identify` | Pulses each output and asks what moved, then saves `channel_map` and `reversed`. Stop `drive` first (`astro down drive`) |
-| `thruster_test` | `ros2 run mhseals_hardware thruster_test` | Sets each output's pulse by hand. Stop `drive` first |
-| `mosfet_test` | `ros2 run mhseals_hardware mosfet_test` | Holds the MOSFET enable on for a bounded time. Writes no PWM |
+| `keyboard` | `ros2 run mhseals_hardware keyboard` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit |
+| `thrusters` (`test`, `config`) | `ros2 run mhseals_hardware thrusters` | The thrusters screen (below) |
+| `thrusters wiring` | `ros2 run mhseals_hardware thrusters wiring` | Pulses each output and asks what moved, then saves `channel_map` and `reversed` to hardware.yaml |
+| `thrusters mosfet` | `ros2 run mhseals_hardware thrusters mosfet [--seconds N]` | Holds the MOSFET enable (ESC power) on until Ctrl-C, SIGTERM or `--seconds`. Writes no PWM |
+| `thrusters free` | `ros2 run mhseals_hardware thrusters free [--check]` | Stops every program holding the pins or MOSFET, sets neutral, releases them, and prints one row per output with its holder. Exit 0 when all are free |
+| `config_check` | `ros2 run mhseals_hardware config_check FILE` | Setup: validates a hardware YAML through the driver's loader. Exits 0, or prints the reason and exits 1 |
+| `odroid_access` | `scripts/install_odroid_access.sh` | Setup: once per ODROID, on the host (below) |
 
+The nodes `thruster_pwm_node`, `command_mux` and `calibrated_velocity_controller` start only through
+`drive`. Every entry that touches the pins or ROS runs on the boat computer: astro forwards it there.
 `help.yaml` lists the arguments (`astro help mhseals_hardware`). Secure the boat and clear the
 propellers before anything that drives thrusters.
+
+### The thrusters screen
+
+`astro thrusters` shows one row per thruster (FL, FR, RR, RL): its output, J2 pin, PWM chip (✓ when it
+resolves on this host), reversed, the commanded pulse and effort with a strength bar centred on neutral,
+and the pulse read back from sysfs. The header shows the MOSFET and who holds it, whether `drive` is
+running, and the ESC arming countdown.
+
+The first pulse opens the outputs: the MOSFET goes on and every ESC is held at neutral for 3 s while it
+arms. Keys (also on the bottom line): ↑/↓ select a thruster or ALL, ←/→ ±10 µs, [/] ±1 µs, f/b ±25 %
+(reversal honoured), 0 or Space neutral, z/x 1100/1900 µs, t the output this thruster is on, r reversed,
+p the PWM chip (from the chips this host exposes), m the MOSFET, k free (stop what holds the pins),
+s save, q quit at neutral with the MOSFET off. s shows the diff of the vessel profile's `thrusters:` and
+y writes it; commit it in the profiles repo.
 
 ## Configuration
 
@@ -64,7 +88,8 @@ Each layer is loaded over the one before it:
 
 1. `config/default.yaml`: structure and defaults, kept in git. `config/schema.yaml` documents
    each key.
-2. The vessel profile's `thrusters:` section: only `channel_map` and `reversed`.
+2. The vessel profile's `thrusters:` section: `channel_map`, `reversed` and the pins (`pwm_chips`,
+   `pwm_channels`, `mosfet_chip`, `mosfet_line`, `mosfet_active_high`).
 3. `~/.config/mhseals/hardware.yaml` (or `$MHSEALS_HARDWARE_CONFIG`, or `config_file:=`): the measured
    and tuned state. `astro apply` writes it.
 
@@ -81,7 +106,8 @@ names `file:line`. Nodes read the config once, when they start. Only a few value
 
 ## Hardware
 
-Outputs 1-4 are fixed J2 pins. `channel_map` decides which thruster each one drives.
+Outputs 1-4 are J2 pins (the defaults below; a vessel profile may move them). `channel_map` decides
+which thruster each one drives.
 
 | Output | J2 pin | PWM |
 | --- | --- | --- |
@@ -92,9 +118,13 @@ Outputs 1-4 are fixed J2 pins. `channel_map` decides which thruster each one dri
 | MOSFET enable | 13 | `mosfet_chip`, `mosfet_line` |
 | Signal ground | 6 | |
 
-The board addresses (`pwm_chips`, `pwm_channels`, `mosfet_*`) are set only in `config/default.yaml`.
-To change one, edit it there and rerun `scripts/install_odroid_access.sh`. Run that script once per
-ODROID, on the host. It exports the PWM channels at boot and grants the container access to them.
+The pins (`pwm_chips`, `pwm_channels`, `mosfet_*`) are `config/default.yaml`'s unless the vessel profile's
+`thrusters:` sets them (the thrusters screen's p does); the operator file cannot move them. Each
+`pwm_chips` glob must resolve to exactly one chip on the boat, and a controller the device-tree overlay
+does not enable resolves to none: enable it in `host/odroid-m2-thruster-pwm-overlay.dts`. Run
+`scripts/install_odroid_access.sh` once per ODROID, on the host, and again after the pins move. It
+installs the pins (the vessel profile's, else the defaults') for a boot service that exports the PWM
+channels and grants the container access to them.
 Every entry point claims the MOSFET line first, sets neutral, and only then enables it. On exit it
 turns the MOSFET off before PWM.
 
@@ -105,4 +135,5 @@ python3 -m pytest -q        # pure Python, no ROS, a few seconds
 ```
 
 The tests cover the core building blocks: the mixer, the velocity law, mux arbitration, the
-e-stop, manual state, configuration loading, and the ODROID PWM backend.
+e-stop and its clear, manual state, configuration loading, the ODROID PWM backend, `thrusters free`
+and the thrusters screen's bar and profile save.

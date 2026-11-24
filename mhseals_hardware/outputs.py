@@ -23,7 +23,7 @@ class TopicPWMOutputs:
 
     With ``node`` the publisher lives on that node (thruster_pwm_node);
     without, ``open`` starts a private node and spin thread, for standalone
-    tools such as thruster_identify.
+    tools such as `thrusters wiring`.
     """
 
     def __init__(self, topic='/thrusters/pwm', node=None, neutral_us=NEUTRAL_PWM,

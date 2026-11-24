@@ -117,3 +117,17 @@ def test_a_vessel_profile_edit_is_seen_by_the_next_load(boat, tmp_path):
     assert load_config(empty(tmp_path))['channel_map'] == [1, 3, 2, 4]
     boat('{channel_map: [4, 3, 2, 1]}')
     assert load_config(empty(tmp_path))['channel_map'] == [4, 3, 2, 1]
+
+
+def test_the_vessel_profile_may_move_the_pins_but_the_operator_file_may_not(boat, tmp_path):
+    boat('{pwm_chips: [/sys/a.pwm/pwm/pwmchip*, /sys/b.pwm/pwm/pwmchip*, /sys/c.pwm/pwm/pwmchip*, '
+         '/sys/d.pwm/pwm/pwmchip*], pwm_channels: [0, 1, 0, 0], mosfet_line: 3}')
+    config = load_config(empty(tmp_path))
+    assert config['pwm_channels'] == [0, 1, 0, 0] and config['mosfet_line'] == 3
+    operator = tmp_path / 'hardware.yaml'
+    operator.write_text('mosfet_line: 29\n')        # the default, but not this vessel's
+    with pytest.raises(ValueError, match='mosfet_line'):
+        load_config(operator)
+    boat('{pwm_channels: [0, 0, 0]}')                # lengths must match
+    with pytest.raises(ValueError, match='pwm_channels'):
+        load_config(empty(tmp_path))

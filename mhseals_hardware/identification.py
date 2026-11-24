@@ -136,11 +136,8 @@ def main(args=None):
         return
     console.print(Panel(
         'Boat secured; all propellers clear and submerged; power cutoff within reach.\n'
-        'Each output is pulsed alone. Space, Q or Esc during a pulse returns to neutral.\n'
-        'Type ARM to start; anything else cancels.',
-        title='Thruster identification', style='yellow'))
-    if console.input('Confirm: ').strip() != 'ARM':
-        return
+        'Each output is pulsed alone. Space, Q or Esc during a pulse returns to neutral.',
+        title='Thruster wiring', style='yellow'))
     outputs = make_outputs(parsed.hardware_config).open()
     try:
         channel_map, rotations, reversed = identify_thrusters(outputs, console.input, choose)

@@ -187,11 +187,12 @@ def test_j2_pins_match_the_overlay():
     from pathlib import Path
     from mhseals_hardware.odroid_pwm import J2_PINS
     root = Path(__file__).resolve().parents[1]
-    outputs = (1, 2, 3, 4)
-
+    from mhseals_hardware.configuration import load_defaults
+    from mhseals_hardware.odroid_pwm import pwm_device
     overlay = (root / 'host/odroid-m2-thruster-pwm-overlay.dts').read_text()
     enabled = set(re.findall(r'&(pwm\d+)\s*\{\s*status = "okay"', overlay))
-    assert enabled == {J2_PINS[o][2].lower() for o in outputs}
+    devices = [pwm_device(chip) for chip in load_defaults()['pwm_chips']]
+    assert enabled == {J2_PINS[device][2].lower() for device in devices}
 
 
 def test_failed_open_unexports_channels_it_exported(tmp_path, monkeypatch):

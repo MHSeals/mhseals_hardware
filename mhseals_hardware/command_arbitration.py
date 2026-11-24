@@ -14,7 +14,7 @@ whoever next means to move the boat moves it at once. Only stops someone chooses
 * stop (input ``hold``): the RC mode switch at HOLD (or an unknown mode) holds while it stays
   there; the RC stop channel's falling edge holds until that switch goes back up. A chosen stop
   stops the keyboard too.
-* manual: ``topics.manual`` (keyboard_control) newer than ``command_timeout``.
+* manual: ``topics.manual`` (keyboard) newer than ``command_timeout``.
 * auto: ``topics.effort`` newer than ``command_timeout``, ramped in from zero over ``ramp``
   after anything else (a start, idle, a stop, rc or manual).
 """

@@ -38,10 +38,11 @@ OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic', 'co
             'command_mux': ('cmd_timeout', 'state_file')}
 OBSOLETE_TOP = ('estop_on_rc_loss',)  # top-level keys dropped the same way
 SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
-WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
-# Board addresses: only config/default.yaml sets them, since host/mhseals-thruster-access prepares exactly those
-# files at boot. An operator file may repeat them (a full saved config holds every key) but not change them.
+# Board addresses: default.yaml's, or the vessel profile's thrusters: (a per-boat fact, which
+# odroid_access installs for the boot service). An operator file may repeat them (a full saved config
+# holds every key) but not change them.
 BOARD = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high')
+WIRING = ('channel_map', 'reversed') + BOARD    # the keys a vessel profile's thrusters: may set
 log = logging.getLogger(__name__)
 
 
@@ -128,13 +129,13 @@ def validate_config(config):
         raise ValueError('output_backend must be odroid or topic')
     if not isinstance(config['pwm_topic'], str) or not config['pwm_topic'].startswith('/'):
         raise ValueError('pwm_topic must be an absolute ROS topic')
-    if len(config['pwm_chips']) != 4 or not all(
+    if not isinstance(config['pwm_chips'], (list, tuple)) or len(config['pwm_chips']) != 4 or not all(
             isinstance(p, str) and p.startswith('/sys/')
             for p in config['pwm_chips']):
         raise ValueError('pwm_chips must contain four absolute /sys paths')
     if len(set(config['pwm_chips'])) != 4:
         raise ValueError('PWM chip paths must be distinct')
-    if len(config['pwm_channels']) != 4 or any(
+    if not isinstance(config['pwm_channels'], (list, tuple)) or len(config['pwm_channels']) != 4 or any(
             type(n) is not int or n < 0 for n in config['pwm_channels']):
         raise ValueError('pwm_channels must contain four nonnegative integers')
     # Restarting PWM at another frequency can look like throttle to the ESCs.
@@ -203,6 +204,7 @@ def _layered(overrides, wiring=None):
     extra = sorted(set(wiring) - set(WIRING))
     if extra:
         raise ValueError(f'vessel profile thrusters: takes {", ".join(WIRING)}, not {extra}')
+    board_unchanged(overrides, wiring)
     return _merge_overrides({**copy.deepcopy(wiring), **overrides})
 
 
@@ -337,13 +339,15 @@ def plain(value):
     return list(value) if isinstance(value, (tuple, array.array)) else value
 
 
-def board_unchanged(config):
-    """Refuse a BOARD value that differs from default.yaml; equal values (a full snapshot) pass."""
-    defaults = load_defaults()
-    moved = [key for key in BOARD if key in config and plain(config[key]) != defaults[key]]
+def board_unchanged(config, wiring=None):
+    """Refuse a BOARD value that differs from default.yaml < the vessel profile's thrusters:
+    (``wiring``, read when None); equal values (a full snapshot) pass."""
+    wiring = vessel.section('thrusters') if wiring is None else wiring
+    board = dict(load_defaults(), **wiring)
+    moved = [key for key in BOARD if key in config and plain(config[key]) != plain(board[key])]
     if moved:
-        raise ValueError(f'board address {", ".join(moved)}: set it in config/default.yaml and re-run '
-                         'scripts/install_odroid_access.sh (the boot service prepares only those files)')
+        raise ValueError(f'board address {", ".join(moved)}: set it in the vessel profile thrusters: '
+                         '(thrusters config) and re-run odroid_access on the ODROID host')
     return config
 
 
@@ -352,7 +356,6 @@ def _merge_overrides(overrides):
     unknown = set(overrides) - set(defaults)
     if unknown:
         raise ValueError(f'unknown hardware settings: {sorted(unknown)}')
-    board_unchanged(overrides)
     combined = dict(defaults, **overrides)
     for name in SECTIONS:
         if name in overrides:

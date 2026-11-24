@@ -42,8 +42,9 @@ def directory(network_env=None):
     return env.resolve().parent if env is not None and env.is_file() else None
 
 
-def section(name, network_env=None):
-    """The vessel profile chain's merged ``name:`` mapping ({} without a vessel profile or that key)."""
+def section(name, network_env=None, inherited=False):
+    """The vessel profile chain's merged ``name:`` mapping ({} without a vessel profile or that key);
+    ``inherited`` leaves out the vessel's own profile (only what it extends)."""
     named = network_env or os.environ.get('ASTRO_NETWORK_ENV')
     env = Path(network_env).expanduser() if network_env else env_path()
     if env is None or not (named or env.is_file()):
@@ -56,7 +57,7 @@ def section(name, network_env=None):
         parent = _mapping(here / 'profile.yaml', required=True).get('extends')
         here = here.parent / parent if isinstance(parent, str) else None
     merged = {}
-    for profile in reversed(chain):
+    for profile in reversed(chain[1:] if inherited else chain):
         merged.update(_mapping(profile / f'{name}.yaml'))
         found = _mapping(profile / 'profile.yaml').get(name, {})
         if not isinstance(found, dict):

@@ -75,7 +75,7 @@ def main(args=None):
     parser.add_argument('--speed', type=float, help='initial thrust fraction, 0 to 1')
     parser.add_argument('--dry-run', action='store_true',
                         help='test terminal keys and chords without publishing ROS commands')
-    argv = sys.argv if args is None else ['keyboard_control', *args]
+    argv = sys.argv if args is None else ['keyboard', *args]
     options = parser.parse_args(remove_ros_args(args=argv)[1:])
     if options.speed is not None and not 0 <= options.speed <= 1:
         parser.error('--speed must be between 0 and 1')
