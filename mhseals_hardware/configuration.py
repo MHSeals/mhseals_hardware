@@ -35,7 +35,8 @@ MOVED = {('controller', 'odom_topic'): ('topics', 'odom'),
 # the file still arms. The next write of the file drops them.
 # The topic keys are now topics:, the two stage timeouts the one top-level command_timeout.
 OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic', 'command_timeout'),
-            'command_mux': ('cmd_timeout',)}
+            'command_mux': ('cmd_timeout', 'state_file')}
+OBSOLETE_TOP = ('estop_on_rc_loss',)  # top-level keys dropped the same way
 SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
 WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
 # Board addresses: only config/default.yaml sets them, since host/mhseals-thruster-access prepares exactly those
@@ -143,9 +144,8 @@ def validate_config(config):
         raise ValueError('mosfet_line must be a nonnegative integer')
     if type(config['mosfet_active_high']) is not bool:
         raise ValueError('mosfet_active_high must be a boolean')
-    for key in ('estop_cuts_power', 'estop_on_rc_loss'):
-        if type(config[key]) is not bool:
-            raise ValueError(f'{key} must be a boolean')
+    if type(config['estop_cuts_power']) is not bool:
+        raise ValueError('estop_cuts_power must be a boolean')
     # Under 10 Hz a flip is more than the driver's 0.15 s stall threshold away.
     beat = config['mosfet_heartbeat']
     if type(beat) not in (int, float) or not math.isfinite(beat) or not (
@@ -288,6 +288,7 @@ def _read_overrides(path):
         if isinstance(values, dict) and any(key in values for key in keys):
             gone += [f'{section}.{key}' for key in keys if key in values]
             overrides[section] = {k: v for k, v in values.items() if k not in keys}
+    gone += [key for key in OBSOLETE_TOP if overrides.pop(key, None) is not None]
     if gone:
         log.warning('%s: %s no longer exist; ignored (the next write drops them)', path,
                     ', '.join(gone))

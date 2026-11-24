@@ -442,3 +442,11 @@ def test_config_check_exit_codes(tmp_path, capsys):
     assert main([str(path)]) == 1
     assert 'diagonal' in capsys.readouterr().err
     assert main([str(tmp_path / 'missing.yaml')]) == 1
+
+
+def test_removed_keys_in_an_old_operator_file_are_dropped(tmp_path):
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('estop_on_rc_loss: true\ncommand_mux: {state_file: null, ramp: 2.0}\n')
+    config = load_config(path)
+    assert 'estop_on_rc_loss' not in config and config['command_mux']['ramp'] == 2.0
+    assert 'state_file' not in config['command_mux']

@@ -1,6 +1,6 @@
-"""Remote e-stop: the RC stop-channel edge (and, optionally, losing RC while it
-controls the boat), the operator's e-stop or a stalled heartbeat cuts ESC power
-through the MOSFET.
+"""E-stop: the RC stop-channel edge, the operator's ``~/estop`` or a stalled heartbeat cuts
+ESC power through the MOSFET. Losing RC never cuts: the mux falls through and the command
+timeout brings neutral.
 
 ROS-free and clock-injected. The edge is the command_mux rule itself
 (``Arbitration.update_rc``), built once from the config's ``mux_section``, the
@@ -16,10 +16,9 @@ from mhseals_hardware.command_arbitration import Arbitration, mux_section
 class RemoteEstop:
     """Watch RC frames; on the stop edge cut the MOSFET, go neutral, and latch."""
 
-    def __init__(self, outputs, config, enabled=True, on_rc_loss=False):
+    def __init__(self, outputs, config, enabled=True):
         self.outputs = outputs
         self.enabled = bool(enabled)
-        self.on_rc_loss = bool(on_rc_loss)
         self.rule = Arbitration.from_config(mux_section(config))
         self.cause = None
         self.since_ns = None
@@ -34,12 +33,7 @@ class RemoteEstop:
         if edge and self.enabled and not self.latched:
             self.cut('rc-stop', wall_ns)
             return True
-        return self._lost(wall_ns)
-
-    def tick(self, now, wall_ns):
-        """Age the RC stream (no frame arrives to notice it went stale); True on a cut."""
-        self.rule.select(now)
-        return self._lost(wall_ns)
+        return False
 
     def trip(self, cause, now, wall_ns):
         """A cut not from RC (the operator, a stalled heartbeat); always armed.
@@ -48,15 +42,6 @@ class RemoteEstop:
             return False
         self.cut(cause, wall_ns)
         return True
-
-    def _lost(self, wall_ns):
-        """The mux's rc_lost: RC was in control (MANUAL or a stick takeover) and its
-        frames went invalid or stale. Never before a first valid controlling frame."""
-        lost = self.rule.holds.pop('rc_lost', None) is not None  # the private rule only reports
-        if lost and self.on_rc_loss and not self.latched:
-            self.cut('rc-lost', wall_ns)
-            return True
-        return False
 
     def cut(self, cause, wall_ns):
         """Power off first, then neutral; latch even if a write fails, then re-raise."""
@@ -77,5 +62,5 @@ class RemoteEstop:
 
     def state(self):
         """For the driver ~/status: whether the cut is armed, and the latch."""
-        return {'enabled': self.enabled, 'on_rc_loss': self.on_rc_loss, 'latched': self.latched,
+        return {'enabled': self.enabled, 'latched': self.latched,
                 'cause': self.cause or '', 'since_ns': self.since_ns}

@@ -9,10 +9,9 @@ physical outputs 1-4, us) at 20 Hz: with the topic backend that topic is the out
 with the odroid backend it is the pins' readback, so a bag always holds the actuation.
 
 Safety: with ``estop_cuts_power`` the RC stop-channel edge on ``topics.rc`` cuts the MOSFET and
-latches (estop.py); ``estop_on_rc_loss`` does the same when RC that was controlling the boat is
-lost (never when no RC was ever seen, as in the sim). The ``~/estop`` service
-(std_srvs/Trigger) is the operator's e-stop: the same latched cut. Only a restart powers the
-ESCs again. SIGTERM shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
+latches (estop.py). The ``~/estop`` service (std_srvs/Trigger) is the operator's e-stop: the
+same latched cut. Only a restart of the driver (drive.launch) powers the ESCs again. Losing RC
+never cuts: the mux falls through and the command timeout brings neutral. SIGTERM shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
 heartbeat circuit. ``~/status`` (latched String JSON) reports the MOSFET, the e-stop and the
 live correction.
 
@@ -83,8 +82,7 @@ class ThrusterPWMNode(Node):
 
     def _start(self):
         """Everything after the outputs open; a failure here closes them again."""
-        self.estop = RemoteEstop(self.outputs, self.config,
-                                 self.config['estop_cuts_power'], self.config['estop_on_rc_loss'])
+        self.estop = RemoteEstop(self.outputs, self.config, self.config['estop_cuts_power'])
         self.last_beat = None
         topics = self.config['topics']
         if self.config['mosfet_heartbeat'] and getattr(self.outputs, 'mosfet', None):
@@ -95,7 +93,7 @@ class ThrusterPWMNode(Node):
         self.last_command_time = time.monotonic()
         self.timed_out = False
         self.publish_status()
-        if self.estop.enabled or self.estop.on_rc_loss:
+        if self.estop.enabled:
             self.create_subscription(RCIn, topics['rc'], self.rc_callback,
                                      qos_profile_sensor_data)
         self.create_subscription(Twist, topics['applied'], self.cmd_vel_callback, 10)
@@ -243,8 +241,6 @@ class ThrusterPWMNode(Node):
         self.readback_pub.publish(UInt16MultiArray(data=pulses))
 
     def watchdog_callback(self):
-        if self.estop.enabled or self.estop.on_rc_loss:
-            self.estop_step(self.estop.tick)  # RC gone stale while it controlled the boat
         self.retry_cut()
         # Fail neutral when the command stream stops (crashed teleop, lost link).
         if (not self.timed_out and time.monotonic() - self.last_command_time >

@@ -62,11 +62,11 @@ def fake_chip(root, number):
     return pwm.parent
 
 
-def arm(tmp_path, enabled=True, on_rc_loss=False):
+def arm(tmp_path, enabled=True):
     """What a driver start does: open fresh outputs (MOSFET on at neutral), a new e-stop."""
     chips = [fake_chip(tmp_path / str(len(list(tmp_path.iterdir()))), n) for n in range(4)]
     outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True).open()
-    return outputs, RemoteEstop(outputs, load_defaults(), enabled, on_rc_loss)
+    return outputs, RemoteEstop(outputs, load_defaults(), enabled)
 
 
 def duties(outputs):
@@ -81,7 +81,7 @@ def test_stop_edge_cuts_power_then_neutral_and_latches(tmp_path, line):
     assert estop.rc(frame(OFF), 1.02, 20)
     assert line[-1] == 0 and not outputs.mosfet.enabled
     assert duties(outputs) == ['1500000'] * 4
-    assert estop.state() == {'enabled': True, 'on_rc_loss': False, 'latched': True,
+    assert estop.state() == {'enabled': True, 'latched': True,
                              'cause': 'rc-stop', 'since_ns': 20}
     assert outputs.mosfet.request is not None  # still held low, not released to float
 
@@ -96,11 +96,11 @@ def test_rc_returning_never_powers_on(tmp_path, line):
     assert estop.latched and estop.state()['since_ns'] == 0
 
 
-def test_only_a_new_arm_restores_power(tmp_path, line):
+def test_only_a_driver_restart_restores_power(tmp_path, line):
     outputs, estop = arm(tmp_path)
     estop.rc(frame(ON), 1.0, 0)
     estop.rc(frame(OFF), 1.02, 0)
-    outputs.close()            # disarm: the driver exits
+    outputs.close()            # the driver exits
     line.clear()
     outputs, estop = arm(tmp_path)
     assert line == [0, 1] and not estop.latched
@@ -149,48 +149,13 @@ def stream(estop, frames, start=1.0, step=0.05):
     return now - step
 
 
-@pytest.mark.parametrize('last', ['stale', 'invalid'])
-def test_rc_loss_while_rc_controls_cuts_and_latches(tmp_path, line, last):
-    outputs, estop = arm(tmp_path, on_rc_loss=True)
-    now = stream(estop, [frame()] * 3)                 # MANUAL: RC drives
-    if last == 'stale':
-        assert not estop.tick(now + 0.25, 0)           # within rc_max_age (0.3 s)
-        assert estop.tick(now + 0.35, 7)
-    else:
-        assert estop.rc(frame()[:3], now + 0.05, 7)
-    assert estop.state()['cause'] == 'rc-lost' and estop.state()['since_ns'] == 7
-    assert line[-1] == 0 and not outputs.mosfet.enabled
-    stream(estop, [frame()] * 3, now + 1.0)            # RC back: still cut
-    assert line.count(1) == 1 and estop.latched
-
-
-def test_rc_loss_after_a_stick_takeover_cuts(tmp_path, line):
-    outputs, estop = arm(tmp_path, on_rc_loss=True)
-    now = stream(estop, [frame(mode=GUIDED, surge=1800)] * 6)   # held past stick_time
-    assert estop.tick(now + 0.35, 0) and estop.cause == 'rc-lost'
-
-
-@pytest.mark.parametrize('mode', [GUIDED, HOLD])
-def test_rc_loss_when_rc_is_not_in_control_keeps_power(tmp_path, line, mode):
-    outputs, estop = arm(tmp_path, on_rc_loss=True)
-    now = stream(estop, [frame(mode=mode)] * 3)        # autonomy or the keyboard drives
-    assert not estop.tick(now + 1.0, 0)
-    assert not estop.rc(frame()[:3], now + 1.05, 0)
-    assert outputs.mosfet.enabled and not estop.latched
-
-
-def test_startup_before_rc_frames_keeps_power(tmp_path, line):
-    outputs, estop = arm(tmp_path, on_rc_loss=True)
-    for step in range(30):                             # 3 s of watchdog ticks, no receiver
-        assert not estop.tick(0.1 * step, 0)
-    assert not estop.rc([], 3.1, 0)                    # empty frame: no receiver
-    assert outputs.mosfet.enabled and not estop.latched
-
-
-def test_rc_loss_cut_is_off_unless_configured(tmp_path, line):
-    outputs, estop = arm(tmp_path, on_rc_loss=False)
+def test_losing_rc_never_cuts(tmp_path, line):
+    """RC in control (MANUAL), then gone or garbled: the mux falls through, power stays on."""
+    outputs, estop = arm(tmp_path)
     now = stream(estop, [frame()] * 3)
-    assert not estop.tick(now + 1.0, 0) and outputs.mosfet.enabled
+    assert not estop.rc(frame()[:3], now + 0.05, 0)    # invalid frame
+    assert not estop.rc([], now + 1.0, 0)              # no receiver
+    assert outputs.mosfet.enabled and not estop.latched
 
 
 def test_operator_trip_cuts_and_latches_whatever_rc_does(tmp_path, line):

@@ -3,7 +3,6 @@
 # tier: live = changes in the running node through SetParameters; restart = applies at the next start
 # (every node reads the config once and never watches this file).
 estop_cuts_power: {type: bool, units: bool, tier: restart, doc: "The RC stop-channel edge cuts the MOSFET and latches it off until the driver restarts."}
-estop_on_rc_loss: {type: bool, units: bool, tier: restart, doc: "Losing RC while it controls the boat cuts the MOSFET and latches it off until the driver restarts."}
 mosfet_heartbeat: {type: float, units: Hz, range: [0, 100], tier: restart, doc: "Toggle rate of the MOSFET enable for a heartbeat circuit: 0 holds a steady level, otherwise 10-100 (slower stalls the driver's 0.15 s heartbeat check)."}
 channel_map: {type: list, units: count, range: [1, 4], tier: restart, doc: "Canonical thruster FL, FR, RR, RL to physical output (1-based)."}
 reversed: {type: list, units: bool, tier: restart, doc: "FL, FR, RR, RL: true flips a thruster wired or mounted backwards."}
