@@ -27,6 +27,9 @@ gates:
      clear: 'release it where it was set (RC mode switch or stop channel); astro status shows it'}
   - {name: driver e-stop latched, state: /thruster_pwm_node/status, held: estop.latched, cause: estop.cause,
      clear: 'restart drive.launch.py to power the ESCs again'}
+# Who drives during a measure window: anything but auto (e.g. RC MANUAL with centred sticks) for over 0.5 s
+# aborts the test, with neutral, instead of fitting zeros.
+lane: {state: /command_mux/state, field: input, want: auto, cause: cause, fix: 'put the RC switch in GUIDED'}
 
 spaces:
   large: {amp: 0.5, levels: [0.3, 0.6, 0.9]}     # lake: ~6 m for couple, ~12 m for speed
