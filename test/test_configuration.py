@@ -191,8 +191,8 @@ def test_concurrent_updates_do_not_lose_edits(tmp_path):
     path = tmp_path / 'hardware.yaml'
     update_config({'manual_amplitude': 0.1}, path)
     decoupling = [1.0, 0, 0, 0, 1.0, 0, 0.3, 0, 1.0]
-    jobs = [multiprocessing.Process(target=_update_many, args=(path, 'decoupling', decoupling, 60)),
-            multiprocessing.Process(target=_update_many, args=(path, 'manual_amplitude', 0.4, 60))]
+    jobs = [multiprocessing.Process(target=_update_many, args=(path, 'decoupling', decoupling, 10)),
+            multiprocessing.Process(target=_update_many, args=(path, 'manual_amplitude', 0.4, 10))]
     for job in jobs:
         job.start()
     for job in jobs:

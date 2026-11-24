@@ -31,6 +31,8 @@ setup(
             'calibrated_velocity_controller = mhseals_hardware.velocity_controller:main',
             'keyboard_control = mhseals_hardware.keyboard_control:main',
             'command_mux = mhseals_hardware.command_mux:main',
+            'config_check = mhseals_hardware.config_check:main',
+            'mix = mhseals_hardware.mix:main',
         ],
     },
 )
