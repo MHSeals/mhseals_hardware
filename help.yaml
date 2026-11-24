@@ -54,7 +54,7 @@ commands:
 
   - name: wiring
     run: ros2 run mhseals_hardware thruster_identify
-    summary: Pulse each output in turn to map PWM outputs to thrusters; saves channel_map.
+    summary: Pulse each output in turn to map PWM outputs to thrusters; saves channel_map and reversed.
     notes: Stop the stack first (it opens the outputs itself). Boat tied up, propellers clear and submerged; you answer what moved.
     params:
       - {name: --manual, type: bool, description: Enter the mapping by hand instead of pulsing outputs.}
