@@ -81,9 +81,7 @@ def mux_section(config):
     """The ``command_mux`` section of a hardware config plus its top-level ``command_timeout``."""
     if 'command_timeout' in config['command_mux']:
         raise ValueError('command_timeout is top-level, not a command_mux key')
-    # state_file is the node's (hold_store.path), not the state machine's.
-    section = {k: v for k, v in config['command_mux'].items() if k != 'state_file'}
-    return {**section, 'command_timeout': config['command_timeout']}
+    return {**config['command_mux'], 'command_timeout': config['command_timeout']}
 
 
 class Arbitration:
@@ -136,13 +134,6 @@ class Arbitration:
     def from_config(cls, config):
         """Build from ``mux_section``: the ``command_mux`` section plus ``command_timeout``."""
         return cls(**(config or {}))
-
-    def adopt_holds(self, holds, now):
-        """Re-adopt holds saved by a previous mux process (see ``hold_store``)."""
-        for cause, held in holds.items():
-            self.holds[cause] = {**held, 'since': min(held['since'], now)}
-        if self.holds:
-            self._ramp_pending = True
 
     def _check_layout(self):
         """Reject a transmitter layout that cannot be decoded."""
@@ -282,7 +273,7 @@ class Arbitration:
         if valid and mode != self._prev_mode:
             if mode == GUIDED and self._prev_mode is not None:
                 # Moving the switch to GUIDED releases only the RC causes; the
-                # first frame after a restart is not a move, so adopted holds stay.
+                # first frame after a start is not a move.
                 for cause in RC_CAUSES:
                     self.holds.pop(cause, None)
             self._prev_mode = mode

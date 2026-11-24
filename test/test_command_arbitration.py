@@ -356,16 +356,6 @@ def test_first_auto_after_start_ramps_in():
     assert a.select(100.5)[1][0] == pytest.approx(0.5)
 
 
-def test_adopted_hold_blocks_auto_and_keeps_its_token():
-    a = arbitration()
-    a.request('hold', 'apply', 'config', 0, token='t1')
-    b = arbitration()
-    b.adopt_holds(a.holds, 5.0)
-    b.update_auto((1.0, 0.0, 0.0), 5.0)
-    assert b.select(5.0)[0] == 'hold'
-    assert b.request('release', 'apply', 'x', 6.0, token='t1')[0]
-
-
 STATE_FIELDS = {'input', 'since_ns', 'cause', 'hold', 'rc', 'manual', 'auto',
                 'rejected', 'pipeline_ms', 'holds', 'last_release'}
 RC_FIELDS = {'valid', 'mode', 'latched', 'stick', 'pwm_mode', 'rate_hz',

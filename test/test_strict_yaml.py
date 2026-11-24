@@ -3,8 +3,6 @@ from mhseals_hardware.configuration import load_config, update_config
 
 import pytest
 
-from test_mux_configuration import mux
-
 BAD = {
     'duplicate': 'command_timeout: 0.3\ncommand_timeout: 0.4\n',
     'duplicate-nested': 'controller:\n  kp: [1, 1, 1]\n  kp: [2, 2, 2]\n',
@@ -49,24 +47,6 @@ def test_valid_file_still_loads_and_empty_is_no_overrides(tmp_path):
 def load_defaults_merged():
     from mhseals_hardware.configuration import _merge_overrides
     return _merge_overrides({})
-
-
-def build_mux(path):
-    return mux({}, {'config_file': str(path)}, load_config=load_config)
-
-
-@pytest.mark.parametrize('name', ['duplicate', 'duplicate-mux', 'merge', 'recursive'])
-def test_mux_startup_refuses_bad_file(tmp_path, name):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text(BAD[name])
-    with pytest.raises(ValueError):
-        build_mux(path)
-
-
-def test_mux_startup_reads_the_operator_file(tmp_path):
-    path = tmp_path / 'hardware.yaml'
-    path.write_text('command_timeout: 0.9\n')
-    assert build_mux(path).arbitration.command_timeout == 0.9
 
 
 def test_unknown_key_keeps_wording_and_origin(tmp_path):

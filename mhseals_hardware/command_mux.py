@@ -11,10 +11,8 @@ callback that receives it, and a 25 Hz timer keeps the output alive between fram
 The state contract: ``topics.mux_state`` (latched, on a change and at 1 Hz) carries JSON with
 ``schema`` 'mhseals.mux/1' and ``input``, the lane that drives now: ``rc``, ``manual``,
 ``hold``, ``auto`` or ``idle`` (nothing fresh). A consumer reads only ``input``
-(``command_arbitration.mux_input``): the driver takes test pulses only while it is ``idle``, the
-velocity controller drives only while it is ``auto``, and a watchdog is outranked by anything
-but ``auto`` and ``idle``. Another schema or a missing input is unknown, and unknown fails safe:
-no pulse, a reset controller, outranked. Every other field is for display.
+(``command_arbitration.mux_input``): the velocity controller drives only while it is ``auto``.
+Another schema or a missing input is unknown, and unknown fails safe: a reset controller. Every other field is for display.
 
 The node reads the ``command_mux`` section of its arm snapshot, plus the top-level
 ``command_timeout`` the driver and the controller also read, once (``-p`` overrides win) and
@@ -33,7 +31,6 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
                        qos_profile_sensor_data)
 from std_msgs.msg import String
 
-from mhseals_hardware import hold_store
 from mhseals_hardware.command_arbitration import Arbitration, INIT_KEYS, MUX_SCHEMA, mux_section
 from mhseals_hardware.configuration import declared, load_config, plain
 from mhseals_hardware.ros_util import run_node, twist_from, twist_values
@@ -82,10 +79,7 @@ class CommandMux(Node):
         self.arbitration = Arbitration.from_config(self.section)
         self.add_on_set_parameters_callback(self._check_parameters)
         self.add_post_set_parameters_callback(self._commit_parameters)
-        # Holds survive a restart: re-adopt the saved set (docs/authority.md invariant 4).
-        self.state_file = hold_store.path(config['command_mux'])
-        self.arbitration.adopt_holds(hold_store.load(self.state_file), time.monotonic())
-        self._saved = None
+        # A started mux is clean: no holds carry over from an earlier process.
 
         topics = self.topics
         self.applied = self.create_publisher(Twist, topics['applied'], 10)
@@ -147,29 +141,15 @@ class CommandMux(Node):
         """Publish the winning command now; also the 25 Hz keepalive."""
         now = time.monotonic()
         _, cmd = self.arbitration.select(now)
-        self.persist_holds()
         self.applied.publish(twist_from(cmd))
         self.publish_state()
-
-    def persist_holds(self):
-        """Write the hold set when it changed, before the command goes out."""
-        holds = self.arbitration.holds
-        text = json.dumps(holds, sort_keys=True)
-        if text == self._saved:
-            return
-        try:
-            hold_store.save(self.state_file, holds)
-            self._saved = text
-        except OSError as error:
-            self.get_logger().error(f'cannot save holds to {self.state_file}: {error}')
 
     def publish_state(self, force=False):
         """Publish ``topics.mux_state`` when it changed, or always with ``force``."""
         state = self.arbitration.state(time.monotonic(), time.time_ns(),
                                        self._pipeline_ms)
         state['configuration'] = {
-            'effective': {key: getattr(self.arbitration, key) for key in INIT_KEYS},
-            'state_file': str(self.state_file)}
+            'effective': {key: getattr(self.arbitration, key) for key in INIT_KEYS}}
         key = change_key(state)
         if force or key != self._last_state:
             self._last_state = key
@@ -182,7 +162,6 @@ class CommandMux(Node):
         start = time.perf_counter()
         self.arbitration.update_rc(list(message.channels), time.monotonic())
         _, cmd = self.arbitration.select(time.monotonic())
-        self.persist_holds()
         self.applied.publish(twist_from(cmd))
         # Receipt to applied publish, measured here; reported with the next state.
         self._pipeline_ms = round((time.perf_counter() - start) * 1e3, 3)
