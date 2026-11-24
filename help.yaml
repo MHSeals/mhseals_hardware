@@ -10,9 +10,9 @@ commands:
     notes: The only way the stack starts. Effort on topics.effort drives through the mux; RC and the keys take over. Ctrl-C stops it at neutral.
     params:
       - {name: output_backend, choices: [odroid, topic], default: auto, description: 'Where pulses go; auto keeps the config value (odroid pins, or topic for the sim).'}
-      - {name: use_sim_time, type: bool, default: false, description: Use the simulator clock.}
+      - {name: use_sim_time, type: bool, default: false, description: 'Use the simulator''s /clock instead of wall time (sim only).'}
       - {name: controller, type: bool, default: false, description: Also start calibrated_velocity_controller (topics.auto -> topics.effort; needs characterization).}
-      - {name: config_file, type: path, default: auto, description: 'Hardware YAML; auto is $MHSEALS_HARDWARE_CONFIG or ~/.config/mhseals/hardware.yaml.'}
+      - {name: config_file, type: path, default: auto, description: 'The hardware YAML to drive with, e.g. ~/.config/mhseals/hardware.yaml; auto is $MHSEALS_HARDWARE_CONFIG or that file.'}
     examples:
       - ros2 launch mhseals_hardware drive.launch.py
       - ros2 launch mhseals_hardware drive.launch.py output_backend:=topic use_sim_time:=true
@@ -37,11 +37,11 @@ commands:
     run: ros2 run mhseals_hardware mix
     summary: Print every mixer stage (C/C-, M rows, thrust sum, e|e|, desaturation, reversed, PWM, channel) for one effort command.
     params:
-      - {name: surge, type: float, required: false, description: 'Surge effort, -1 to 1.'}
-      - {name: sway, type: float, required: false, description: 'Sway effort, -1 to 1.'}
-      - {name: yaw, type: float, required: false, description: 'Yaw effort, -1 to 1.'}
-      - {name: --live, type: bool, description: 'Follow topics.applied instead (give no command).'}
-      - {name: --config, type: path, default: auto, description: 'Hardware YAML; auto is the active one.'}
+      - {name: surge, type: float, required: false, description: 'Forward effort from -1 (full reverse) to 1 (full ahead), e.g. 0.5.'}
+      - {name: sway, type: float, required: false, description: 'Sideways effort from -1 (full left) to 1 (full right), e.g. 0.'}
+      - {name: yaw, type: float, required: false, description: 'Turning effort from -1 to 1 (positive turns left), e.g. 0.2.'}
+      - {name: --live, type: bool, description: 'Follow topics.applied from the running drive stack instead (give no command).'}
+      - {name: --config, type: path, default: auto, description: 'The hardware YAML to mix with, e.g. ~/.config/mhseals/hardware.yaml; auto is the active one.'}
     examples:
       - ros2 run mhseals_hardware mix 0.5 0 0
       - ros2 run mhseals_hardware mix --live
@@ -49,56 +49,48 @@ commands:
   - name: keyboard
     level: core
     host: boat_computer
+    needs: [drive]
     run: ros2 run mhseals_hardware keyboard
     summary: Deadman keyboard driving on the manual lane (topics.manual); WASD/arrows, Space neutral, X exit.
-    notes: Needs the stack (drive). Secure the boat and clear the propellers.
+    notes: astro starts the drive stack first when it is down. Secure the boat and clear the propellers.
     params:
-      - {name: --speed, type: float, description: 'Initial thrust fraction, 0 to 1.'}
-      - {name: --dry-run, type: bool, description: Test terminal keys without publishing.}
-      - {name: --config, type: path, default: auto, description: 'Hardware YAML; auto is the active one.'}
+      - {name: --speed, type: float, choices: [0.1, 0.2, 0.3, 0.5, 0.75, 1.0], description: 'Starting thrust fraction from 0 to 1 (keys change it), e.g. 0.3.'}
+      - {name: --dry-run, type: bool, description: 'Test the terminal keys only, without publishing any command.'}
+      - {name: --config, type: path, default: auto, description: 'The hardware YAML to read limits from, e.g. ~/.config/mhseals/hardware.yaml; auto is the active one.'}
     examples:
       - ros2 run mhseals_hardware keyboard --speed 0.3
 
   - name: thrusters
     level: core
     host: boat_computer
+    conflicts: [{drive: 'it holds the thruster pins; thrusters needs them'}]
     run: ros2 run mhseals_hardware thrusters
     summary: The thrusters screen - drive each output with a strength bar, set wiring and pins, save to the vessel profile.
     notes: 'Keys in labelled groups (Drive, Wiring, Power) at the bottom; the selected row''s fields show above them, and p lists every J2 PWM pin with its overlay state. A pulse opens the outputs (MOSFET on, ESCs held neutral 3 s). k frees pins another program holds. s shows the profile diff, then y saves. Secure the boat and clear the propellers.'
     examples:
       - astro thrusters
 
-  - name: thrusters test
-    level: core
-    host: boat_computer
-    run: ros2 run mhseals_hardware thrusters test
-    summary: Same screen as thrusters - set each output's pulse by hand.
-
-  - name: thrusters config
-    level: core
-    host: boat_computer
-    run: ros2 run mhseals_hardware thrusters config
-    summary: Same screen as thrusters - thruster to output (t), reversed (r), PWM pin (p); s saves to the vessel profile thrusters:.
-
   - name: thrusters wiring
     level: core
     host: boat_computer
+    conflicts: [{drive: 'it holds the thruster pins; thrusters wiring needs them'}]
     run: ros2 run mhseals_hardware thrusters wiring
     summary: Pulse each output in turn and answer what moved; saves channel_map and reversed to hardware.yaml.
-    notes: Stop the stack first (astro down drive, or thrusters free). Boat tied up, propellers clear and submerged.
+    notes: astro stops the drive stack first (it holds the pins). Boat tied up, propellers clear and submerged.
     params:
       - {name: --manual, type: bool, description: Enter the mapping by hand instead of pulsing outputs.}
       - {name: --output-backend, choices: [odroid, topic], default: auto, description: 'ODROID pins or the simulator topic; auto takes it from the config.'}
-      - {name: --config, type: path, default: auto, description: 'Hardware YAML the channel_map is saved to; auto is the active one.'}
+      - {name: --config, type: path, default: auto, description: 'The hardware YAML the channel_map is saved to, e.g. ~/.config/mhseals/hardware.yaml; auto is the active one.'}
 
   - name: thrusters mosfet
     level: core
     host: boat_computer
+    conflicts: [{drive: 'it holds the thruster pins; thrusters mosfet needs them'}]
     run: ros2 run mhseals_hardware thrusters mosfet
     summary: Hold the MOSFET enable (ESC power) on; writes no PWM. Ctrl-C, SIGTERM or thrusters free releases it.
     params:
-      - {name: --seconds, type: float, description: 'Release after this long (default: hold until stopped).'}
-      - {name: --config, type: path, default: auto, description: 'Hardware YAML; auto is the active one.'}
+      - {name: --seconds, type: float, description: 'Release ESC power after this many seconds, e.g. 5; none holds it until stopped.'}
+      - {name: --config, type: path, default: auto, description: 'The hardware YAML naming the MOSFET pin, e.g. ~/.config/mhseals/hardware.yaml; auto is the active one.'}
     examples:
       - astro thrusters mosfet --seconds 5
 
@@ -109,7 +101,7 @@ commands:
     summary: Stop every program holding the thruster pins or MOSFET, set neutral, release them; one row per output.
     notes: Exit 0 when every row is free.
     params:
-      - {name: --check, type: bool, description: Only report who holds what.}
+      - {name: --check, type: bool, description: 'Only report which program holds each pin, and stop nothing.'}
     examples:
       - astro thrusters free --check
 
