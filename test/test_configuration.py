@@ -422,3 +422,24 @@ def test_one_topic_on_two_lanes_is_refused(tmp_path):
     path.write_text('topics: {' + ', '.join(f'{k}: {v}' for k, v in topics.items()) + '}\n')
     with pytest.raises(ValueError, match='topics.effort and topics.applied both name /cmd_vel_effort'):
         load_config(path)
+
+
+def test_nav2_limits_are_three_nonnegative_numbers_per_group():
+    good = {'velocity': [1.2, 0.5, 0.8], 'acceleration': [0.6, 0.3, 0.9]}
+    validate_config(dict(load_defaults(), characterization={'nav2_limits': good}))
+    for bad in ({'velocity': [1, 2]}, {'velocity': [1, -1, 1]}, {'jerk': [1, 1, 1]},
+                {'acceleration': 'fast'}):
+        with pytest.raises(ValueError, match='nav2_limits'):
+            validate_config(dict(load_defaults(), characterization={'nav2_limits': bad}))
+
+
+def test_config_check_exit_codes(tmp_path, capsys):
+    from mhseals_hardware.config_check import main
+    path = tmp_path / 'hardware.yaml'
+    path.write_text('characterization: {nav2_limits: {velocity: [1.0, 0.4, 0.6]}}\n')
+    assert main([str(path)]) == 0
+    assert capsys.readouterr().out.startswith(f'ok {path}')   # empty characterization: still ok
+    path.write_text('decoupling: [1, 0, 0, 0, 1, 0, 0, 0, -1]\n')
+    assert main([str(path)]) == 1
+    assert 'diagonal' in capsys.readouterr().err
+    assert main([str(tmp_path / 'missing.yaml')]) == 1

@@ -73,7 +73,7 @@ def validate_config(config):
         Arbitration.from_config(mux_section(config))
     except TypeError as error:
         raise ValueError(f'invalid command_mux: {error}') from error
-    # Optional calibration written by mhseals_testing's characterization.
+    # Optional calibration, measured on the water and written by `astro apply` (docs/CONTROL.md).
     characterization = config.get('characterization', {})
     if not isinstance(characterization, dict):
         raise ValueError('characterization must be a mapping')
@@ -107,6 +107,16 @@ def validate_config(config):
                     type(curve.get(term)) not in (int, float) or
                     not math.isfinite(curve[term]) for term in ('d1', 'd2')):
                 raise ValueError(f'characterization.speed_curves.{key} needs finite d1 and d2')
+    nav2 = characterization.get('nav2_limits')
+    if nav2:
+        if not isinstance(nav2, dict) or set(nav2) - {'velocity', 'acceleration'}:
+            raise ValueError('characterization.nav2_limits takes velocity and acceleration')
+        for group, values in nav2.items():
+            if not isinstance(values, list) or len(values) != 3 or any(
+                    type(value) not in (int, float) or not math.isfinite(value) or value < 0
+                    for value in values):
+                raise ValueError(f'characterization.nav2_limits.{group} must be three finite '
+                                 'nonnegative numbers (x, y, yaw)')
     bias = characterization.get('mechanical_bias')
     if bias and (not isinstance(bias, dict) or any(
             axis not in bias or type(bias[axis]) not in (int, float) or
@@ -197,7 +207,7 @@ def _layered(overrides, wiring=None):
 
 
 def config_sha(config):
-    """Short hash of a loaded config, so the TUI can tell which file a node applied."""
+    """Short hash of a loaded config, so ~/status shows which values a node runs."""
     return hashlib.sha256(json.dumps(config, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
