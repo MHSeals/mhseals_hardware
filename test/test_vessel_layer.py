@@ -2,7 +2,6 @@
 
 import pytest
 
-pytestmark = pytest.mark.smoke
 
 from mhseals_hardware import configuration, vessel
 from mhseals_hardware.configuration import load_config, load_layers, update_config
@@ -114,7 +113,7 @@ def test_update_config_validates_over_the_vessel_layer(boat, tmp_path):
 
 
 def test_a_vessel_profile_edit_is_seen_by_the_next_load(boat, tmp_path):
-    """Bench check step 6 fixes the profile's value; a long-lived process (TUI, agent) sees it on its next load."""
+    """Bench check step 6 fixes the profile's value; a long-lived process sees it on its next load."""
     assert load_config(empty(tmp_path))['channel_map'] == [1, 3, 2, 4]
     boat('{channel_map: [4, 3, 2, 1]}')
     assert load_config(empty(tmp_path))['channel_map'] == [4, 3, 2, 1]

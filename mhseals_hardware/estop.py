@@ -3,10 +3,10 @@ controls the boat), the operator's e-stop or a stalled heartbeat cuts ESC power
 through the MOSFET.
 
 ROS-free and clock-injected. The edge is the command_mux rule itself
-(``Arbitration.update_rc``), built once from the arm snapshot's ``mux_section``, the
+(``Arbitration.update_rc``), built once from the config's ``mux_section``, the
 same one the mux reads, so the two never disagree on the stop or mode channel. The cut
 latches for the life of the driver: nothing here powers the ESCs again. Power
-returns only through the arm path, which starts a new driver whose
+returns only when the driver restarts: a new driver's
 ``outputs.open()`` re-enables the MOSFET with every channel at neutral.
 """
 

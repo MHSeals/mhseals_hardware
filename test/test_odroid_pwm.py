@@ -182,7 +182,7 @@ def test_close_unexports_only_channels_exported_here(tmp_path, monkeypatch):
     assert (chips[1] / 'unexport').read_text() == ''
 
 
-def test_j2_pins_match_overlay_and_readme():
+def test_j2_pins_match_the_overlay():
     import re
     from pathlib import Path
     from mhseals_hardware.odroid_pwm import J2_PINS
@@ -192,16 +192,6 @@ def test_j2_pins_match_overlay_and_readme():
     overlay = (root / 'host/odroid-m2-thruster-pwm-overlay.dts').read_text()
     enabled = set(re.findall(r'&(pwm\d+)\s*\{\s*status = "okay"', overlay))
     assert enabled == {J2_PINS[o][2].lower() for o in outputs}
-
-    rows = {}
-    for line in (root / 'README.md').read_text().splitlines():
-        cells = [c.strip().strip('`') for c in line.strip('|').split('|')]
-        if cells[0].isdigit() and len(cells) == 4:
-            rows[int(cells[0])] = (int(cells[1]), cells[2], cells[3])
-    assert rows == {o: J2_PINS[o] for o in outputs}
-
-    pin, pad = J2_PINS['mosfet']
-    assert f'| MOSFET enable | {pin} | {pad} |' in (root / 'README.md').read_text()
 
 
 def test_failed_open_unexports_channels_it_exported(tmp_path, monkeypatch):

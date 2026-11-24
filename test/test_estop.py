@@ -9,7 +9,6 @@ from mhseals_hardware.configuration import load_defaults
 from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.odroid_pwm import OdroidPWMOutputs
 
-pytestmark = pytest.mark.smoke
 
 
 ON, OFF = 2000, 1000      # stop channel: run, stop
@@ -64,7 +63,7 @@ def fake_chip(root, number):
 
 
 def arm(tmp_path, enabled=True, on_rc_loss=False):
-    """What the arm path does: open fresh outputs (MOSFET on at neutral), a new e-stop."""
+    """What a driver start does: open fresh outputs (MOSFET on at neutral), a new e-stop."""
     chips = [fake_chip(tmp_path / str(len(list(tmp_path.iterdir()))), n) for n in range(4)]
     outputs = OdroidPWMOutputs(chips, (0, 0, 0, 0), '/dev/gpiochip5', 29, True).open()
     return outputs, RemoteEstop(outputs, load_defaults(), enabled, on_rc_loss)
@@ -227,13 +226,13 @@ def test_heartbeat_flips_only_while_powered(tmp_path, line):
 
 
 def test_the_estop_keeps_the_snapshot_channels_after_a_yaml_edit_on_disk(tmp_path):
-    """The driver and the mux each read command_mux once from the same arm snapshot (#1 #111)."""
+    """The driver and the mux each read command_mux once from the same config."""
     from mhseals_hardware.configuration import load_config
     path = tmp_path / 'hardware.yaml'
     path.write_text('command_mux: {stop_ch: 6}\n')
     outputs = SimpleNamespace(mosfet=None, neutral=lambda: None)
     estop = RemoteEstop(outputs, load_config(path))
-    path.write_text('command_mux: {stop_ch: 3}\n')  # an edit while armed: the next arm's
+    path.write_text('command_mux: {stop_ch: 3}\n')  # an edit while running: the next start's
     assert not hasattr(estop, 'configure') and estop.rule.stop_ch == 6
     assert not estop.rc(frame(ON), 1.0, 10)
     assert estop.rc(frame(OFF), 1.02, 20) and estop.cause == 'rc-stop'  # channel 6 still cuts

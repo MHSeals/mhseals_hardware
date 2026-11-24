@@ -1,5 +1,6 @@
-# Where thruster pulses go: odroid (the PWM pins below) or topic (pwm_topic,
-# for a simulator; physical outputs 1-4 in order, microseconds).
+# Where thruster pulses go: odroid (the PWM pins below) or topic (pwm_topic, for a simulator).
+# pwm_topic always carries the pulses written (physical outputs 1-4, microseconds, 20 Hz):
+# the output itself with topic, the pins' readback with odroid, so a bag holds the actuation.
 output_backend: odroid
 pwm_topic: /thrusters/pwm
 # Physical outputs 1..4: ODROID-M2 J2 pins 7, 12, 15, 33.
@@ -15,7 +16,7 @@ mosfet_chip: gpio3  # Bank label, NOT the dynamically numbered device node.
 mosfet_line: 29
 mosfet_active_high: true
 # Remote e-stop: the command_mux.stop_ch falling edge also cuts ESC power through
-# the MOSFET and latches it off until the driver is re-armed (restarted).
+# the MOSFET and latches it off until the driver restarts.
 estop_cuts_power: true
 # Losing RC while it controls the boat (MANUAL or a stick takeover: frames invalid
 # or older than command_mux.rc_max_age) cuts and latches the same way.
@@ -39,7 +40,7 @@ thruster_matrix: [
 ]
 # Rows and columns surge, sway, yaw, applied before the mixer: cancels the
 # cross-coupling the characterization measured. Identity means none. Entries within
-# +/-2, diagonal positive. Read at arm; SetParameters on the driver changes it live.
+# +/-2, diagonal positive. Read at start; ros2 param set on the driver changes it live.
 decoupling: [
   1.0, 0.0, 0.0,
   0.0, 1.0, 0.0,
@@ -53,15 +54,15 @@ decoupling_negative: null
 # datasheet 0.78). Keep 1.0: per-direction asymmetry belongs in decoupling_negative.
 # Go below 1 only after a measured diagonal test on the boat.
 reverse_thrust_ratio: 1.0
-# Manual keyboard thrust as a fraction of full effort (0.75 = 75 %). The deadman, the arm and
-# authority interlocks and the output clamps still apply; +/- change it live, 5 % a step.
+# Manual keyboard thrust as a fraction of full effort (0.75 = 75 %). The deadman, the mux
+# and the output clamps still apply; +/- change it live, 5 % a step.
 manual_amplitude: 0.75
 # Manual yaw as a fraction of the linear amplitude: turning is far more aggressive.
 manual_yaw_scale: 0.5
 manual_repeat_timeout: 0.15
 manual_initial_timeout: 0.65
 
-# command_mux (Arbitration arguments). Read at arm; only rc_scale and ramp change live (SetParameters).
+# command_mux (Arbitration arguments). Read at start; only rc_scale and ramp change live (ros2 param set).
 # mode_ch/stop_ch: 1-based RC channels. modes: the FCU MODE1..6 numbers (0 MANUAL,
 # 4 HOLD, 15 GUIDED). rc_scale: surge, sway, yaw fraction at full stick.
 # rc_max_age, stick_time, stick_release, ramp: seconds.
@@ -98,7 +99,9 @@ topics:
 # remount): calibrations recorded under an older epoch count as invalid.
 hardware_epoch: 0
 
-# Optional field characterization written by mhseals_testing (boat_test or thrust_characterize).
+# Measured on the water, written by `astro apply` into the operator file (docs/CONTROL.md L4-L7):
+# speed_curves {surge+: {d1, d2}, ...}, t95, motion_limits, nav2_limits {velocity: [x, y, yaw],
+# acceleration: [x, y, yaw]}. Empty is fine: only the velocity controller needs it.
 characterization: {}
 
 # The velocity controller's gains and observer; its topics are in topics:.

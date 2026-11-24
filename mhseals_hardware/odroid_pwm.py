@@ -6,7 +6,7 @@ import time
 from mhseals_hardware.thruster_mixer import NEUTRAL_PWM
 
 
-# Header labels for the README pin table and the TUI:
+# Header labels for the README pin table:
 # output -> (J2 pin, pad, PWM controller). The addresses (stable platform
 # globs; pwmchip numbers are allocated at boot) live only in default.yaml
 # pwm_chips, in the same output order.

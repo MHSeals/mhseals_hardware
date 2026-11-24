@@ -189,7 +189,7 @@ class ThrusterPWMNode(Node):
                                    self.reverse_ratio))
 
     def rc_callback(self, message):
-        """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until re-armed."""
+        """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until restarted."""
         self.estop_step(self.estop.rc, message.channels)
 
     def estop_step(self, step, *args):

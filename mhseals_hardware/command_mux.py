@@ -14,10 +14,10 @@ The state contract: ``topics.mux_state`` (latched, on a change and at 1 Hz) carr
 (``command_arbitration.mux_input``): the velocity controller drives only while it is ``auto``.
 Another schema or a missing input is unknown, and unknown fails safe: a reset controller. Every other field is for display.
 
-The node reads the ``command_mux`` section of its arm snapshot, plus the top-level
+The node reads the ``command_mux`` section of its config, plus the top-level
 ``command_timeout`` the driver and the controller also read, once (``-p`` overrides win) and
 never watches the YAML. Only ``rc_scale`` and ``ramp`` change live, through
-SetParameters: validated, then applied at once. Every other edit applies at the next arm.
+SetParameters: validated, then applied at once. Every other edit applies at the next start.
 """
 
 import json
@@ -40,7 +40,7 @@ STATE_QOS = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
 
 
 LIVE_PARAMETERS = ('rc_scale', 'ramp')
-# Declared so a -p override wins, but fixed for the arm: the driver and controller share it.
+# Declared so a -p override wins, but fixed while running: the driver and controller share it.
 ARM_PARAMETERS = ('config_file', 'command_timeout')
 
 
@@ -103,7 +103,7 @@ class CommandMux(Node):
         """Live tunables are validated against the section they would join; ARM_PARAMETERS are fixed."""
         fixed = [p.name for p in parameters if p.name in ARM_PARAMETERS]
         if fixed:
-            return SetParametersResult(successful=False, reason='applies at the next arm: ' + fixed[0])
+            return SetParametersResult(successful=False, reason='applies at the next start: ' + fixed[0])
         changes = self._live_changes(parameters)
         if changes:
             try:

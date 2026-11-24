@@ -10,7 +10,6 @@ from mhseals_hardware.configuration import (
 )
 from mhseals_hardware.keyboard import decode_key
 
-pytestmark = pytest.mark.smoke
 
 
 def test_persistent_mapping_and_pins(tmp_path, monkeypatch):
@@ -19,7 +18,7 @@ def test_persistent_mapping_and_pins(tmp_path, monkeypatch):
     config = load_config()
     config['channel_map'] = [4, 3, 2, 1]
     config['reversed'] = [True, False, False, False]
-    target = save_config(config)   # every key, board addresses included, as an arm snapshot does
+    target = save_config(config)   # every key, board addresses included, as a full saved config does
     assert target.exists()
     assert load_config() == config
 
@@ -78,7 +77,7 @@ def test_a_board_address_is_set_only_in_the_defaults(tmp_path, monkeypatch):
     chips = load_defaults()['pwm_chips']
     with pytest.raises(ValueError, match='pwm_chips'):
         update_config({'pwm_chips': chips[1:] + chips[:1]}, tmp_path / 'other.yaml')
-    with pytest.raises(ValueError, match='mosfet_chip'):   # a snapshot writer refuses at save, not at arm
+    with pytest.raises(ValueError, match='mosfet_chip'):   # a snapshot writer refuses at save, not at start
         save_config(dict(load_defaults(), mosfet_chip='other'), tmp_path / 'other.yaml')
     assert not (tmp_path / 'other.yaml').exists()
     # A bench tool may still open another line for one run, but --save-config never persists it.
@@ -302,7 +301,7 @@ class ArgvNode:
         return type('Logger', (), {'warning': staticmethod(self.warned.append)})
 
 
-def test_an_old_arming_odom_topic_override_lands_in_topics_not_dropped():
+def test_an_old_odom_topic_override_lands_in_topics_not_dropped():
     from mhseals_hardware.configuration import moved_parameters
     node = ArgvNode({'odom_topic': '/sim/odom'})
     config = moved_parameters(node, load_defaults())

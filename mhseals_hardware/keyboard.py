@@ -1,4 +1,4 @@
-"""Small Unix terminal key reader used by the interactive ROS TUIs."""
+"""Small Unix terminal key reader used by the interactive terminal tools."""
 
 import os
 import re
@@ -94,7 +94,7 @@ class Mouse(str):
     The name is ``press:mouse-left``, ``release:mouse-left``, ``drag:mouse-left``, ``move:mouse``
     or ``wheel-up``/``wheel-down``/``wheel-left``/``wheel-right``, so press and release feed
     `Hold` like keys. ``action``, ``button``, ``col``, ``row`` (1-based cells) and ``mods``
-    (``shift``, ``alt``, ``ctrl``) are attributes. Reports come only once a TUI turns them on
+    (``shift``, ``alt``, ``ctrl``) are attributes. Reports come only once a caller turns them on
     (`MOUSE_ON`); nothing does yet.
     """
 
@@ -225,8 +225,7 @@ class Hold:
         return self.started is not None and now - self.started >= self.hold_s
 
 
-# Terminal replies are never keys: the TUI's capability probe (mhseals_testing ui/imaging/probe.py,
-# the only one) may be answered after it stops listening. Strings end at ST (ESC \); OSC may also end at BEL.
+# Terminal replies are never keys: a capability probe may be answered after it stops listening. Strings end at ST (ESC \); OSC may also end at BEL.
 STRING_INTRODUCERS = (b'_', b'P', b']', b'^', b'X')
 
 
@@ -281,7 +280,7 @@ class KeyReader:
         self.report_events = report_events
         self.buffer = bytearray()
         self.escape_started = None
-        self.terminal = Terminal()   # what the terminal reports; a TUI's probe tells it (Terminal.detect)
+        self.terminal = Terminal()   # what the terminal reports; a capability probe tells it (Terminal.detect)
 
     def absorb(self, value):
         """True when ``value`` is a terminal reply, never a key: an APC (kitty graphics), DCS
@@ -374,7 +373,7 @@ class KeyReader:
                     self.buffer.clear()
                     if string:
                         # Unterminated APC/DCS/OSC/PM/SOS (e.g. Alt+] on a
-                        # plain terminal): drop it rather than fail the TUI.
+                        # plain terminal): drop it rather than fail the tool.
                         continue
                     raise ValueError('incomplete or oversized terminal key sequence')
             wait = None if deadline is None else max(0.0, deadline - now)

@@ -3,7 +3,7 @@
 import math
 import time
 
-# The manual bindings: action -> keys (a TUI passes its keymap's manual: section, the same action names).
+# The manual bindings: action -> keys (a caller may pass its keymap's manual: section, the same action names).
 BINDINGS = {
     'surge_fwd': ('w', 'up'), 'surge_back': ('s', 'down'),
     'sway_left': ('a',), 'sway_right': ('d',),

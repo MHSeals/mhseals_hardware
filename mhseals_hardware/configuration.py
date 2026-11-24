@@ -39,7 +39,7 @@ OBSOLETE = {'controller': ('input_topic', 'output_topic', 'mux_state_topic', 'co
 SECTIONS = ('controller', 'command_mux', 'topics')  # mappings an operator file sets key by key
 WIRING = ('channel_map', 'reversed')    # the only keys a vessel profile's thrusters: may set
 # Board addresses: only config/default.yaml sets them, since host/mhseals-thruster-access prepares exactly those
-# files at boot. An operator file or arm snapshot may repeat them (a snapshot holds every key) but not change them.
+# files at boot. An operator file may repeat them (a full saved config holds every key) but not change them.
 BOARD = ('pwm_chips', 'pwm_channels', 'mosfet_chip', 'mosfet_line', 'mosfet_active_high')
 log = logging.getLogger(__name__)
 
@@ -184,7 +184,7 @@ def load_config(path=None):
 def load_layers(path=None):
     """``(config, channel_map source, vessel dir or None)`` from load_config's one read of each layer.
 
-    The source is the layer that supplied channel_map: the operator file (or arm snapshot), the
+    The source is the layer that supplied channel_map: the operator file, the
     vessel, or defaults; the driver's ready line names it and the vessel dir.
     """
     selected = config_path(path)
@@ -304,7 +304,7 @@ def declared(node, section, names=None):
     """``section`` with each of ``names`` (default: every non-mapping key) as a ROS parameter.
 
     Each is declared with its YAML value and read back, so a ``-p`` override wins and the file
-    gives the rest. A node reads its arm snapshot this way once, at startup; none watches the YAML.
+    gives the rest. A node reads its config this way once, at startup; none watches the YAML.
     """
     names = [k for k, v in section.items() if not isinstance(v, dict)] if names is None else names
     for name in names:
@@ -313,7 +313,7 @@ def declared(node, section, names=None):
 
 
 def moved_parameters(node, config):
-    """A ``-p`` for a MOVED key (an older arming argv) lands in its new home with one warning.
+    """A ``-p`` for a MOVED key (an older command line) lands in its new home with one warning.
 
     rclpy ignores an override for an undeclared name, so without this the binding would vanish silently.
     """

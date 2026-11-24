@@ -6,9 +6,9 @@ control law lives in ``velocity_law``; this node only wires it to ROS and publis
 drift estimate on ``~/drift`` (odom frame, m/s). It drives only while the mux input is ``auto``
 (the contract in command_mux); any other input, or an unknown state, resets the law and sends
 neutral effort, so a hold, rc or manual leaves no stale integral behind. The node
-reads its arm snapshot (``config_file``, ``-p`` overrides win) once and never watches the
+reads its config (``config_file``, ``-p`` overrides win) once and never watches the
 YAML; only the gains change live, through SetParameters (``command_timeout``, shared with
-the mux and the driver, applies at the next arm, so the three never diverge). Callbacks run on one
+the mux and the driver, applies at the next start, so the three never diverge). Callbacks run on one
 single-threaded executor, so a parameter batch never interleaves with a command.
 """
 from __future__ import annotations
@@ -82,7 +82,7 @@ class VelocityController(Node):
         for parameter in parameters:
             if parameter.name in ('config_file', 'command_timeout'):
                 return SetParametersResult(successful=False,
-                                           reason='applies at the next arm: ' + parameter.name)
+                                           reason='applies at the next start: ' + parameter.name)
             if parameter.name in values:
                 values[parameter.name] = plain(parameter.value)
         try:
@@ -107,7 +107,7 @@ class VelocityController(Node):
         """Jazzy post-set runs only after all validators and parameter storage.
 
         Preserve observer/history and reproject accumulated PI effort onto new
-        integral bounds. The Plant is fixed for the node's life (one arm).
+        integral bounds. The Plant is fixed for the node's life.
         """
         if not any(p.name in GAIN_KEYS for p in parameters):
             return

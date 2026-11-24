@@ -7,7 +7,7 @@ forwards ``select(now)``; all the rules live here.
 Every lane is effort (``topics`` in default.yaml):
 
 * rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover.
-* manual: ``topics.manual`` (TUI keys) newer than ``command_timeout``.
+* manual: ``topics.manual`` (keyboard_control) newer than ``command_timeout``.
 * hold: any hold cause is set.  Output is zero until it is released.
 * duplicate: another publisher drives the same output, so this one sends
   only zeros (``set_duplicate``) and cannot be released.
@@ -194,7 +194,7 @@ class Arbitration:
         """Apply a hold or release request; return ``(ok, reason)``.
 
         The one release rule: a release with a token clears only the hold that token placed
-        (its own cause). A tokenless release (the TUI's U) clears every hold, unless a valid
+        (its own cause). A tokenless release clears every hold, unless a valid
         RC frame puts the mode switch at MANUAL, HOLD or OTHER, which refuses it.
         """
         self._advance(now)

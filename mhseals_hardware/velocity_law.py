@@ -1,6 +1,6 @@
 """The calibrated velocity control law, free of ROS so it can be tested directly.
 
-The characterization (mhseals_testing) fits the body velocity as
+The characterization (docs/CONTROL.md L4, the `speed` tests) fits the body velocity as
 
     v = b_m + R(psi)^T d_w + G e
 
