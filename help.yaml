@@ -73,8 +73,11 @@ commands:
     run: ros2 run mhseals_hardware mosfet_test
     summary: Bounded MOSFET enable check; writes no PWM.
     params:
-      - {name: --seconds, type: float, default: 5, description: How long to hold the enable.}
+      - {name: --seconds, type: float, default: 5, description: 'How long to hold the enable (max 900 s).'}
+      - {name: --yes, type: bool, description: Skip the ENABLE prompt (remote or scripted runs).}
       - {name: --config, type: path, description: Hardware YAML.}
+    examples:
+      - astro mosfet_test --seconds 600 --yes
 
   - name: thruster_pwm_node
     run: ros2 run mhseals_hardware thruster_pwm_node
