@@ -72,16 +72,8 @@ cd ~/astro_dock/src/mhseals_hardware
 ./scripts/install_odroid_access.sh
 ```
 
-Rerun it after moving to another channel or bank. Recreate the container after
-changing its mounts, then work as the normal `roboboat` user (no `sudo`):
-
-```bash
-cd ~/astro_dock
-devcontainer up --workspace-folder .
-devcontainer exec --workspace-folder . bash
-colcon build --packages-select mhseals_hardware   # if not built yet
-source install/setup.bash
-```
+Rerun it after moving to another channel or bank, then work as the normal
+`roboboat` user (no `sudo`) inside the workspace container.
 
 ## Direct thruster test
 
@@ -123,24 +115,7 @@ thrusters. Only `channel_map` and `reversed` are written to the operator file
 still apply underneath. The test suite's
 Thrusters panel does the same.
 
-**Bench check of a vessel's profile wiring** (owner present, props off or boat
-on stands; agents never run it):
-
-1. Deploy, then start `thruster_pwm_node`: the ready line must name the vessel
-   profile (`vessel thrusters: <dir>`, not `none`); its `channel_map ... from`
-   still names the operator file, which holds the map until step 2.
-2. Only then save a copy of the operator file and remove its `channel_map` (and
-   `reversed` if it equals the default).
-3. Restart the driver: the ready line shows the profile's
-   `thrusters: channel_map`, and says `from vessel <dir>`.
-4. Arm through the normal path (TUI or `boat_agent arm`, props off): the driver
-   runs from the session snapshot the arming process froze from its own
-   environment, so the snapshot's `channel_map` and the ready line must both show
-   the profile's map too (the line says `from` the snapshot, which holds every key).
-5. Pulse FL, FR, RR, RL one at a time through the guarded `~/test_pulses` path;
-   each must spin the expected motor the expected way.
-6. On a wrong thruster restore the saved operator file and fix the profile's
-   value, not the operator file.
+A vessel profile's wiring is checked on the bench by the owner only (agents never run it).
 
 ## Driver
 
@@ -183,12 +158,7 @@ while `topics.mux_state` reports input `idle` (the contract in command_mux).
 widths (microseconds, `UInt16MultiArray`) on `pwm_topic` (`/thrusters/pwm`) at
 20 Hz instead of driving pins. The mixer, `channel_map` and calibration apply
 as on the boat, so crane_ml (`--crane-ros-thruster-pwm`) and `thruster_identify`
-work against it:
-
-```bash
-# sim only: no pins are driven
-ros2 run mhseals_hardware thruster_pwm_node --ros-args -p output_backend:=topic
-```
+work against it.
 
 ## Configuration
 
@@ -224,18 +194,7 @@ diverge), is refused with "applies at the next arm". The driver's latched
 The `controller:` section holds the velocity controller defaults; the operator
 file overrides individual leaves and keeps their siblings:
 
-```yaml
-controller:
-  kp: [1.2, 0.8, 0.6]
-  ki: [0.4, 0.4, 0.2]
-  odom_timeout: 0.4
-```
-
-The other leaves are the rest of `config/default.yaml`'s `controller:` section, the
-TUI's `proximity_distance` and `obstacle_timeout` among them (its topics, `odom` and
-`obstacle` included, come from `topics:`; an old file's `controller.odom_topic` or
-`controller.obstacle_topic` is read as `topics.odom` or `topics.obstacle`). Vectors are
-surge, sway, yaw. Unknown leaves and nulls refuse startup. The one top-level
+Unknown leaves and nulls refuse startup. The one top-level
 `command_timeout` is the watchdog of all three stages (controller, mux, driver); an old
 file's `controller.command_timeout` or `command_mux.cmd_timeout` is dropped on read
 with one warning.
@@ -246,22 +205,9 @@ The driver does not turn m/s into PWM. The fit lives in `mhseals_testing`: its
 `boat_test` Characterize procedure saves the result to the hardware YAML, and
 `thrust_characterize` refits any session bag:
 
-```bash
-ros2 run mhseals_testing thrust_characterize \
-  --bag bags/boat_20261012_101500 \
-  --cmd-topic /cmd_vel_effort \
-  --config ~/.config/mhseals/hardware.yaml \
-  --nav2-params /path/to/mhseals_nav/config/nav2_params.yaml \
-  --nav2-overlay ~/.config/mhseals/nav2_calibrated.yaml
-```
-
-- Fits a speed curve per axis and sign (`characterization.speed_curves`), the
-  body-fixed bias, acceleration and per-axis limits.
-- Reports the day's current, and writes measured Nav2 limits to pass as
-  `limits_file:=...` to `navigation.launch.py`.
-- `--cmd-topic` is the bag's effort topic, `topics.effort` (`/cmd_vel_effort`);
-  effort-mode bags recorded before the `topics:` section carry it on `/cmd_vel`.
-- `--apply-decoupling` also writes the fitted `decoupling` (identity turns it off).
+`ros2 run mhseals_testing thrust_characterize --help` lists its options; it fits
+speed curves per axis and sign, bias, acceleration, limits and (optionally)
+`decoupling`.
 
 The optional controller then applies feed-forward through the model, a
 world-frame current and wind estimate (`~/drift`), and bounded PI feedback.
@@ -276,16 +222,8 @@ the controller, then the mux.
 ros2 run mhseals_hardware keyboard_control        # --dry-run tests your terminal
 ```
 
-W/S or Up/Down surge, A/D sway, Left/Right yaw, `+`/`-` change speed in 5%
-steps, Space stops, X exits. Yaw runs at `manual_yaw_scale` (0.5); diagonals are
-normalized. Terminals that report key releases (Kitty protocol, also over SSH, and through
-tmux once its terminal speaks the protocol and `allow-passthrough` is on) combine held keys
-and stop each on its release (a key still held stops about 2 s after another key's release,
-so press it again). Without releases (xterm, VTE, nested tmux) each key keeps its own
-deadline: the newest drives while it repeats, and a key it took over stays `chord_hold`
-(0.5 s) after its last event, so recent presses on different axes combine; on one axis the
-newest replaces the older. See the root
-[hardware and camera setup](../../README.md#hardware-and-cameras) for timeouts.
+W/S or Up/Down surge, A/D sway, Left/Right yaw, `+`/`-` change speed, Space
+stops, X exits. Held-key chords need a terminal that reports key releases.
 
 ## Development
 
