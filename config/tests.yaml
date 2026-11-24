@@ -64,15 +64,15 @@ tests:
   speed-surge:
     {type: speed, axis: surge, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1, restart: 'drive.launch.py controller:=true'}}
+     apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
   speed-sway:
     {type: speed, axis: sway, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1, restart: 'drive.launch.py controller:=true'}}
+     apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
   speed-yaw:
     {type: speed, axis: yaw, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1, restart: 'drive.launch.py controller:=true'}}
+     apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
 
   # Closed loop: start drive.launch.py with controller:=true. Report only; tune gains live
   # (ros2 param set /calibrated_velocity_controller kp "[...]") and run again.
@@ -98,7 +98,7 @@ tests:
             t95: characterization.t95},
      rules: {delay_s: 0.15, stop_distance_m: 1.0, ramp_lags: 3.0, yaw_tolerance: 0.25},
      upstream: [characterization.speed_curves, characterization.t95, characterization.motion_limits],
-     apply: {key: characterization.nav2_limits, restart: navigation}}
+     apply: {key: characterization.nav2_limits, restart: 'astro down nav; astro up nav (a vessel whose nav runs elsewhere, such as the sim: restart that)'}}
 
 groups:
   linear: [couple-surge, couple-sway, speed-surge, speed-sway]
