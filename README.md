@@ -1,13 +1,18 @@
 # mhseals_hardware
 
-ROS 2 control for four bidirectional thrusters wired straight to the ODROID-M2's hardware PWM. In the
-simulator, the same pulses go out on a topic instead.
+Drives the boat's four thrusters from ROS 2: a command mux picks who drives, a mixer turns the command into
+four pulses on the ODROID-M2's hardware PWM. In the simulator the same pulses go out on a topic.
 
 ```bash
-ros2 launch mhseals_hardware drive.launch.py                          # boat: ODROID pins
-ros2 launch mhseals_hardware drive.launch.py output_backend:=topic use_sim_time:=true   # sim
-ros2 run mhseals_hardware mix 0.5 0 0                                 # what surge 0.5 becomes
+astro up drive                      # driver + mux on the boat computer (drive.launch.py)
+astro up drive --with controller    # ... plus the velocity controller (needs a characterization)
+astro mix 0.5 0 0                   # what surge 0.5 becomes, stage by stage
+astro estop                         # cut ESC power now; restart drive to clear
 ```
+
+How a command becomes thrust, layer by layer, and which test sets each layer:
+[docs/CONTROL.md](docs/CONTROL.md). Who may drive and what stops the boat:
+[docs/authority.md](docs/authority.md).
 
 ## The stack
 
@@ -20,36 +25,33 @@ ros2 run mhseals_hardware mix 0.5 0 0                                 # what sur
 | `calibrated_velocity_controller` | Started only with `controller:=true`. Turns Nav2 body velocity (`topics.auto`) into effort (`topics.effort`). It refuses in one line when there is no characterization yet |
 
 Launch arguments: `output_backend` (`odroid` or `topic`; empty keeps the config value), `use_sim_time`,
-`controller`, `config_file`.
+`controller`, `config_file`. The sim starts it with `output_backend:=topic use_sim_time:=true`.
 
 Effort is normalised: Twist `linear.x` is forward, `linear.y` is port and `angular.z` is
 counterclockwise, each in [-1, 1]. Anything published on `topics.effort` (`/cmd_vel_effort`) drives
 through the mux's auto lane. `astro test` uses that lane.
 
-Losing an input sends neutral, and nothing stays locked afterwards: whoever next means to move the
-boat moves it at once. The stops that do hold are the ones someone chooses, and each one clears in a
-known way:
+Losing an input sends neutral, and nothing stays locked: whoever next means to move the boat moves it
+at once. Only chosen stops hold, and each clears in a known way:
 
 - **RC mode switch at HOLD:** holds while it is there. Moving the switch out clears it.
-- **RC stop channel:** cuts ESC power and latches (`estop_cuts_power`). Restart `drive.launch` to
-  clear it.
+- **RC stop channel:** cuts ESC power and latches (`estop_cuts_power`, on by default). Restart drive
+  to clear it: `astro down drive && astro up drive`.
 - **`astro estop`** (`ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger`): the same
-  latched cut. Restart `drive.launch` to clear it.
+  latched cut, cleared the same way.
 
-Losing RC never cuts power. The command timeout (0.5 s) brings neutral.
-
-docs/authority.md has the details.
+Losing RC never cuts power; the command timeout (0.5 s) brings neutral.
 
 ## Commands
 
-| `astro` verb | Command | Does |
+| `astro …` | Plain ROS 2 | Does |
 | --- | --- | --- |
 | `drive` | `ros2 launch mhseals_hardware drive.launch.py` | Starts the stack |
 | `estop` | `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger` | Stops the thrusters now (ESC power cut). Restart `drive.launch` to clear it |
 | `mix` | `ros2 run mhseals_hardware mix S W Y` / `--live` | Prints every mixer stage for a command, or follows `topics.applied` |
 | `config_check` | `ros2 run mhseals_hardware config_check FILE` | Validates a hardware YAML through the driver's loader. Exits 0, or prints the reason and exits 1 |
 | `keyboard_control` | `ros2 run mhseals_hardware keyboard_control` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit |
-| `wiring` | `ros2 run mhseals_hardware thruster_identify` | Pulses each output and asks what moved, then saves `channel_map` and `reversed`. Stop `drive` first |
+| `wiring` | `ros2 run mhseals_hardware thruster_identify` | Pulses each output and asks what moved, then saves `channel_map` and `reversed`. Stop `drive` first (`astro down drive`) |
 | `thruster_test` | `ros2 run mhseals_hardware thruster_test` | Sets each output's pulse by hand. Stop `drive` first |
 | `mosfet_test` | `ros2 run mhseals_hardware mosfet_test` | Holds the MOSFET enable on for a bounded time. Writes no PWM |
 
@@ -74,7 +76,8 @@ names `file:line`. Nodes read the config once, when they start. Only a few value
 - on `calibrated_velocity_controller`: its gains;
 - on `command_mux`: `rc_scale` and `ramp`.
 
-docs/CONTROL.md maps each key to its layer and to the test that sets it.
+[docs/CONTROL.md](docs/CONTROL.md) maps each key to its layer and to the test that sets it.
+`config/tests.yaml` holds those tests (what `astro test list` shows).
 
 ## Hardware
 

@@ -1,13 +1,12 @@
 # Control authority, e-stop and ESC power
 
-This file holds the design reasoning behind the safety paths in this package that is still in force:
-which command drives the thrusters, how a human takes over, what stops the boat and what cuts ESC power.
-Code comments cite it by section (for example `docs/authority.md 2.3`). The code is authoritative where
-the two disagree. Fix this file in the same commit when that happens.
+Which command drives the thrusters, how a human takes over, what stops the boat and what cuts ESC power.
+Code comments cite this file by section (for example `docs/authority.md 2.3`); where the two disagree, the
+code wins and this file is fixed in the same commit.
 
-Host names never appear here. "The driver host" is whichever machine the vessel profile gives the
-thruster outputs. `drive.launch.py` starts the driver and the mux there (and the velocity
-controller with `controller:=true`); docs/CONTROL.md explains the control model.
+"The driver host" is whichever machine the vessel profile gives the thruster outputs. `drive.launch.py`
+starts the driver and the mux there (and the velocity controller with `controller:=true`).
+[CONTROL.md](CONTROL.md) explains the control layers.
 
 ## 1. Invariants
 
@@ -105,8 +104,8 @@ steady low on the stop switch is no edge, so a transmitter left "disarmed" does 
 
 Losing RC never cuts: the mux falls through and the command timeout brings neutral.
 
-Clearing a latched cut: `rc-stop`, `operator` and `stall` all clear only by restarting `drive.launch`
-(`astro estop` trips `operator`).
+Clearing a latched cut: `rc-stop`, `operator` and `stall` all clear only by restarting drive
+(`astro down drive && astro up drive`). `astro estop` trips `operator`.
 
 ## 4. MOSFET heartbeat
 
@@ -141,7 +140,7 @@ is one top-level key that all three stages read once, so they never diverge.
 
 ## 6. On-boat checks
 
-These steps can be proven only on hardware.
+Only hardware can prove these.
 
 1. **E-stop latches.** Props off, ESCs on the bench. Start `drive`, then trigger in turn:
    `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger`, the RC stop-channel edge, and
