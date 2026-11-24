@@ -5,6 +5,7 @@
 #
 # Test types (generic): still (neutral), couple (decoupling column search, holds alternate + and -),
 # speed (levels x +/-: speed curves, t95, motion limits), steps (closed loop, report), nav2 (no motion),
+# needs: the stacks astro starts first; rec: a bag preset recorded while the test runs (unless one is).
 # watch (passive, for a small pool: you drive by RC or keyboard, it listens to topics.applied and odometry and
 # fits the speed keys from your steady single-axis holds; a progress line says what is still missing).
 # upstream: the state keys a result depends on; a later change marks it stale in `astro test status`.
@@ -83,6 +84,7 @@ tests:
   watch:
     {type: watch, layer: L4 speed curve (driven), levels: 3, level_gap: 0.08, min_effort: 0.08, steady_tol: 0.04,
      cross_max: 0.3, baseline_s: 1, settle_s: 2.5, measure_s: 1.5, drift_s: 10, max_s: 900,
+     needs: [localization, drive], rec: lean,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
      apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
 
@@ -91,14 +93,17 @@ tests:
   steps-surge:
     {type: steps, axis: surge, layer: L6 velocity loop, fraction: 0.5, limits: characterization.motion_limits.velocity,
      baseline_s: 2, step_s: 6, coast_s: 3, gains: /calibrated_velocity_controller kp|ki,
+     needs: [localization, drive+controller],
      upstream: [characterization.speed_curves, controller.kp, controller.ki]}
   steps-sway:
     {type: steps, axis: sway, layer: L6 velocity loop, fraction: 0.5, limits: characterization.motion_limits.velocity,
      baseline_s: 2, step_s: 6, coast_s: 3, gains: /calibrated_velocity_controller kp|ki,
+     needs: [localization, drive+controller],
      upstream: [characterization.speed_curves, controller.kp, controller.ki]}
   steps-yaw:
     {type: steps, axis: yaw, layer: L6 velocity loop, fraction: 0.5, limits: characterization.motion_limits.velocity,
      baseline_s: 2, step_s: 6, coast_s: 3, gains: /calibrated_velocity_controller kp|ki,
+     needs: [localization, drive+controller],
      upstream: [characterization.speed_curves, controller.kp, controller.ki]}
 
   # No motion: Nav2's limits from the applied L4/L5, each the smaller of what the boat showed and what
