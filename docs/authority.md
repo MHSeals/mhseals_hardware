@@ -11,15 +11,14 @@ controller with `controller:=true`); docs/CONTROL.md explains the control model.
 
 ## 1. Invariants
 
-1. **A human override always wins, at once, except over a duplicate mux.** The mux forwards the
-   highest input in the same callback that receives it, with no timer wait. The one exception: while a
-   second mux publishes the same output (`duplicate`), this mux sends zeros even under RC MANUAL or a
-   stick takeover (2.2). `pipeline_ms` in `~/state` is the measured time from receipt to the applied
-   publish.
-2. **Only the mux output drives.** The driver mixes `topics.applied` and nothing else.
-3. **The release rule is written once**, in `Arbitration.request` (see 2.2).
-4. **A hold is sticky.** It stays until it is released or the mux restarts: a started mux is clean.
-   When the hold is released, auto ramps back in from zero over `ramp`.
+1. **A lost input goes neutral, and nothing stays locked afterwards.** A lane that goes stale or
+   invalid falls through to the next one (within `command_timeout`, 0.5 s). Whoever next means to
+   move the boat (keys, RC, a controller, a test) moves it at once, with no unlock step.
+2. **Only stops someone chooses hold**, and each clears in an obvious way (2.2, 3).
+3. **A human override wins at once, except over a duplicate mux.** The mux forwards the highest input
+   in the same callback that receives it. While a second mux publishes the same output (`duplicate`),
+   this mux sends zeros even under RC.
+4. **Only the mux output drives.** The driver mixes `topics.applied` and nothing else.
 
 **This is not an independent failsafe.** RC drives only while the driver and the mux run. When the
 stack stops, the outputs go neutral and the MOSFET turns ESC power off. The physical kill switch stays
@@ -38,7 +37,6 @@ velocity controller each read that section, so no node uses remaps.
 | in | `rc` (`/mavros/rc/in`) | RCIn, sensor QoS |
 | in | `manual` (`/cmd_vel/manual`) | effort from `keyboard_control` |
 | in | `effort` (`/cmd_vel_effort`) | the auto lane: the velocity controller's output, or an effort publisher |
-| in | `~/request` | String JSON `{op: hold\|release, cause, by, token?}` |
 | out | `applied` (`/cmd_vel/applied`) | what drove the boat: the driver mixes it, and analyses read it |
 | out | `mux_state` (`/command_mux/state`) | String JSON, reliable, transient-local, depth 1 |
 
@@ -47,14 +45,14 @@ mux sends output on every message of the active input, plus a keepalive at 25 Hz
 published when it changes and again at 1 Hz. Ages, rates, `pipeline_ms` and the wall-clock `since_ns`
 conversions do not count as a change (`command_mux.change_key`).
 
-### 2.2 Inputs, holds and release
+### 2.2 Inputs and stops
 
 ```
-input ∈ {rc, manual, hold, auto, idle}            priority duplicate > rc > manual > hold > auto
-duplicate ⇒ hold with zeros, ahead of rc: a second mux publishes the same output
+input ∈ {rc, manual, hold, auto, idle}       priority duplicate > rc > manual > stop > auto > idle
+duplicate ⇒ zeros (input hold): a second mux publishes the same output; clears when it goes
 rc      ⇔ rc valid ∧ (mode switch == MANUAL ∨ stick takeover latched)
 manual  ⇔ a topics.manual message within command_timeout
-hold    ⇔ any hold cause is set
+stop    ⇔ (rc valid ∧ mode switch at HOLD or an unknown mode) ∨ stop channel latched   (input hold)
 auto    ⇔ a topics.effort message within command_timeout, ramped in over ramp; otherwise idle
 ```
 
@@ -63,20 +61,15 @@ auto    ⇔ a topics.effort message within command_timeout, ramped in over ramp;
 - **Mode switch:** the mux decodes `mode_ch` with the FCU's own bands and `modes` (MODE1..6) from the
   raw PWM, never from `/mavros/state`, so a mode change from a GCS cannot grant RC authority.
 - **Stick takeover:** in GUIDED, any of ch1, ch2 or ch4 held past `stick_takeover` µs for `stick_time`
-  s latches rc. Once the sticks are centred for `stick_release` s, the latch becomes the `rc_stick`
-  hold.
-- **Hold causes:** `rc_switch` (the switch at HOLD or OTHER, a level that holds again after a release),
-  `rc_lost` (RC was driving and its frames went invalid or stale), `rc_stop` (a falling edge on
-  `stop_ch`), `rc_stick`, `keys` (manual input ended), and any cause a `~/request` names. `duplicate`
-  is not a hold cause in this list: it outranks rc and cannot be released (it clears when the other mux
-  goes).
-- **Release:** moving the switch to GUIDED clears only the RC causes. A release with a token clears
-  only the hold that token placed. A tokenless release clears every hold, except that it
-  is refused with "mode switch is at MANUAL|HOLD|OTHER" while a valid frame puts the switch there.
-  To release by hand: `ros2 topic pub --once /command_mux/request std_msgs/msg/String
-  '{data: "{\"op\": \"release\", \"by\": \"me\"}"}'`.
-- **Output:** hold and idle send zeros. Entering auto after a start, a hold, rc or manual ramps from zero
-  over `ramp`, so a Nav2 output that kept running cannot lurch the boat when the hold is released.
+  s latches rc. Once the sticks are centred for `stick_release` s, the takeover ends and the next lane
+  drives.
+- **HOLD switch:** a level. It holds while the switch is there and frees when it moves out. When RC is
+  lost, it holds nothing.
+- **Stop channel:** a falling edge on `stop_ch` holds until that switch goes back up. With
+  `estop_cuts_power` it also latches the driver's e-stop, which only a restart of `drive.launch` clears
+  (3).
+- **Output:** a stop and idle send zeros. Entering auto after a start, a stop, rc or manual ramps from
+  zero over `ramp`, so a controller that kept publishing cannot lurch the boat.
 
 ### 2.3 `~/state` record
 
@@ -88,12 +81,11 @@ The contract is `schema == "mhseals.mux/1"` plus `input`. A consumer reads only 
 | velocity controller | drives only while `auto`, and resets otherwise | reset |
 
 Every other field is for display, and none of them is a contract: `seq`, `t_ns`, `since_ns`, `cause`
-(the reason the input became active: `rc_switch | rc_stick | stop_channel | manual_end | release |
-manual | auto | idle`, or the raw hold cause: `rc_lost`, `duplicate` or a requested one; only `rc_stop`
-and `keys` are renamed), `hold` (the oldest hold: `{by, cause, since_ns}`),
-`holds` (each one with `has_token`, never the token), `rc` (valid, mode, pwm_mode, stick, rate_hz,
+(why the input became active: `rc_switch | rc_stick | manual | auto | idle`, or the stop:
+`duplicate | stop_channel | rc_switch`), `hold` (the first stop in force: `{by, cause, since_ns}`),
+`holds` (every stop in force: `{cause, since_ns}`), `rc` (valid, mode, pwm_mode, stick, rate_hz,
 interval_p95_s, age_s, stop_edge), `manual`, `auto`, `rejected` (non-finite commands dropped),
-`pipeline_ms`, `last_release` and `configuration`.
+`pipeline_ms` and `configuration`.
 
 ## 3. E-stop
 
@@ -104,15 +96,17 @@ channel at neutral. While the cut is latched, the driver ignores drive commands,
 | Cause | Trigger | Governed by |
 |---|---|---|
 | `rc-stop` | falling edge on `command_mux.stop_ch` (the mux edge rule itself) | `estop_cuts_power` |
-| `rc-lost` | RC was in control (MANUAL or a stick takeover) and its frames went invalid or older than `rc_max_age` | `estop_on_rc_loss` |
 | `operator` | the `~/estop` service (std_srvs/Trigger) | always |
 | `stall` | a heartbeat flip gap over `HEARTBEAT_STALL` (section 4) | `mosfet_heartbeat` > 0 |
 
 With `estop_cuts_power` true, the stop-switch edge both holds the mux and cuts ESC power. With it false,
-the edge only holds the mux (cause `rc_stop`) and power stays on. A steady low on the stop switch does
-nothing, so a transmitter left "disarmed" does not block autonomy.
+the edge only holds the mux (cause `stop_channel`, until the switch goes back up) and power stays on. A
+steady low on the stop switch is no edge, so a transmitter left "disarmed" does not block autonomy.
 
-`rc-lost` needs RC that was in control: with no receiver at all (the sim), it never fires.
+Losing RC never cuts: the mux falls through and the command timeout brings neutral.
+
+Clearing a latched cut: `rc-stop`, `operator` and `stall` all clear only by restarting `drive.launch`
+(`astro estop` trips `operator`).
 
 ## 4. MOSFET heartbeat
 
@@ -152,15 +146,15 @@ These steps can be proven only on hardware.
 1. **E-stop latches.** Props off, ESCs on the bench. Start `drive`, then trigger in turn:
    `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger`, the RC stop-channel edge, and
    transmitter-off while RC is in control (restart between them). Each one must latch with its cause
-   (`operator`, `rc-stop`, `rc-lost`, in `/thruster_pwm_node/status`), cut ESC power, and leave the
-   outputs at neutral.
+   (`operator`, `rc-stop`, in `/thruster_pwm_node/status`), cut ESC power, and leave the outputs at
+   neutral. Transmitter-off while RC is in control must NOT latch: the outputs go neutral within 0.5 s.
 2. **RC takeover and failsafe.** Props off on the bench, or in water at low power, with the physical
    kill in reach:
    - with the switch at GUIDED and effort on `topics.effort`, hold ch1, ch2 or ch4 past
      `stick_takeover` for `stick_time`: the mux input becomes rc with cause `rc_stick`. Centre the
-     sticks for `stick_release`: an `rc_stick` hold stays;
-   - with the switch at HOLD or MANUAL, a tokenless release is refused;
-   - transmitter-off while RC is in control latches rc-lost (with `estop_on_rc_loss` true, the default).
+     sticks for `stick_release`: the effort lane drives again;
+   - with the switch at HOLD, the input is `hold`; moved back to GUIDED, effort drives again;
+   - transmitter-off while RC is in control: neutral within 0.5 s, no latch.
 3. **Thrust reaches the ESCs.** `thruster_test` at low power on each output: every prop spins, and
    `/thrusters/pwm` reads back the commanded µs while `drive` runs.
 4. **Velocity mode, after step 3.** Boat in water, in open area. `drive controller:=true`, then publish

@@ -15,6 +15,11 @@ commands:
       - ros2 launch mhseals_hardware drive.launch.py
       - ros2 launch mhseals_hardware drive.launch.py output_backend:=topic use_sim_time:=true
 
+  - name: estop
+    run: ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger
+    summary: Stop the thrusters now; restart drive.launch to clear.
+    notes: Cuts ESC power through the MOSFET and latches (cause operator). The RC stop channel does the same.
+
   - name: mix
     run: ros2 run mhseals_hardware mix
     summary: Print every mixer stage (C/C-, M rows, thrust sum, e|e|, desaturation, reversed, PWM, channel) for one effort command.
@@ -78,7 +83,7 @@ commands:
 
   - name: command_mux
     run: ros2 run mhseals_hardware command_mux
-    summary: The mux node (drive starts it) - duplicate > rc > manual > hold > auto onto topics.applied.
+    summary: The mux node (drive starts it) - duplicate > rc > manual > stop > auto onto topics.applied; a stale lane falls through.
 
   - name: calibrated_velocity_controller
     run: ros2 run mhseals_hardware calibrated_velocity_controller

@@ -16,7 +16,7 @@ ros2 run mhseals_hardware mix 0.5 0 0                                 # what sur
 | Node | Does |
 | --- | --- |
 | `thruster_pwm_node` | Mixes `topics.applied` into four pulses (docs/CONTROL.md) on the pins or `pwm_topic`. Always publishes what it writes on `pwm_topic` (`/thrusters/pwm`, UInt16MultiArray, outputs 1-4, µs, 20 Hz). After `command_timeout` (0.5 s) with no command, it sets every output to neutral |
-| `command_mux` | Picks one lane, duplicate > rc > manual > hold > auto, and publishes it on `topics.applied`. RC MANUAL or a stick takeover wins at once. It always starts clean, with no holds |
+| `command_mux` | Picks one lane, duplicate > rc > manual > stop > auto > idle, and publishes it on `topics.applied`. RC MANUAL or a stick takeover wins at once. A lane that goes stale falls through to the next, so nothing stays locked |
 | `calibrated_velocity_controller` | Started only with `controller:=true`. Turns Nav2 body velocity (`topics.auto`) into effort (`topics.effort`). It refuses in one line when there is no characterization yet |
 
 Launch arguments: `output_backend` (`odroid` or `topic`; empty keeps the config value), `use_sim_time`,
@@ -26,13 +26,17 @@ Effort is normalised: Twist `linear.x` is forward, `linear.y` is port and `angul
 counterclockwise, each in [-1, 1]. Anything published on `topics.effort` (`/cmd_vel_effort`) drives
 through the mux's auto lane. `astro test` uses that lane.
 
-Safety stays in the stack:
+Losing an input sends neutral, and nothing stays locked afterwards: whoever next means to move the
+boat moves it at once. The stops that do hold are the ones someone chooses, and each one clears in a
+known way:
 
-- the command timeout;
-- RC takeover through the mux;
-- the e-stop latch. The RC stop-channel edge, the `/thruster_pwm_node/estop` service, or losing RC
-  while RC drives cuts ESC power through the MOSFET until the driver restarts. With no receiver at
-  all, as in the sim, RC loss never fires.
+- **RC mode switch at HOLD:** holds while it is there. Moving the switch out clears it.
+- **RC stop channel:** cuts ESC power and latches (`estop_cuts_power`). Restart `drive.launch` to
+  clear it.
+- **`astro estop`** (`ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger`): the same
+  latched cut. Restart `drive.launch` to clear it.
+
+Losing RC never cuts power. The command timeout (0.5 s) brings neutral.
 
 docs/authority.md has the details.
 
@@ -41,6 +45,7 @@ docs/authority.md has the details.
 | `astro` verb | Command | Does |
 | --- | --- | --- |
 | `drive` | `ros2 launch mhseals_hardware drive.launch.py` | Starts the stack |
+| `estop` | `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger` | Stops the thrusters now (ESC power cut). Restart `drive.launch` to clear it |
 | `mix` | `ros2 run mhseals_hardware mix S W Y` / `--live` | Prints every mixer stage for a command, or follows `topics.applied` |
 | `config_check` | `ros2 run mhseals_hardware config_check FILE` | Validates a hardware YAML through the driver's loader. Exits 0, or prints the reason and exits 1 |
 | `keyboard_control` | `ros2 run mhseals_hardware keyboard_control` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit |
