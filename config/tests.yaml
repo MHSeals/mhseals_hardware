@@ -6,7 +6,8 @@
 # Test types (generic): still (neutral), couple (decoupling column search, holds alternate + and -),
 # speed (levels x +/-: speed curves, t95, motion limits), steps (closed loop, report), nav2 (no motion).
 # upstream: the state keys a result depends on; a later change marks it stale in `astro test status`.
-# apply.live: the live parameters `astro apply` sets after the file passes config_check.
+# apply.live: the live parameters `astro apply` sets after the file passes config_check; apply.restart: what
+# must restart to use keys that are not live.
 
 topics:
   effort: /cmd_vel_effort        # open-loop Twist effort (the mux's effort lane)
@@ -60,15 +61,15 @@ tests:
   speed-surge:
     {type: speed, axis: surge, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1}}
+     apply: {key: characterization, version: 1, restart: 'drive.launch.py controller:=true'}}
   speed-sway:
     {type: speed, axis: sway, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1}}
+     apply: {key: characterization, version: 1, restart: 'drive.launch.py controller:=true'}}
   speed-yaw:
     {type: speed, axis: yaw, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1}}
+     apply: {key: characterization, version: 1, restart: 'drive.launch.py controller:=true'}}
 
   # Closed loop: start drive.launch.py with controller:=true. Report only; tune gains live
   # (ros2 param set /calibrated_velocity_controller kp "[...]") and run again.
@@ -94,7 +95,7 @@ tests:
             t95: characterization.t95},
      rules: {delay_s: 0.15, stop_distance_m: 1.0, ramp_lags: 3.0, yaw_tolerance: 0.25},
      upstream: [characterization.speed_curves, characterization.t95, characterization.motion_limits],
-     apply: {key: characterization.nav2_limits}}
+     apply: {key: characterization.nav2_limits, restart: navigation}}
 
 groups:
   linear: [couple-surge, couple-sway, speed-surge, speed-sway]
