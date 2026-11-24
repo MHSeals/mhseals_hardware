@@ -1,0 +1,102 @@
+# The boat tests `astro test` runs (astro_dock tools/astro/engine reads this file through the vessel profile's
+# astro.tests). Each test fixes one layer of the control model (docs/CONTROL.md), writes one result and prints
+# old -> new and the exact `astro apply` command; apply writes the hardware YAML (the profile's astro.state).
+# Ladder: still -> couple -> apply -> speed -> apply -> steps -> nav2 (about 20 min on the water).
+#
+# Test types (generic): still (neutral), couple (decoupling column search, holds alternate + and -),
+# speed (levels x +/-: speed curves, t95, motion limits), steps (closed loop, report), nav2 (no motion).
+# upstream: the state keys a result depends on; a later change marks it stale in `astro test status`.
+# apply.live: the live parameters `astro apply` sets after the file passes config_check.
+
+topics:
+  effort: /cmd_vel_effort        # open-loop Twist effort (the mux's effort lane)
+  velocity: /cmd_vel             # closed-loop SI velocity (the controller's input; steps)
+  odom: /odom/local
+  battery: /mavros/battery
+  applied: /cmd_vel/applied      # shown by astro status
+  mux_state: /command_mux/state
+  pwm: /thrusters/pwm
+axes: [surge, sway, yaw]         # decoupling column order and twist order (x, y, wz)
+rotational: yaw
+defaults: mhseals_hardware/config/default.yaml   # values in force for keys the state file does not set
+# The mux's latched state: while it holds the lane (a chosen stop: the RC switch at HOLD or the stop
+# channel) a test does not start and says so.
+gate:
+  state: /command_mux/state
+  held: hold
+  clear: 'release it where it was set (RC mode switch or stop channel); astro status shows the cause'
+
+spaces:
+  large: {amp: 0.5, levels: [0.3, 0.6, 0.9]}     # lake: ~6 m for couple, ~12 m for speed
+  small: {amp: 0.3, levels: [0.2, 0.35, 0.5]}    # pool: ~3 m / ~4 m
+
+tests:
+  still:
+    {type: still, layer: L0 baseline, seconds: 20}
+
+  couple-surge:
+    {type: couple, axis: surge, layer: L3 decoupling, holds: 4, baseline_s: 2, settle_s: 4, measure_s: 3,
+     tolerance: [0.05, 0.015], upstream: [channel_map, reversed, thruster_matrix],
+     apply: {key: decoupling, signed: decoupling_negative,
+             live: [{node: /thruster_pwm_node, param: decoupling, key: decoupling},
+                    {node: /thruster_pwm_node, param: decoupling_negative, key: decoupling_negative,
+                     fallback: decoupling}]}}
+  couple-sway:
+    {type: couple, axis: sway, layer: L3 decoupling, holds: 4, baseline_s: 2, settle_s: 4, measure_s: 3,
+     tolerance: [0.05, 0.015], upstream: [channel_map, reversed, thruster_matrix],
+     apply: {key: decoupling, signed: decoupling_negative,
+             live: [{node: /thruster_pwm_node, param: decoupling, key: decoupling},
+                    {node: /thruster_pwm_node, param: decoupling_negative, key: decoupling_negative,
+                     fallback: decoupling}]}}
+  couple-yaw:
+    {type: couple, axis: yaw, layer: L3 decoupling, holds: 4, baseline_s: 2, settle_s: 4, measure_s: 3,
+     tolerance: [0.10, 0.10], upstream: [channel_map, reversed, thruster_matrix],
+     apply: {key: decoupling, signed: decoupling_negative,
+             live: [{node: /thruster_pwm_node, param: decoupling, key: decoupling},
+                    {node: /thruster_pwm_node, param: decoupling_negative, key: decoupling_negative,
+                     fallback: decoupling}]}}
+
+  speed-surge:
+    {type: speed, axis: surge, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
+     upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
+     apply: {key: characterization, version: 1}}
+  speed-sway:
+    {type: speed, axis: sway, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
+     upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
+     apply: {key: characterization, version: 1}}
+  speed-yaw:
+    {type: speed, axis: yaw, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
+     upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
+     apply: {key: characterization, version: 1}}
+
+  # Closed loop: start drive.launch.py with controller:=true. Report only; tune gains live
+  # (ros2 param set /calibrated_velocity_controller kp "[...]") and run again.
+  steps-surge:
+    {type: steps, axis: surge, layer: L6 velocity loop, fraction: 0.5, limits: characterization.motion_limits.velocity,
+     baseline_s: 2, step_s: 6, coast_s: 3, gains: /calibrated_velocity_controller kp|ki,
+     upstream: [characterization.speed_curves, controller.kp, controller.ki]}
+  steps-sway:
+    {type: steps, axis: sway, layer: L6 velocity loop, fraction: 0.5, limits: characterization.motion_limits.velocity,
+     baseline_s: 2, step_s: 6, coast_s: 3, gains: /calibrated_velocity_controller kp|ki,
+     upstream: [characterization.speed_curves, controller.kp, controller.ki]}
+  steps-yaw:
+    {type: steps, axis: yaw, layer: L6 velocity loop, fraction: 0.5, limits: characterization.motion_limits.velocity,
+     baseline_s: 2, step_s: 6, coast_s: 3, gains: /calibrated_velocity_controller kp|ki,
+     upstream: [characterization.speed_curves, controller.kp, controller.ki]}
+
+  # No motion: Nav2's limits from the applied L4/L5, each the smaller of what the boat showed and what
+  # its lag allows (tau = t95 / 3; stop within stop_distance_m, ramps of ramp_lags lags, a turn
+  # overshooting at most half yaw_tolerance).
+  nav2:
+    {type: nav2, layer: L7 nav2,
+     from: {velocity: characterization.motion_limits.velocity, acceleration: characterization.motion_limits.acceleration,
+            t95: characterization.t95},
+     rules: {delay_s: 0.15, stop_distance_m: 1.0, ramp_lags: 3.0, yaw_tolerance: 0.25},
+     upstream: [characterization.speed_curves, characterization.t95, characterization.motion_limits],
+     apply: {key: characterization.nav2_limits}}
+
+groups:
+  linear: [couple-surge, couple-sway, speed-surge, speed-sway]
+  yaw: [couple-yaw, speed-yaw]
+  steps: [steps-surge, steps-sway, steps-yaw]
+  all: [still, linear, yaw, steps, nav2]
