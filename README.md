@@ -1,241 +1,100 @@
-# MHS Seals hardware
+# mhseals_hardware
 
-ROS 2 control for four bidirectional thrusters connected directly to the
-ODROID-M2 hardware PWM controllers. There is no intermediary microcontroller
-or serial transport.
+ROS 2 control for four bidirectional thrusters wired straight to the ODROID-M2's hardware PWM. In the
+simulator, the same pulses go out on a topic instead.
 
-| Command | Purpose |
+```bash
+ros2 launch mhseals_hardware drive.launch.py                          # boat: ODROID pins
+ros2 launch mhseals_hardware drive.launch.py output_backend:=topic use_sim_time:=true   # sim
+ros2 run mhseals_hardware mix 0.5 0 0                                 # what surge 0.5 becomes
+```
+
+## The stack
+
+`drive.launch.py` is the only way the stack starts. It runs:
+
+| Node | Does |
 | --- | --- |
-| `thruster_pwm_node` | Mixes the mux's `topics.applied` effort into thruster pulses (real pins or a simulator topic) |
-| `calibrated_velocity_controller` | Closes the loop from SI velocity on `topics.auto` (`/cmd_vel`) to effort on `topics.effort` (`/cmd_vel_effort`), the mux's auto input |
-| `command_mux` | Arbitrates the effort lanes `topics.rc`, `topics.manual` and `topics.effort` into `topics.applied` (duplicate > rc > manual > hold > auto, docs/authority.md 2.2). The stop switch (`command_mux.stop_ch`) holds the mux; with `estop_cuts_power` true the driver also cuts ESC power on it, latched until the next arm, and with it false the switch only holds |
-| `keyboard_control` | Deadman keyboard publisher of effort commands |
-| `thruster_test` | Direct per-output PWM test |
-| `thruster_identify` | Finds which output drives each thruster and saves `channel_map` / `reversed` |
-| `mosfet_test` | Bounded check of the MOSFET enable line |
+| `thruster_pwm_node` | Mixes `topics.applied` into four pulses (docs/CONTROL.md) on the pins or `pwm_topic`. Always publishes what it writes on `pwm_topic` (`/thrusters/pwm`, UInt16MultiArray, outputs 1-4, µs, 20 Hz). After `command_timeout` (0.5 s) with no command, it sets every output to neutral |
+| `command_mux` | Picks one lane, duplicate > rc > manual > hold > auto, and publishes it on `topics.applied`. RC MANUAL or a stick takeover wins at once. It always starts clean, with no holds |
+| `calibrated_velocity_controller` | Started only with `controller:=true`. Turns Nav2 body velocity (`topics.auto`) into effort (`topics.effort`). It refuses in one line when there is no characterization yet |
 
-Run one driver and one selected command publisher only. Sensor, actuation,
-navigation and mission tests live in
-[`mhseals_testing`](https://github.com/mhseals/mhseals_testing)
-(`ros2 run mhseals_testing boat_test`), which arms `thruster_pwm_node`,
-`command_mux` and `calibrated_velocity_controller` as supervised children.
+Launch arguments: `output_backend` (`odroid` or `topic`; empty keeps the config value), `use_sim_time`,
+`controller`, `config_file`.
 
-[docs/authority.md](docs/authority.md) holds the reasoning behind the mux, the
-e-stop, the MOSFET heartbeat and the on-boat checks those paths still need.
+Effort is normalised: Twist `linear.x` is forward, `linear.y` is port and `angular.z` is
+counterclockwise, each in [-1, 1]. Anything published on `topics.effort` (`/cmd_vel_effort`) drives
+through the mux's auto lane. `astro test` uses that lane.
 
-## Hardware
+Safety stays in the stack:
 
-Outputs 1-4 are fixed J2 pins; `channel_map` (canonical FL, FR, RR, RL -> output)
-decides which thruster each drives. A vessel's wiring lives in its profile's
-`thrusters:` section (blastoise/profile.yaml in the team profile), laid between
-`config/default.yaml` and the operator file (see Configuration).
+- the command timeout;
+- RC takeover through the mux;
+- the e-stop latch. The RC stop-channel edge, the `/thruster_pwm_node/estop` service, or losing RC
+  while RC drives cuts ESC power through the MOSFET until the driver restarts. With no receiver at
+  all, as in the sim, RC loss never fires.
 
-| Output | J2 pin | Pad | PWM |
-| --- | --- | --- | --- |
-| 1 | 7  | GPIO0_D0 | PWM7  |
-| 2 | 12 | GPIO3_B2 | PWM3  |
-| 3 | 15 | GPIO4_B3 | PWM15 |
-| 4 | 33 | GPIO3_D0 | PWM8  |
-| MOSFET enable | 13 | GPIO3_D5 | `mosfet_chip`, `mosfet_line` |
-| Signal ground | 6 | | |
+docs/authority.md has the details.
 
-The table is `odroid_pwm.J2_PINS`, which the TUI also reads. The addresses live
-only in `config/default.yaml`: `pwm_chips` (one stable platform glob per output,
-in output order; `pwmchipN` numbers are allocated at boot) and `pwm_channels`.
-`mosfet_chip` is a bank label resolved to `/dev/gpiochipN` at runtime.
-These five (`configuration.BOARD`, with `mosfet_line` and `mosfet_active_high`)
-are what `host/mhseals-thruster-access` prepares at boot, so an operator file or
-`--save-config` that changes one refuses: a new board is a `default.yaml` change
-plus `scripts/install_odroid_access.sh`. To move a thruster, edit `channel_map`.
+## Commands
 
-- Every entry point claims the MOSFET line first (inactive, so a second driver
-  fails before it writes any PWM file), configures neutral PWM, then enables
-  the MOSFET; on shutdown it disables the MOSFET before PWM.
-- Connect pin 13 only to a logic-level trigger and pin 6 to its signal ground.
-  Never power a load from the GPIO. Verify the module's input-high threshold
-  with a meter and add an external pull-down if the module needs one. A GPIO
-  readback is not proof of voltage or propeller rotation.
-- The device-tree source is
-  [`host/odroid-m2-thruster-pwm-overlay.dts`](host/odroid-m2-thruster-pwm-overlay.dts);
-  the running image must expose all four controllers.
-- See the root [hardware and camera setup](../../README.md#hardware-and-cameras)
-  for deployment notes and safety checks.
+| `astro` verb | Command | Does |
+| --- | --- | --- |
+| `drive` | `ros2 launch mhseals_hardware drive.launch.py` | Starts the stack |
+| `mix` | `ros2 run mhseals_hardware mix S W Y` / `--live` | Prints every mixer stage for a command, or follows `topics.applied` |
+| `config_check` | `ros2 run mhseals_hardware config_check FILE` | Validates a hardware YAML through the driver's loader. Exits 0, or prints the reason and exits 1 |
+| `keyboard_control` | `ros2 run mhseals_hardware keyboard_control` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit |
+| `wiring` | `ros2 run mhseals_hardware thruster_identify` | Pulses each output and asks what moved, then saves `channel_map` and `reversed`. Stop `drive` first |
+| `thruster_test` | `ros2 run mhseals_hardware thruster_test` | Sets each output's pulse by hand. Stop `drive` first |
+| `mosfet_test` | `ros2 run mhseals_hardware mosfet_test` | Holds the MOSFET enable on for a bounded time. Writes no PWM |
 
-## Setup
-
-The ODROID installation of `astro_dock` mounts `/sys` read-write. Install the
-host service once; it exports the disabled PWM channels at boot and grants
-unprivileged access to their control files and the `mosfet_chip` bank:
-
-```bash
-cd ~/astro_dock/src/mhseals_hardware
-./scripts/install_odroid_access.sh
-```
-
-Rerun it after moving to another channel or bank, then work as the normal
-`roboboat` user (no `sudo`) inside the workspace container.
-
-## Direct thruster test
-
-Arm only with every thruster submerged, propellers and lines clear, and an
-emergency stop within reach.
-
-```bash
-ros2 run mhseals_hardware thruster_test
-```
-
-It waits for Enter, holds neutral for three seconds, then enables live
-controls, and neutralizes on exit. The frequency is fixed at the ESC-required
-50 Hz; restarting PWM can read as throttle to the ESCs.
-
-| Key | Action |
-| --- | --- |
-| Up / Down | Select all or physical outputs 1-4 |
-| Left / Right | Pulse width -/+ 10 us |
-| `[` / `]` | Pulse width -/+ 1 us |
-| `N`, `F`, `B` | Neutral, forward, reverse preset |
-| `Z`, `X` | 1100 or 1900 us endpoint |
-| Space or `0` | Neutral immediately |
-| `Q` | Neutralize, disable, exit |
-
-## Thruster identification
-
-```bash
-ros2 run mhseals_hardware thruster_identify
-```
-
-With the boat secured and propellers clear and submerged, type `ARM`. After five
-seconds of neutral, each output is pulsed alone at 15% effort. Answer which
-thruster moved, which way it turned, and whether thrust pointed the expected
-way; a wrong way is saved as `reversed`. Space, Q or Esc returns every output
-to neutral, and nothing is saved until you confirm. `--manual` enters a known
-mapping without pulses; `--output-backend topic` identifies the simulator's
-thrusters. Only `channel_map` and `reversed` are written to the operator file
-(`--save-config` writes only the flags given), so defaults and the vessel profile
-still apply underneath. The test suite's
-Thrusters panel does the same.
-
-A vessel profile's wiring is checked on the bench by the owner only (agents never run it).
-
-## Driver
-
-Armed by `boat_test` (its arm adopts `motion.children` with the #102 companion); never started by hand on the boat, since
-that would power the ESCs outside the arm gate. It reads `topics.applied`, the
-command_mux output (`geometry_msgs/msg/Twist`, normalized **effort**, not m/s):
-`linear.x` is forward, `linear.y` port, `angular.z` counterclockwise. After
-`command_timeout` (0.5 s) without a command every channel returns to neutral.
-
-The `topics:` section of the YAML names every motion topic once, the controller's
-`odom` and `obstacle` inputs included; the mux, the driver and the controller read
-it, with no remaps. `topics.auto` (`/cmd_vel`)
-is the only SI velocity lane and only the velocity controller reads it; every
-mux input is effort. In effort mode an effort publisher drives `topics.effort`.
-
-Mixer rows are FL, FR, RR, RL; columns are surge, sway, yaw (`thruster_matrix`):
-
-```text
-FL  -1  +1  +1
-FR  -1  -1  -1
-RR  +1  -1  +1
-RL  +1  +1  -1
-```
-
-- `decoupling` (3x3, identity by default) is applied to the command first and
-  cancels the cross-coupling the characterization measured.
-  `decoupling_negative` (default unset, same as `decoupling`) gives the columns
-  for an axis commanded below zero.
-- The result is proportionally desaturated, then converted to 1100-1900 us.
-- `reversed` flips a thruster wired or mounted backwards.
-- Other parameters: `output_backend`, `pwm_topic`. The board addresses
-  (`pwm_chips`, `pwm_channels`, `mosfet_*`) come only from `config/default.yaml`;
-  a `-p` that changes one refuses at start.
-
-`~/test_pulses` (`std_msgs/msg/UInt16MultiArray`, 1100-1900 us per physical
-output) takes raw bench pulses under the same watchdog. They are accepted only
-while `topics.mux_state` reports input `idle` (the contract in command_mux).
-
-**Simulator.** With `output_backend: topic` the node publishes the four pulse
-widths (microseconds, `UInt16MultiArray`) on `pwm_topic` (`/thrusters/pwm`) at
-20 Hz instead of driving pins. The mixer, `channel_map` and calibration apply
-as on the boat, so crane_ml (`--crane-ros-thruster-pwm`) and `thruster_identify`
-work against it.
+`help.yaml` lists the arguments (`astro help mhseals_hardware`). Secure the boat and clear the
+propellers before anything that drives thrusters.
 
 ## Configuration
 
-Defaults live in `config/default.yaml` (installed to
-`share/mhseals_hardware/config/`); the operator file is
-`~/.config/mhseals/hardware.yaml` or `$MHSEALS_HARDWARE_CONFIG`. Startup order:
-package defaults, the vessel profile's `thrusters:` section (`vessel.py`: the
-profile holding `$ASTRO_NETWORK_ENV`; only `channel_map` and `reversed`, any
-other key refuses), the operator file, then explicit ROS parameters. A named
-vessel that cannot be read (env or a profile.yaml in its chain missing, or not
-strict YAML) refuses to load rather than falling back to the defaults. The driver's ready
-log line names the `channel_map` and the layer that supplied it (the operator file or
-arm snapshot path, `vessel <dir>`, or `defaults`), and the vessel profile or `none`. Files go through
-a strict loader that refuses duplicate keys, anchors, aliases, merge keys and
-non-finite numbers, naming `file:line`. Python loading needs no ROS.
+Each layer is loaded over the one before it:
 
-`config/schema.yaml` lists the keys the TUI shows with type, units, range, tier
-(live or restart) and a one-line doc. Validation is `configuration.validate_config`.
+1. `config/default.yaml`: structure and defaults, kept in git. `config/schema.yaml` documents
+   each key.
+2. The vessel profile's `thrusters:` section: only `channel_map` and `reversed`.
+3. `~/.config/mhseals/hardware.yaml` (or `$MHSEALS_HARDWARE_CONFIG`, or `config_file:=`): the measured
+   and tuned state. `astro apply` writes it.
 
-The driver, the mux and the controller live one arm: each reads the arm snapshot
-(`config_file`; a `-p` parameter wins over it) once, at startup, and never watches the
-YAML, so the driver's e-stop and the mux always share one `command_mux` section. An
-edit to the file applies at the next arm. The only live changes go through the
-standard SetParameters service, refused with the old value kept when validation fails
-and read back with GetParameters: on the driver `decoupling`, `decoupling_negative` (a
-`decoupling` set alone carries it along while the two are equal); on `command_mux`
-`rc_scale` and `ramp` (applied at once); on the velocity controller its gains. Any other
-set, `command_timeout` included (all three stages read it once per arm, so they never
-diverge), is refused with "applies at the next arm". The driver's latched
-`~/status` reports what is in force under `live`. Agents set them through
-`boat_agent set`, so the TUI shows and logs the change.
+The loader is strict. It refuses unknown keys, duplicate keys, anchors and non-finite numbers, and
+names `file:line`. Nodes read the config once, when they start. Only a few values change live through
+`ros2 param set`:
 
-The `controller:` section holds the velocity controller defaults; the operator
-file overrides individual leaves and keeps their siblings:
+- on `thruster_pwm_node`: `decoupling` and `decoupling_negative`;
+- on `calibrated_velocity_controller`: its gains;
+- on `command_mux`: `rc_scale` and `ramp`.
 
-Unknown leaves and nulls refuse startup. The one top-level
-`command_timeout` is the watchdog of all three stages (controller, mux, driver); an old
-file's `controller.command_timeout` or `command_mux.cmd_timeout` is dropped on read
-with one warning.
+docs/CONTROL.md maps each key to its layer and to the test that sets it.
 
-## Characterization and velocity control
+## Hardware
 
-The driver does not turn m/s into PWM. The fit lives in `mhseals_testing`: its
-`boat_test` Characterize procedure saves the result to the hardware YAML, and
-`thrust_characterize` refits any session bag:
+Outputs 1-4 are fixed J2 pins. `channel_map` decides which thruster each one drives.
 
-`ros2 run mhseals_testing thrust_characterize --help` lists its options; it fits
-speed curves per axis and sign, bias, acceleration, limits and (optionally)
-`decoupling`.
+| Output | J2 pin | PWM |
+| --- | --- | --- |
+| 1 | 7  | PWM7  |
+| 2 | 12 | PWM3  |
+| 3 | 15 | PWM15 |
+| 4 | 33 | PWM8  |
+| MOSFET enable | 13 | `mosfet_chip`, `mosfet_line` |
+| Signal ground | 6 | |
 
-The optional controller then applies feed-forward through the model, a
-world-frame current and wind estimate (`~/drift`), and bounded PI feedback.
-`boat_test --velocity-control` arms it in front of the mux, on the auto lane;
-it drives only while the mux input is `auto` and resets otherwise. The arm starts
-the nodes in `motion.children`'s order (`mhseals_hardware/motion.py`): the driver,
-the controller, then the mux.
+The board addresses (`pwm_chips`, `pwm_channels`, `mosfet_*`) are set only in `config/default.yaml`.
+To change one, edit it there and rerun `scripts/install_odroid_access.sh`. Run that script once per
+ODROID, on the host. It exports the PWM channels at boot and grants the container access to them.
+Every entry point claims the MOSFET line first, sets neutral, and only then enables it. On exit it
+turns the MOSFET off before PWM.
 
-## Keyboard control
+## Tests
 
 ```bash
-ros2 run mhseals_hardware keyboard_control        # --dry-run tests your terminal
+python3 -m pytest -q        # pure Python, no ROS, a few seconds
 ```
 
-W/S or Up/Down surge, A/D sway, Left/Right yaw, `+`/`-` change speed, Space
-stops, X exits. Held-key chords need a terminal that reports key releases.
-
-## Development
-
-```bash
-tools/smoke                         # the landing gate (python3 -m pytest -q -m smoke test), under 60 s; --impact runs only affected tests
-python3 -m pytest -q                 # the full suite (CI reports it, never blocks)
-```
-
-The smoke tier covers config loading and the schema, the mixer, the driver's
-parameter guard, the live parameter callbacks, the mux arbitration and the e-stop, the vessel layer and
-the host access parse; tests that start nodes skip without rclpy.
-
-The package contains only pin-level and thruster code: PWM outputs, the ROS
-bridge, mixer, velocity controller, command mux, the test and identification
-tools, and their shared keyboard control code.
+The tests cover the core building blocks: the mixer, the velocity law, mux arbitration, the
+e-stop, manual state, configuration loading, and the ODROID PWM backend.
