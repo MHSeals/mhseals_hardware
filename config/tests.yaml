@@ -19,12 +19,12 @@ topics:
 axes: [surge, sway, yaw]         # decoupling column order and twist order (x, y, wz)
 rotational: yaw
 defaults: mhseals_hardware/config/default.yaml   # values in force for keys the state file does not set
-# The mux's latched state: while it holds the lane (a chosen stop: the RC switch at HOLD or the stop
-# channel) a test does not start and says so.
-gate:
-  state: /command_mux/state
-  held: hold
-  clear: 'release it where it was set (RC mode switch or stop channel); astro status shows the cause'
+# Chosen stops: while one is set a test does not start; it names the cause and how to clear it.
+gates:
+  - {name: mux hold, state: /command_mux/state, held: hold, cause: hold.cause,
+     clear: 'release it where it was set (RC mode switch or stop channel); astro status shows it'}
+  - {name: driver e-stop latched, state: /thruster_pwm_node/status, held: estop.latched, cause: estop.cause,
+     clear: 'restart drive.launch.py to power the ESCs again'}
 
 spaces:
   large: {amp: 0.5, levels: [0.3, 0.6, 0.9]}     # lake: ~6 m for couple, ~12 m for speed
