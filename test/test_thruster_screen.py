@@ -50,3 +50,35 @@ def test_a_long_or_missing_thrusters_block_and_an_empty_one():
 def test_a_rewrite_that_would_touch_other_keys_refuses():
     with pytest.raises(ValueError):
         profile_text('thrusters: {}\n  # odd\nhull: 1\nthrusters: 2\n', {'channel_map': [1, 2, 3, 4]})
+
+
+def test_the_screen_shows_the_selected_fields_grouped_keys_and_a_pin_picker(monkeypatch):
+    """Faked sysfs: J2 33's controller is not in the overlay. The picker lists every J2 PWM pin with its
+    overlay state and user, marks the current one, and refuses a pin the overlay does not enable."""
+    import fnmatch
+    import types
+    from rich.console import Console
+    from mhseals_hardware import free, thruster_screen as ts
+    enabled = ['febd0030.pwm', 'fd8b0030.pwm', 'febf0030.pwm']
+    fake = [f'/sys/devices/platform/{d}/pwm/pwmchip{i}' for i, d in enumerate(enabled)]
+    monkeypatch.setattr(ts, 'glob', types.SimpleNamespace(
+        glob=lambda pattern: [p for p in fake if fnmatch.fnmatch(p, pattern)]))
+    monkeypatch.setattr(ts, 'exposed_chips', lambda *a: sorted(enabled))
+    monkeypatch.setattr(free, 'processes', lambda *a, **k: [])
+    monkeypatch.setattr(free, 'line_info', lambda chip, line: (False, ''))
+    monkeypatch.setattr(free, 'channel_path', lambda chip, channel: None)
+    console = Console(record=True, width=110, color_system=None)
+    screen = ts.Screen(console=console, clock=lambda: 0.0)
+    screen.key('down')
+    screen.key('p')
+    console.print(screen.render())
+    lines = console.export_text().splitlines()
+    assert 'FR selected:  t output [2]  r reversed [no]  p pin [J2 12 PWM3]' in lines
+    assert [line.split(':')[0] for line in lines[-3:]] == ['Drive', 'Wiring', 'Power']
+    rows = [line.split() for line in lines if line.lstrip(' >*').startswith('J2 ')]
+    assert [r[-2:] for r in rows] == [['output', '1'], ['output', '2'], ['output', '3'], ['output', '4']]
+    assert rows[1][:2] == ['>', '*'] and 'not in overlay' in ' '.join(rows[3])
+    chips = list(screen.config['pwm_chips'])
+    for key in ('down', 'down', 'enter'):     # J2 33: not enabled here
+        screen.key(key)
+    assert screen.config['pwm_chips'] == chips and 'not enabled' in screen.message

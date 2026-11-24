@@ -60,7 +60,7 @@ Losing RC never cuts power; the command timeout (0.5 s) brings neutral.
 | `thrusters wiring` | `ros2 run mhseals_hardware thrusters wiring` | Pulses each output and asks what moved, then saves `channel_map` and `reversed` to hardware.yaml |
 | `thrusters mosfet` | `ros2 run mhseals_hardware thrusters mosfet [--seconds N]` | Holds the MOSFET enable (ESC power) on until Ctrl-C, SIGTERM or `--seconds`. Writes no PWM |
 | `thrusters free` | `ros2 run mhseals_hardware thrusters free [--check]` | Stops every program holding the pins or MOSFET, sets neutral, releases them, and prints one row per output with its holder. Exit 0 when all are free |
-| `config_check` | `ros2 run mhseals_hardware config_check FILE` | Setup: validates a hardware YAML through the driver's loader. Exits 0, or prints the reason and exits 1 |
+| `config_check` | `ros2 run mhseals_hardware config_check [FILE]` | Setup: validates a hardware YAML (default the active one) through the driver's loader. Exits 0, or prints the reason and exits 1 |
 | `odroid_access` | `scripts/install_odroid_access.sh` | Setup: once per ODROID, on the host (below) |
 
 The nodes `thruster_pwm_node`, `command_mux` and `calibrated_velocity_controller` start only through
@@ -76,9 +76,10 @@ and the pulse read back from sysfs. The header shows the MOSFET and who holds it
 running, and the ESC arming countdown.
 
 The first pulse opens the outputs: the MOSFET goes on and every ESC is held at neutral for 3 s while it
-arms. Keys (also on the bottom line): ↑/↓ select a thruster or ALL, ←/→ ±10 µs, [/] ±1 µs, f/b ±25 %
+arms. Keys (also at the bottom, grouped as Drive, Wiring and Power, under the selected row's fields
+`t output [2]  r reversed [no]  p pin [J2 12 PWM3]`): ↑/↓ select a thruster or ALL, ←/→ ±10 µs, [/] ±1 µs, f/b ±25 %
 (reversal honoured), 0 or Space neutral, z/x 1100/1900 µs, t the output this thruster is on, r reversed,
-p the PWM chip (from the chips this host exposes), m the MOSFET, k free (stop what holds the pins),
+p the pin (every J2 PWM pin, with whether the overlay enables it here and which output uses it), m the MOSFET, k free (stop what holds the pins),
 s save, q quit at neutral with the MOSFET off. s shows the diff of the vessel profile's `thrusters:` and
 y writes it; commit it in the profiles repo.
 

@@ -27,7 +27,7 @@ from mhseals_hardware.configuration import (
     WIRING, _layered, config_path, load_defaults, load_strict_yaml, plain,
 )
 from mhseals_hardware.odroid_pwm import (
-    OVERLAY, OdroidPWMOutputs, chip_glob, check_pins, exposed_chips, pin_label, pwm_device,
+    J2_PINS, OVERLAY, OdroidPWMOutputs, chip_glob, check_pins, exposed_chips, pin_label, pwm_device,
 )
 from mhseals_hardware.thruster_mixer import (
     MAX_PWM, MIN_PWM, NEUTRAL_PWM, POSITIONS, PWM_SCALE, effort_to_pulse,
@@ -38,7 +38,11 @@ PRESET = 0.25          # f/b effort
 BAR_HALF = 10          # bar cells each side of neutral
 REFRESH_HZ = 10
 SLOW_SECONDS = 1.0     # the MOSFET line and the process list are read this often
-KEYS = '↑↓ select  ←→ ±10µs  [] ±1µs  f/b ±25%  0 neutral  z/x min/max  t out  r rev  p pin  m MOSFET  k free  s save  q quit'
+# The key help, one labelled line per group.
+KEYS = (('Drive', '↑↓ select row  ←→ ±10µs  [ ] ±1µs  f/b ±25%  0 neutral  z/x min/max'),
+        ('Wiring', 't output  r reversed  p pin  s save to profile'),
+        ('Power', 'm MOSFET on/off  k free pins  q quit (neutral, MOSFET off)'))
+PICKER_KEYS = '↑↓ move  Enter choose  Esc/q cancel'
 
 
 # Pure parts.
@@ -96,6 +100,27 @@ def profile_text(text, mapping):
     return new
 
 
+def key_help():
+    width = max(len(label) for label, _ in KEYS) + 1
+    return [f'{label + ":":<{width}} {keys}' for label, keys in KEYS]
+
+
+def chip_rows(devices_exposed, chips):
+    """[(label, device, enabled)] for the pin picker: every J2 PWM device of the header table plus any other
+    the host exposes, with its J2 pin, whether the overlay enables it here, and the output using it."""
+    known = [d for d in J2_PINS if d.endswith('.pwm')]
+    devices = known + sorted(set(devices_exposed) - set(known))
+    in_use = {pwm_device(chip): output for output, chip in enumerate(chips, 1)}
+    rows = []
+    for device in devices:
+        pin = J2_PINS.get(device)
+        enabled = device in devices_exposed
+        rows.append((f'{"J2 " + str(pin[0]) if pin else "J2 ?":<6} {pin[2] if pin else "":<6} {device:<13} '
+                     f'{"enabled" if enabled else "not in overlay":<16}'
+                     + (f'output {in_use[device]}' if device in in_use else 'free'), device, enabled))
+    return rows
+
+
 def diff(old, new, name):
     return ''.join(difflib.unified_diff(old.splitlines(True), new.splitlines(True), name, name))
 
@@ -134,7 +159,7 @@ class Screen:
         self.selected = 0                    # 0-3 a thruster (POSITIONS), 4 all
         self.outputs = None
         self.armed_at = None
-        self.picker = None                   # (title, [(label, value)], on_pick, index)
+        self.picker = None                   # dict: title, header, options [(label, value)], on_pick, index, current
         self.pending = None                  # (new profile text, diff) awaiting y
         self.message = self.operator_note()
         self.slow_at = None
@@ -261,8 +286,9 @@ class Screen:
 
     # Config edits.
 
-    def pick(self, title, options, on_pick):
-        self.picker = [title, options, on_pick, 0]
+    def pick(self, title, options, on_pick, current=0, header=''):
+        self.picker = dict(title=title, header=header, options=options, on_pick=on_pick, index=current,
+                           current=current)
 
     def assign_output(self):
         if self.selected == 4:
@@ -274,10 +300,9 @@ class Screen:
             other = mapping.index(output)
             mapping[other], mapping[position] = mapping[position], output
         current = self.config['channel_map'][position]
-        self.pick(f'{POSITIONS[position].upper()} is on output…',
+        self.pick(f'Output for thruster {POSITIONS[position].upper()}:',
                   [(f'output {o}  {pin_label(self.config["pwm_chips"][o - 1])}', o) for o in range(1, 5)],
-                  chosen)
-        self.picker[3] = current - 1
+                  chosen, current - 1)
 
     def toggle_reversed(self):
         if self.selected != 4:
@@ -287,12 +312,13 @@ class Screen:
         if self.selected == 4:
             return
         output = self.config['channel_map'][self.selected]
-        devices = exposed_chips()
-        if not devices:
-            self.message = f'this host exposes no PWM chips; enable them in {OVERLAY}'
-            return
+        rows = chip_rows(exposed_chips(), self.config['pwm_chips'])
+        enabled = {device for _, device, on in rows if on}
 
         def chosen(device):
+            if device not in enabled:
+                self.message = f'{device} is not enabled on this host: add it to {OVERLAY}; pin unchanged'
+                return
             chips = self.config['pwm_chips']
             new = chip_glob(device)
             if new in chips:            # another output had it: they swap
@@ -300,12 +326,12 @@ class Screen:
             chips[output - 1] = new
             self.close_outputs()
             self.message = 'pins changed; outputs closed, a pulse reopens them'
-        in_use = {pwm_device(chip): index + 1 for index, chip in enumerate(self.config['pwm_chips'])}
-        self.pick(f'PWM chip for output {output}',
-                  [(f'{d}  {pin_label(chip_glob(d))}' + (f'  (output {in_use[d]})' if d in in_use else ''), d)
-                   for d in devices], chosen)
+        devices = [device for _, device, _ in rows]
         current = pwm_device(self.config['pwm_chips'][output - 1])
-        self.picker[3] = devices.index(current) if current in devices else 0
+        self.pick(f'Pin for output {output} (thruster {POSITIONS[self.selected].upper()}):',
+                  [(label, device) for label, device, _ in rows], chosen,
+                  devices.index(current) if current in devices else 0,
+                  f'{"pin":<6} {"PWM":<6} {"device":<13} {"overlay":<16}used by')
 
     def save(self):
         if self.profile is None:
@@ -349,11 +375,11 @@ class Screen:
             self.confirm(key)
             return True
         if self.picker is not None:
-            title, options, on_pick, index = self.picker
+            options, index = self.picker['options'], self.picker['index']
             if key in ('up', 'down'):
-                self.picker[3] = (index + (1 if key == 'down' else -1)) % len(options)
+                self.picker['index'] = (index + (1 if key == 'down' else -1)) % len(options)
             elif key == 'enter':
-                self.picker = None
+                on_pick, self.picker = self.picker['on_pick'], None
                 on_pick(options[index][1])
             elif key in ('escape', 'q'):
                 self.picker = None
@@ -412,7 +438,7 @@ class Screen:
             pulse = self.pulses[output - 1]
             found = len(glob.glob(chip))
             table.add_row(
-                '›' if self.selected == index else ' ', position.upper(),
+                '>' if self.selected == index else ' ', position.upper(),
                 Text(str(output), style='yellow' if 'channel_map' in changed else None),
                 Text(pin_label(chip), style='yellow' if 'pwm_chips' in changed else None),
                 '✓' if found == 1 else '✗',
@@ -420,25 +446,47 @@ class Screen:
                      style='yellow' if 'reversed' in changed else None),
                 f'{pulse} µs', f'{(pulse - NEUTRAL_PWM) / PWM_SCALE:+.0%}',
                 Text(effort_bar(pulse), style='bold' if pulse != NEUTRAL_PWM else 'dim'),
-                self.readback(output))
-        table.add_row('›' if self.selected == 4 else ' ', 'ALL', '', '', '', '', '', '', '', '')
+                self.readback(output), style='reverse' if self.selected == index else None)
+        table.add_row('>' if self.selected == 4 else ' ', 'ALL', '', '', '', '', '', '', '', '',
+                      style='reverse' if self.selected == 4 else None)
         return table
+
+    def fields(self):
+        """The selected row's editable fields, each with its key: ``FR  t output [2]  r reversed [no]  p pin [...]``."""
+        if self.selected == 4:
+            return 'ALL selected: Drive keys move every output; select one thruster to edit its wiring'
+        output = self.config['channel_map'][self.selected]
+        return (f'{POSITIONS[self.selected].upper()} selected:  t output [{output}]  '
+                f'r reversed [{"yes" if self.config["reversed"][self.selected] else "no"}]  '
+                f'p pin [{pin_label(self.config["pwm_chips"][output - 1])}]')
 
     def footer(self):
         parts = []
         missing = [pwm_device(chip) for chip in self.config['pwm_chips'] if not glob.glob(chip)]
         if missing and any(missing):
             parts.append(f'not enabled on this host: {", ".join(m for m in missing if m)} (the overlay is {OVERLAY})')
+        parts.append(self.fields())
+        picker = None
         if self.picker is not None:
-            title, options, _, index = self.picker
-            parts.append(title + '  (↑/↓, Enter, Esc)')
-            parts += [('› ' if i == index else '  ') + label for i, (label, _) in enumerate(options)]
+            p = self.picker
+            parts.append(f'{p["title"]}  ({PICKER_KEYS}; * current)')
+            if p['header']:
+                parts.append('     ' + p['header'])
+            for i, (label, _) in enumerate(p['options']):
+                if i == p['index']:     # the cursor row, highlighted as well as marked >
+                    start = len('\n'.join(parts)) + 1
+                    picker = (start, start + 5 + len(label))
+                parts.append(('> ' if i == p['index'] else '  ') + ('* ' if i == p['current'] else '  ')
+                             + ' ' + label)
         if self.pending is not None:
             parts += [self.pending[1].rstrip(), 'y saves this to the profile, any other key cancels']
         if self.message:
             parts.append(self.message)
-        parts.append(KEYS)
-        return Text('\n'.join(parts))
+        parts += key_help()
+        text = Text('\n'.join(parts))
+        if picker:
+            text.stylize('reverse', *picker)
+        return text
 
     def render(self):
         self.refresh()
