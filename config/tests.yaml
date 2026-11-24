@@ -16,6 +16,7 @@ topics:
   applied: /cmd_vel/applied      # shown by astro status
   mux_state: /command_mux/state
   pwm: /thrusters/pwm
+nodes: [/thruster_pwm_node, /command_mux, /calibrated_velocity_controller]   # astro status names these
 axes: [surge, sway, yaw]         # decoupling column order and twist order (x, y, wz)
 rotational: yaw
 defaults: mhseals_hardware/config/default.yaml   # values in force for keys the state file does not set
@@ -32,7 +33,7 @@ spaces:
 
 tests:
   still:
-    {type: still, layer: L0 baseline, seconds: 20}
+    {type: still, layer: conditions, seconds: 20}
 
   couple-surge:
     {type: couple, axis: surge, layer: L3 decoupling, holds: 4, baseline_s: 2, settle_s: 4, measure_s: 3,
