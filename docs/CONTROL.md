@@ -144,6 +144,10 @@ e = FF(target − bias − drift_body) + Kp·err + Ki·∫err      clipped to [-
   and rotates them into the body every cycle.
 - It drives only while the mux input is `auto`. Otherwise it resets.
 
+Between L6 and L3 sits `command_mux`. Its priority is duplicate > RC > chosen stop (HOLD switch,
+stop channel) > keyboard > auto (ramped in from zero) > idle. A stale lane falls through to the
+next one (docs/authority.md).
+
 The gains are `controller.kp`, `ki`, `integral_limit`, `drift_time_constant`,
 `drift_command_limit`, `drift_limit`, `drift_carry`, `proximity_distance`, `obstacle_timeout`
 and `odom_timeout`. They change live:

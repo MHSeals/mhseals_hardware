@@ -48,7 +48,7 @@ conversions do not count as a change (`command_mux.change_key`).
 ### 2.2 Inputs and stops
 
 ```
-input ∈ {rc, manual, hold, auto, idle}       priority duplicate > rc > manual > stop > auto > idle
+input ∈ {rc, manual, hold, auto, idle}       priority duplicate > rc > stop > manual > auto > idle
 duplicate ⇒ zeros (input hold): a second mux publishes the same output; clears when it goes
 rc      ⇔ rc valid ∧ (mode switch == MANUAL ∨ stick takeover latched)
 manual  ⇔ a topics.manual message within command_timeout
@@ -63,13 +63,13 @@ auto    ⇔ a topics.effort message within command_timeout, ramped in over ramp;
 - **Stick takeover:** in GUIDED, any of ch1, ch2 or ch4 held past `stick_takeover` µs for `stick_time`
   s latches rc. Once the sticks are centred for `stick_release` s, the takeover ends and the next lane
   drives.
-- **HOLD switch:** a level. It holds while the switch is there and frees when it moves out. When RC is
-  lost, it holds nothing.
+- **HOLD switch:** a level. It holds while the switch is there (the keyboard and auto included) and
+  frees when it moves out. When RC is lost, it holds nothing.
 - **Stop channel:** a falling edge on `stop_ch` holds until that switch goes back up. With
   `estop_cuts_power` it also latches the driver's e-stop, which only a restart of `drive.launch` clears
   (3).
-- **Output:** a stop and idle send zeros. Entering auto after a start, a stop, rc or manual ramps from
-  zero over `ramp`, so a controller that kept publishing cannot lurch the boat.
+- **Output:** a stop and idle send zeros. Entering auto after anything else (a start, idle, a stop, rc or
+  manual) ramps from zero over `ramp`, so a controller that kept publishing cannot lurch the boat.
 
 ### 2.3 `~/state` record
 

@@ -16,7 +16,7 @@ ros2 run mhseals_hardware mix 0.5 0 0                                 # what sur
 | Node | Does |
 | --- | --- |
 | `thruster_pwm_node` | Mixes `topics.applied` into four pulses (docs/CONTROL.md) on the pins or `pwm_topic`. Always publishes what it writes on `pwm_topic` (`/thrusters/pwm`, UInt16MultiArray, outputs 1-4, µs, 20 Hz). After `command_timeout` (0.5 s) with no command, it sets every output to neutral |
-| `command_mux` | Picks one lane, duplicate > rc > manual > stop > auto > idle, and publishes it on `topics.applied`. RC MANUAL or a stick takeover wins at once. A lane that goes stale falls through to the next, so nothing stays locked |
+| `command_mux` | Picks one lane, duplicate > rc > stop > manual > auto > idle, and publishes it on `topics.applied`. RC MANUAL or a stick takeover wins at once. A lane that goes stale falls through to the next, so nothing stays locked |
 | `calibrated_velocity_controller` | Started only with `controller:=true`. Turns Nav2 body velocity (`topics.auto`) into effort (`topics.effort`). It refuses in one line when there is no characterization yet |
 
 Launch arguments: `output_backend` (`odroid` or `topic`; empty keeps the config value), `use_sim_time`,

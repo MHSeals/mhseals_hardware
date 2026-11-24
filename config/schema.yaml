@@ -17,7 +17,7 @@ command_mux.rc_max_age: {type: float, units: s, tier: restart, doc: "RC frames o
 command_mux.stick_takeover: {type: int, units: count, tier: restart, doc: "Stick deflection in PWM microseconds past center that takes over."}
 command_mux.stick_time: {type: float, units: s, tier: restart, doc: "How long the stick must stay deflected to take over."}
 command_mux.stick_release: {type: float, units: s, tier: restart, doc: "How long the stick must stay centered to end a stick takeover (the next lane then drives)."}
-command_mux.ramp: {type: float, units: s, tier: live, doc: "Seconds to ramp the auto lane in from zero, after a start, a stop, rc or manual."}
+command_mux.ramp: {type: float, units: s, tier: live, doc: "Seconds to ramp the auto lane in from zero, after a start, idle, a stop, rc or manual."}
 topics.auto: {type: str, units: topic, tier: restart, doc: "SI body velocity from Nav2 (the only velocity lane); only the velocity controller reads it."}
 topics.effort: {type: str, units: topic, tier: restart, doc: "The mux auto input, effort: the velocity controller's output, or an effort publisher."}
 topics.manual: {type: str, units: topic, tier: restart, doc: "The mux manual input, effort (keyboard_control, a deadman lane)."}

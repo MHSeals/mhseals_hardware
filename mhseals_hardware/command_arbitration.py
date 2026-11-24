@@ -1,4 +1,4 @@
-"""Pick which command drives the boat: duplicate > rc > manual > stop > auto > idle.
+"""Pick which command drives the boat: duplicate > rc > stop > manual > auto > idle.
 
 ROS-free and clock-injected: every call takes ``now`` in seconds, so a node
 feeds it monotonic time and a test feeds it a fake clock.  The mux node only
@@ -11,11 +11,12 @@ whoever next means to move the boat moves it at once. Only stops someone chooses
 * duplicate: another publisher drives the same output, so this one sends only zeros
   (``set_duplicate``) until it goes.
 * rc: a valid RC frame and the mode switch at MANUAL, or a stick takeover in GUIDED.
-* manual: ``topics.manual`` (keyboard_control) newer than ``command_timeout``.
 * stop (input ``hold``): the RC mode switch at HOLD (or an unknown mode) holds while it stays
-  there; the RC stop channel's falling edge holds until that switch goes back up.
+  there; the RC stop channel's falling edge holds until that switch goes back up. A chosen stop
+  stops the keyboard too.
+* manual: ``topics.manual`` (keyboard_control) newer than ``command_timeout``.
 * auto: ``topics.effort`` newer than ``command_timeout``, ramped in from zero over ``ramp``
-  after a start, a stop, rc or manual.
+  after anything else (a start, idle, a stop, rc or manual).
 """
 
 import json
@@ -267,18 +268,18 @@ class Arbitration:
         elif rc:
             cmd = tuple(v * s for v, s in zip(self._sticks(), self.rc_scale))
             source = 'rc'
-        elif self._fresh(self.manual_time, now):
-            cmd, source = self.manual, 'manual'
         elif stops:
             cmd, source = zero, 'hold'
+        elif self._fresh(self.manual_time, now):
+            cmd, source = self.manual, 'manual'
         elif self._fresh(self.auto_time, now):
             cmd, source = self.auto, 'auto'
         else:
             cmd, source = zero, 'idle'
 
         self._track_input(source, stops, now)
-        if source in ('hold', 'rc', 'manual'):
-            self._ramp_pending = True
+        if source != 'auto':
+            self._ramp_pending = True     # auto always ramps in from zero after anything else
         if source == 'auto':
             if self._ramp_pending:
                 self._ramp_start, self._ramp_pending = now, False

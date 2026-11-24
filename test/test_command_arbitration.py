@@ -177,10 +177,30 @@ def test_hold_ramps_auto_from_zero_over_one_second():
     assert a.select(1.5)[1][0] == pytest.approx(0.5)
 
 
-def test_idle_to_auto_is_not_ramped():
+def test_auto_after_idle_ramps_in_again():
     a = boat()
     a.update_auto((1.0, 0, 0), 0)
-    assert a.select(0) == ('auto', (1.0, 0, 0))
+    assert a.select(0) == ('auto', (1.0, 0, 0))      # already running: no ramp
+    assert a.select(1.0)[0] == 'idle'                 # silent past command_timeout
+    a.update_auto((1.0, 0, 0), 2.0)
+    assert a.select(2.0) == ('auto', (0.0, 0, 0))     # resumes from zero, not full
+    a.update_auto((1.0, 0, 0), 2.5)
+    assert a.select(2.5)[1][0] == pytest.approx(0.5)
+
+
+def test_a_chosen_stop_stops_the_keyboard_and_clears_itself():
+    a = boat()
+    a.update_rc(frame(mode=MID), 0)                   # switch at HOLD
+    a.update_manual((0.4, 0, 0), 0)
+    assert a.select(0) == ('hold', (0, 0, 0))
+    a.update_rc(frame(mode=HIGH), 0.1)                # switch out of HOLD
+    a.update_manual((0.4, 0, 0), 0.1)
+    assert a.select(0.1) == ('manual', (0.4, 0, 0))   # keys drive at once
+    a.update_rc(frame(arm=1100), 0.2)                 # stop channel edge
+    a.update_manual((0.4, 0, 0), 0.2)
+    assert a.select(0.2)[0] == 'hold'
+    a.update_rc(frame(mode=LOW, arm=1100), 0.3)       # RC MANUAL still wins over the stop
+    assert a.select(0.3)[0] == 'rc'
 
 
 def test_state_reports_holds_and_decode():

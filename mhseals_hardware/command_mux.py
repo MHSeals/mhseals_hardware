@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Choose which command reaches the driver: duplicate > rc > manual > stop > auto > idle.
+"""Choose which command reaches the driver: duplicate > rc > stop > manual > auto > idle.
 
 All rules live in ``command_arbitration.Arbitration``; this node only wires
 the ``topics`` section of the YAML. Every input is effort: ``topics.rc``, ``topics.manual`` and
