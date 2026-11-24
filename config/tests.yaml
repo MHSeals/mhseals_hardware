@@ -4,7 +4,9 @@
 # Ladder: still -> couple -> apply -> speed -> apply -> steps -> nav2 (about 20 min on the water).
 #
 # Test types (generic): still (neutral), couple (decoupling column search, holds alternate + and -),
-# speed (levels x +/-: speed curves, t95, motion limits), steps (closed loop, report), nav2 (no motion).
+# speed (levels x +/-: speed curves, t95, motion limits), steps (closed loop, report), nav2 (no motion),
+# watch (passive, for a small pool: you drive by RC or keyboard, it listens to topics.applied and odometry and
+# fits the speed keys from your steady single-axis holds; a progress line says what is still missing).
 # upstream: the state keys a result depends on; a later change marks it stale in `astro test status`.
 # apply.live: the live parameters `astro apply` sets after the file passes config_check; apply.restart: what
 # must restart to use keys that are not live.
@@ -71,6 +73,16 @@ tests:
      apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
   speed-yaw:
     {type: speed, axis: yaw, layer: L4 speed curve, baseline_s: 2, settle_s: 5, measure_s: 3, coast_s: 4,
+     upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
+     apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
+
+  # Drive yourself: per axis and sign `levels` steady holds (efforts at least level_gap apart, each held
+  # settle_s + measure_s with the other axes under cross_max of it), one hold per axis started after
+  # baseline_s still, and drift_s of sitting still. Ends when covered, after max_s, or at Ctrl-C (fits what
+  # there is; an axis needs two levels each way). Decoupling is reported (measured.cross), never applied.
+  watch:
+    {type: watch, layer: L4 speed curve (driven), levels: 3, level_gap: 0.08, min_effort: 0.08, steady_tol: 0.04,
+     cross_max: 0.3, baseline_s: 1, settle_s: 2.5, measure_s: 1.5, drift_s: 10, max_s: 900,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
      apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
 
