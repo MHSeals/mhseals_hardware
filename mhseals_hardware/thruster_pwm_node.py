@@ -10,8 +10,8 @@ with the odroid backend it is the pins' readback, so a bag always holds the actu
 
 Safety: with ``estop_cuts_power`` the RC stop-channel edge on ``topics.rc`` cuts the MOSFET and
 latches (estop.py). The ``~/estop`` service (std_srvs/Trigger) is the operator's e-stop: the
-same latched cut. Only a restart of the driver (drive.launch) powers the ESCs again. Losing RC
-never cuts: the mux falls through and the command timeout brings neutral. SIGTERM shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
+same latched cut. ``~/clear`` (std_srvs/Trigger, ``astro estop clear``) powers the ESCs again at
+neutral; it refuses while the stop switch is still down. Losing RC never cuts: the mux falls through and the command timeout brings neutral. SIGTERM shuts down like Ctrl+C. ``mosfet_heartbeat`` toggles the enable for a
 heartbeat circuit. ``~/status`` (latched String JSON) reports the MOSFET, the e-stop and the
 live correction.
 
@@ -90,6 +90,7 @@ class ThrusterPWMNode(Node):
             self.create_timer(0.5 / self.config['mosfet_heartbeat'], self.heartbeat)
         # Operator e-stop: the same latched cut, cause 'operator'.
         self.create_service(Trigger, '~/estop', self.estop_service)
+        self.create_service(Trigger, '~/clear', self.clear_service)
         self.last_command_time = time.monotonic()
         self.timed_out = False
         self.publish_status()
@@ -187,7 +188,7 @@ class ThrusterPWMNode(Node):
                                    self.reverse_ratio))
 
     def rc_callback(self, message):
-        """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until restarted."""
+        """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until ~/clear."""
         self.estop_step(self.estop.rc, message.channels)
 
     def estop_step(self, step, *args):
@@ -199,7 +200,7 @@ class ThrusterPWMNode(Node):
             cut = self.estop.latched
         if cut:
             self.get_logger().error(f'remote e-stop ({self.estop.cause}): ESC power cut and '
-                                    'latched; restart the driver to restore')
+                                    'latched; astro estop clear restores it')
             self.publish_status()
 
     def estop_service(self, _request, response):
@@ -210,6 +211,18 @@ class ThrusterPWMNode(Node):
         response.success = self.estop.latched and not powered
         response.message = (f'latched ({self.estop.cause})' if response.success else
                             'cut failed: ESC power may still be on')
+        return response
+
+    def clear_service(self, _request, response):
+        """Clear the latch (astro estop clear); refused while the stop switch is down."""
+        try:
+            response.success, response.message = self.estop.clear()
+        except Exception as error:
+            response.success, response.message = False, f'clear failed: {error}'
+        if response.success:
+            self.last_beat = None    # a fresh heartbeat, not a stall since the cut
+            self.get_logger().warning(f'e-stop {response.message}')
+            self.publish_status()
         return response
 
     def heartbeat(self):
@@ -226,7 +239,7 @@ class ThrusterPWMNode(Node):
 
     def drive(self, pulses):
         if self.estop.latched:
-            return  # cut and neutral; only a new driver powers on again
+            return  # cut and neutral until ~/clear
         self.outputs.set_pulse_widths(pulses)
         self.last_command_time = time.monotonic()
         self.timed_out = False

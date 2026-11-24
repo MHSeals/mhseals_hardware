@@ -1,4 +1,4 @@
-"""Remote e-stop: the RC stop edge cuts the MOSFET and latches until a new driver arms."""
+"""Remote e-stop: the RC stop edge cuts the MOSFET and latches until cleared or a new driver arms."""
 
 from types import SimpleNamespace
 import sys
@@ -96,7 +96,20 @@ def test_rc_returning_never_powers_on(tmp_path, line):
     assert estop.latched and estop.state()['since_ns'] == 0
 
 
-def test_only_a_driver_restart_restores_power(tmp_path, line):
+def test_clear_repowers_at_neutral_but_not_while_the_switch_is_down(tmp_path, line):
+    outputs, estop = arm(tmp_path)
+    assert estop.trip('operator', 1.0, 5)
+    assert estop.clear()[0] and not estop.latched
+    assert line[-1] == 1 and duties(outputs) == ['1500000'] * 4
+    estop.rc(frame(ON), 2.0, 0)
+    estop.rc(frame(OFF), 2.02, 0)
+    ok, message = estop.clear()
+    assert not ok and 'switch' in message and estop.latched and line[-1] == 0
+    estop.rc(frame(ON), 2.04, 0)                       # the switch back up
+    assert estop.clear()[0] and line[-1] == 1
+
+
+def test_a_driver_restart_restores_power(tmp_path, line):
     outputs, estop = arm(tmp_path)
     estop.rc(frame(ON), 1.0, 0)
     estop.rc(frame(OFF), 1.02, 0)

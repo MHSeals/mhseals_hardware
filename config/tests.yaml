@@ -26,7 +26,7 @@ gates:
   - {name: mux hold, state: /command_mux/state, held: hold, cause: hold.cause,
      clear: 'release it where it was set (RC mode switch or stop channel); astro status shows it'}
   - {name: driver e-stop latched, state: /thruster_pwm_node/status, held: estop.latched, cause: estop.cause,
-     clear: 'restart drive.launch.py to power the ESCs again'}
+     clear: 'astro estop clear (flip the RC stop switch up first)'}
 # Who drives during a measure window: anything but auto (e.g. RC MANUAL with centred sticks) for over 0.5 s
 # aborts the test, with neutral, instead of fitting zeros.
 lane: {state: /command_mux/state, field: input, want: auto, cause: cause, fix: 'put the RC switch in GUIDED'}

@@ -5,9 +5,8 @@ timeout brings neutral.
 ROS-free and clock-injected. The edge is the command_mux rule itself
 (``Arbitration.update_rc``), built once from the config's ``mux_section``, the
 same one the mux reads, so the two never disagree on the stop or mode channel. The cut
-latches for the life of the driver: nothing here powers the ESCs again. Power
-returns only when the driver restarts: a new driver's
-``outputs.open()`` re-enables the MOSFET with every channel at neutral.
+latches until ``clear()`` (the driver's ``~/clear``, ``astro estop clear``): it powers the ESCs
+again at neutral, and refuses only while the stop switch is still down.
 """
 
 from mhseals_hardware.command_arbitration import Arbitration, mux_section
@@ -59,6 +58,19 @@ class RemoteEstop:
             error = error or failure
         if error is not None:
             raise error
+
+    def clear(self):
+        """``(ok, message)``: re-power the ESCs at neutral, unless the stop switch is still down."""
+        if self.rule.stop_since is not None:
+            return False, 'refused: flip the stop switch back up'
+        if not self.latched:
+            return True, 'not latched'
+        self.outputs.neutral()
+        mosfet = getattr(self.outputs, 'mosfet', None)
+        if mosfet is not None and mosfet.request is not None:
+            mosfet.set_enabled(True)
+        cause, self.cause, self.since_ns = self.cause, None, None
+        return True, f'cleared ({cause}); ESCs powered at neutral'
 
     def state(self):
         """For the driver ~/status: whether the cut is armed, and the latch."""
