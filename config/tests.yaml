@@ -90,6 +90,9 @@ tests:
      rest_s: 3, rest_hold_s: 2, cross_min_s: 1.5, cross_skip_s: 1,
      max: {yaw: 0.3}, keyboard: {lane: manual, scale: {surge: 1.0, sway: 1.0, yaw: 0.5}, max: {surge: 0.6, sway: 0.6, yaw: 0.4}},
      cross: {key: decoupling, signed: decoupling_negative, rows: [yaw], probe: 0.004, tolerance: 0.02, min_pushes: 4, max_step: 0.05},
+     # plant (report): with the boat's mass, its yaw inertia and the force/torque at full effort per axis
+     # (thrusters' full thrust through the mixer geometry), drag and added mass come out in SI units.
+     plant: {mass_kg: null, inertia_kgm2: null, full_force: {surge: null, sway: null, yaw: null}},
      needs: [localization, drive], rec: lean,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
      apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller',
