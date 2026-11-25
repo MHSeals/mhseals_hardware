@@ -192,10 +192,11 @@ THRUSTERS = ('FL', 'FR', 'RR', 'RL')     # canonical order: keys 1-4 pick one fo
 
 class ThrusterKeys:
     """Keys 1-4 pick one thruster for the one-thruster test (W/S then drive it alone), 0 goes back to
-    normal driving; every other key passes through to the deadman state untouched."""
+    normal driving, V toggles speed mode (the keys ask the speed controller for speeds, so it corrects
+    drift); every other key passes through to the deadman state untouched."""
 
     def __init__(self, keys):
-        self.keys, self.index = keys, None
+        self.keys, self.index, self.velocity = keys, None, False
 
     def __getattr__(self, name):
         return getattr(self.keys, name)
@@ -204,6 +205,13 @@ class ThrusterKeys:
         key = self.keys.read(timeout=timeout)
         while key is not None:
             kind, _, name = key.rpartition(':') if ':' in key else ('press', '', key)
+            if name.lower() == 'v' and kind in ('press', ''):
+                self.velocity, self.index = not self.velocity, None     # speed mode: drift-corrected
+                key = self.keys.read(timeout=0)
+                continue
+            if name.lower() == 'v':
+                key = self.keys.read(timeout=0)
+                continue
             if name not in ('0', '1', '2', '3', '4'):
                 return key
             if kind in ('press', ''):

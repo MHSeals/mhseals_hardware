@@ -19,9 +19,17 @@ from mhseals_hardware.configuration import load_config
 from mhseals_hardware.manual_state import THRUSTERS, ManualState, ThrusterKeys, drain
 
 
-def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None):
+def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None, velocity=None):
     """Render controls and the currently commanded direction."""
-    mode = (f'[bold magenta]One-thruster test: {THRUSTERS[thruster]} ({thruster + 1})[/]  W/S drive it alone '
+    if velocity is not None:
+        speed_line = ('[bold cyan]Speed mode (drift-corrected): the speed controller holds what you ask, '
+                      f'{amplitude:.0%} of top speed; V back to direct.[/] Needs drive --with controller and the '
+                      'remote in GUIDED.\n' if velocity == 'on' else
+                      '[bold red]Speed mode needs the speed tests applied (motion_limits.velocity).[/]\n'
+                      if velocity == 'missing' else '[dim]V: speed mode (the controller corrects drift)[/]\n')
+    else:
+        speed_line = ''
+    mode = speed_line + (f'[bold magenta]One-thruster test: {THRUSTERS[thruster]} ({thruster + 1})[/]  W/S drive it alone '
             'forward/reverse; [bold]1-4[/] another, [bold]0[/] normal driving\n' if thruster is not None else
             '[dim]1-4: one-thruster test (FL FR RR RL)[/]\n')
     return Panel(
@@ -55,7 +63,7 @@ def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
 
 def run_manual(message_publisher, console=None, amplitude=0.25,
                deadman_timeout=0.15, initial_timeout=0.65, status_panel=None, yaw_scale=0.5,
-               single_publisher=None):
+               single_publisher=None, velocity_publisher=None, top_speed=None):
     """Run manual control until X, always finishing with a neutral command. With ``single_publisher``
     keys 1-4 switch to the one-thruster test: W/S's surge effort drives that thruster alone while the
     manual lane sends zero (the driver runs it only then), 0 switches back."""
@@ -66,13 +74,29 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
         with KeyReader(report_events=True) as raw, Live(
                 manual_panel(amplitude=amplitude), console=console,
                 refresh_per_second=10) as live:
-            keys = ThrusterKeys(raw) if single_publisher is not None else raw
+            keys = ThrusterKeys(raw) if single_publisher is not None or velocity_publisher is not None else raw
+            speeding = False
             published = time.monotonic()
             while True:
                 command = drain(keys, state, keys.read(timeout=0.05), time.monotonic, published)
                 if command is None:
                     return
-                thruster = getattr(keys, 'index', None)
+                thruster = getattr(keys, 'index', None) if single_publisher is not None else None
+                wants_speed = bool(getattr(keys, 'velocity', False)) and velocity_publisher is not None
+                if speeding and not wants_speed:
+                    publish_manual(velocity_publisher)                 # leaving speed mode: ask for zero
+                speeding = wants_speed and top_speed is not None
+                if speeding:
+                    # the keys' fraction of each axis's measured top speed, on the speed controller's input;
+                    # nothing on the manual lane, so the mux hands the controller the thrusters
+                    asked = (command[0] * top_speed[0], command[1] * top_speed[1],
+                             command[2] / (yaw_scale or 1.0) * top_speed[2])
+                    publish_manual(velocity_publisher, asked)
+                    label = ' '.join(f'{axis} {value:+.2f}{unit}' for axis, value, unit in
+                                     zip(('SURGE', 'SWAY', 'YAW'), asked, ('m/s', 'm/s', 'rad/s')) if value)
+                    published = time.monotonic()
+                    live.update(manual_panel(label or 'HOLD ZERO', state.amplitude, state.chords, None, 'on'))
+                    continue
                 if picked is not None and thruster != picked:
                     publish_single(single_publisher, picked, 0.0)     # the old one stops at once
                 picked = thruster
@@ -88,12 +112,16 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 published = time.monotonic()
                 render = status_panel or manual_panel
                 if render is manual_panel:
-                    live.update(render(label or 'NEUTRAL', state.amplitude, state.chords, thruster))
+                    mode = None if velocity_publisher is None else (
+                        'missing' if wants_speed and top_speed is None else 'off')
+                    live.update(render(label or 'NEUTRAL', state.amplitude, state.chords, thruster, mode))
                 else:
                     live.update(render(label or 'NEUTRAL', state.amplitude, state.chords))
     finally:
         if picked is not None:
             publish_single(single_publisher, picked, 0.0)
+        if velocity_publisher is not None:
+            publish_manual(velocity_publisher)
         publish_manual(message_publisher)
 
 
@@ -126,6 +154,10 @@ def main(args=None):
     rclpy.init(args=args)
     node = Node('keyboard_control')
     publisher = node.create_publisher(Twist, config['topics']['manual'], 10)
+    speed = node.create_publisher(Twist, config['topics']['auto'], 10) if config['topics'].get('auto') else None
+    limits = ((config.get('characterization') or {}).get('motion_limits') or {}).get('velocity') or {}
+    top = tuple(limits.get(axis) for axis in ('surge', 'sway', 'yaw'))
+    top = top if all(isinstance(v, (int, float)) and v > 0 for v in top) else None
     single = None
     if config['topics'].get('single'):
         from std_msgs.msg import Float32MultiArray
@@ -142,7 +174,8 @@ def main(args=None):
         run_manual(publisher, amplitude=config['manual_amplitude'],
                    deadman_timeout=config['manual_repeat_timeout'],
                    initial_timeout=config['manual_initial_timeout'],
-                   yaw_scale=config['manual_yaw_scale'], single_publisher=single)
+                   yaw_scale=config['manual_yaw_scale'], single_publisher=single,
+                   velocity_publisher=speed, top_speed=top)
     except (KeyboardInterrupt, EOFError):
         pass
     finally:
