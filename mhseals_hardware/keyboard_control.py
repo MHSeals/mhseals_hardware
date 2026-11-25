@@ -16,16 +16,19 @@ from rich.panel import Panel
 
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.configuration import load_config
-from mhseals_hardware.manual_state import ManualState, drain
+from mhseals_hardware.manual_state import THRUSTERS, ManualState, ThrusterKeys, drain
 
 
-def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False):
+def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None):
     """Render controls and the currently commanded direction."""
+    mode = (f'[bold magenta]One-thruster test: {THRUSTERS[thruster]} ({thruster + 1})[/]  W/S drive it alone '
+            'forward/reverse; [bold]1-4[/] another, [bold]0[/] normal driving\n' if thruster is not None else
+            '[dim]1-4: one-thruster test (FL FR RR RL)[/]\n')
     return Panel(
         '[bold]W/S or ↑/↓[/] forward/reverse    '
         '[bold]A/D[/] port/starboard\n'
         '[bold]←/→[/] rotate CCW/CW             '
-        '[bold]Space[/] stop    [bold]X[/] return\n\n'
+        '[bold]Space[/] stop    [bold]X[/] return\n' + mode + '\n'
         f'Command: [yellow]{active}[/]    Speed: {amplitude:.0%} '
         '([bold]+/-[/] adjust by 5%)\n' +
         ('[dim]Chords: hold W+D, add ←/→. Keys stop on release; re-press a held key ~2 s after another is released.[/]'
@@ -37,6 +40,12 @@ def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False):
         title='Manual control', border_style='yellow')
 
 
+def publish_single(publisher, index, effort):
+    """One-thruster command [index, effort] (the driver drops it after 0.3 s without a repeat)."""
+    from std_msgs.msg import Float32MultiArray
+    publisher.publish(Float32MultiArray(data=[float(index), float(effort)]))
+
+
 def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
     """Publish one manual planar command."""
     message = Twist()
@@ -45,26 +54,46 @@ def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
 
 
 def run_manual(message_publisher, console=None, amplitude=0.25,
-               deadman_timeout=0.15, initial_timeout=0.65, status_panel=None, yaw_scale=0.5):
-    """Run manual control until X, always finishing with a neutral command."""
+               deadman_timeout=0.15, initial_timeout=0.65, status_panel=None, yaw_scale=0.5,
+               single_publisher=None):
+    """Run manual control until X, always finishing with a neutral command. With ``single_publisher``
+    keys 1-4 switch to the one-thruster test: W/S's surge effort drives that thruster alone while the
+    manual lane sends zero (the driver runs it only then), 0 switches back."""
     console = console or Console()
     state = ManualState(amplitude, deadman_timeout, initial_timeout, yaw_scale)
+    picked = None
     try:
-        with KeyReader(report_events=True) as keys, Live(
+        with KeyReader(report_events=True) as raw, Live(
                 manual_panel(amplitude=amplitude), console=console,
                 refresh_per_second=10) as live:
+            keys = ThrusterKeys(raw) if single_publisher is not None else raw
             published = time.monotonic()
             while True:
                 command = drain(keys, state, keys.read(timeout=0.05), time.monotonic, published)
                 if command is None:
                     return
-                label = ' '.join(f'{axis} {value:+.2f}' for axis, value in
-                                 zip(('SURGE', 'SWAY', 'YAW'), command) if value)
-                publish_manual(message_publisher, command)
+                thruster = getattr(keys, 'index', None)
+                if picked is not None and thruster != picked:
+                    publish_single(single_publisher, picked, 0.0)     # the old one stops at once
+                picked = thruster
+                if thruster is not None:
+                    effort = command[0]
+                    publish_manual(message_publisher)
+                    publish_single(single_publisher, thruster, effort)
+                    label = f'{THRUSTERS[thruster]} alone {effort:+.2f}' if effort else f'{THRUSTERS[thruster]} ready'
+                else:
+                    label = ' '.join(f'{axis} {value:+.2f}' for axis, value in
+                                     zip(('SURGE', 'SWAY', 'YAW'), command) if value)
+                    publish_manual(message_publisher, command)
                 published = time.monotonic()
                 render = status_panel or manual_panel
-                live.update(render(label or 'NEUTRAL', state.amplitude, state.chords))
+                if render is manual_panel:
+                    live.update(render(label or 'NEUTRAL', state.amplitude, state.chords, thruster))
+                else:
+                    live.update(render(label or 'NEUTRAL', state.amplitude, state.chords))
     finally:
+        if picked is not None:
+            publish_single(single_publisher, picked, 0.0)
         publish_manual(message_publisher)
 
 
@@ -97,6 +126,10 @@ def main(args=None):
     rclpy.init(args=args)
     node = Node('keyboard_control')
     publisher = node.create_publisher(Twist, config['topics']['manual'], 10)
+    single = None
+    if config['topics'].get('single'):
+        from std_msgs.msg import Float32MultiArray
+        single = node.create_publisher(Float32MultiArray, config['topics']['single'], 10)
     spinning = True
 
     def spin():
@@ -109,7 +142,7 @@ def main(args=None):
         run_manual(publisher, amplitude=config['manual_amplitude'],
                    deadman_timeout=config['manual_repeat_timeout'],
                    initial_timeout=config['manual_initial_timeout'],
-                   yaw_scale=config['manual_yaw_scale'])
+                   yaw_scale=config['manual_yaw_scale'], single_publisher=single)
     except (KeyboardInterrupt, EOFError):
         pass
     finally:

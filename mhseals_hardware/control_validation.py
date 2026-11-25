@@ -37,7 +37,7 @@ def validate_drift_limit(drift_limit, limits):
 
 
 CONTROLLER_KEYS = GAIN_KEYS + ('feedback',)
-MOTION_TOPICS = ('auto', 'effort', 'manual', 'rc', 'applied', 'mux_state', 'odom', 'obstacle')
+MOTION_TOPICS = ('auto', 'effort', 'manual', 'rc', 'applied', 'mux_state', 'odom', 'obstacle', 'single')
 
 
 def ros_topic(topic, name):

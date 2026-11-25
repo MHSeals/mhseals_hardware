@@ -47,6 +47,32 @@ def effort_to_pulse(effort):
     return max(MIN_PWM, min(MAX_PWM, round(NEUTRAL_PWM + PWM_SCALE * effort)))
 
 
+SINGLE_MAX = 0.6        # the most effort the one-thruster test may ask of a thruster
+SINGLE_TIMEOUT = 0.3    # s: a one-thruster command older than this is dropped (the keyboard repeats it)
+
+
+def single_pulses(index, effort, channel_map, reversed=(False,) * 4):
+    """Pulses (physical outputs 1-4) that run one thruster alone: canonical ``index`` (0 FL, 1 FR, 2 RR,
+    3 RL) at ``effort`` (clamped to +/-SINGLE_MAX), the others neutral; reversed thrusters flip as in
+    mix_stages, so a positive effort is that thruster's own forward thrust."""
+    index = int(index)
+    if not 0 <= index < 4 or not math.isfinite(effort):
+        raise ValueError(f'single thruster {index} at {effort}: index 0-3 and a finite effort')
+    efforts = [0.0] * 4
+    efforts[index] = max(-SINGLE_MAX, min(SINGLE_MAX, float(effort)))
+    flipped = [-e if flip else e for e, flip in zip(efforts, reversed)]
+    return map_channels([effort_to_pulse(e) for e in flipped], channel_map)
+
+
+def single_allowed(values, mux, age):
+    """Whether the one-thruster test may drive: nothing else commands (the applied effort is zero), the
+    mux has no lane but the keyboard's or none (never auto or the remote), holds nothing, and the
+    command is fresh. ``mux`` is the mux's latched state (dict) or None (unknown: refused)."""
+    if age is None or age > SINGLE_TIMEOUT or any(abs(v) > 1e-9 for v in values) or not isinstance(mux, dict):
+        return False
+    return mux.get('input') in ('manual', 'idle') and not mux.get('hold')
+
+
 def channel_map_from_observations(observations):
     """Invert {physical channel: canonical position} into canonical order."""
     if set(observations) != {1, 2, 3, 4}:

@@ -20,6 +20,7 @@ topics:
   applied: /cmd_vel/applied      # shown by astro status
   mux_state: /command_mux/state
   pwm: /thrusters/pwm
+  single: /thrusters/single     # the one-thruster test (keyboard 1-4), compared by watch
   gps_status: /mavros/gpsstatus/gps1/raw   # fix type (RTK float/fixed) shown and scored by watch
 nodes: [/thruster_pwm_node, /command_mux, /calibrated_velocity_controller]   # astro status names these
 axes: [surge, sway, yaw]         # decoupling column order and twist order (x, y, wz)
@@ -94,6 +95,9 @@ tests:
      # plant (report): with the boat's mass, its yaw inertia and the force/torque at full effort per axis
      # (thrusters' full thrust through the mixer geometry), drag and added mass come out in SI units.
      plant: {mass_kg: null, inertia_kgm2: null, full_force: {surge: null, sway: null, yaw: null}},
+     # the one-thruster test: names in canonical order and each one's yaw direction per forward effort
+     # (thruster_matrix's yaw column), so turn rates compare as each thruster's own
+     thrusters: {names: [FL, FR, RR, RL], yaw: [1, -1, 1, -1]},
      needs: [localization, drive], rec: lean,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
      apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller',

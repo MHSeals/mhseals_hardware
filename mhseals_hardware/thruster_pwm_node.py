@@ -33,7 +33,7 @@ from rcl_interfaces.msg import SetParametersResult
 from rclpy.parameter import Parameter
 from rclpy.qos import (QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy,
                        qos_profile_sensor_data)
-from std_msgs.msg import String, UInt16MultiArray
+from std_msgs.msg import Float32MultiArray, String, UInt16MultiArray
 from std_srvs.srv import Trigger
 
 from mhseals_hardware.configuration import (
@@ -43,6 +43,7 @@ from mhseals_hardware.estop import RemoteEstop
 from mhseals_hardware.outputs import OUTPUT_KEYS, make_outputs
 from mhseals_hardware.ros_util import run_node, twist_values
 from mhseals_hardware.thruster_mixer import (
+    single_allowed, single_pulses,
     thruster_pulses, validate_channel_map, validate_decoupling, validate_mixer,
     validate_reverse_ratio, validate_reversed,
 )
@@ -98,6 +99,12 @@ class ThrusterPWMNode(Node):
             self.create_subscription(RCIn, topics['rc'], self.rc_callback,
                                      qos_profile_sensor_data)
         self.create_subscription(Twist, topics['applied'], self.cmd_vel_callback, 10)
+        # The one-thruster test (keyboard 1-4): [index, effort] on topics.single, used only while the
+        # mux applies zero from the keyboard lane or none (single_allowed); its own age limits it.
+        self.single, self.single_time, self.mux_state = None, None, None
+        if topics.get('single'):
+            self.create_subscription(Float32MultiArray, topics['single'], self.single_callback, 10)
+            self.create_subscription(String, topics['mux_state'], self.mux_callback, STATUS_QOS)
         if self.config['output_backend'] != 'topic':
             # The topic backend publishes pwm_topic itself; pins publish their readback there.
             self.readback_pub = self.create_publisher(UInt16MultiArray, self.config['pwm_topic'], 10)
@@ -183,9 +190,28 @@ class ThrusterPWMNode(Node):
             self.get_logger().warning('non-finite cmd_vel; thrusters neutral',
                                       throttle_duration_sec=1.0)
             return
+        age = None if self.single_time is None else time.monotonic() - self.single_time
+        if self.single is not None and single_allowed(values, self.mux_state, age):
+            self.drive(single_pulses(self.single[0], self.single[1], self.channel_map, self.reversed))
+            return
         self.drive(thruster_pulses(values, self.mixer, self.channel_map,
                                    self.reversed, self.decoupling, self.decoupling_negative,
                                    self.reverse_ratio))
+
+    def single_callback(self, message):
+        """[index, effort]: run one thruster alone (checked again on every applied command)."""
+        data = list(message.data)
+        if len(data) == 2 and all(math.isfinite(v) for v in data) and 0 <= data[0] < 4:
+            self.single, self.single_time = (int(data[0]), float(data[1])), time.monotonic()
+        else:
+            self.single = None
+
+    def mux_callback(self, message):
+        try:
+            state = json.loads(message.data)
+        except ValueError:
+            state = None
+        self.mux_state = state if isinstance(state, dict) else None
 
     def rc_callback(self, message):
         """Remote e-stop: the stop-channel edge cuts the MOSFET and latches until ~/clear."""

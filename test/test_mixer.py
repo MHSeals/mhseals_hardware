@@ -266,3 +266,24 @@ def test_mix_stages_are_the_driver_path_and_mix_prints_them():
     assert stages['effort'] == pytest.approx([raw / stages['peak'] for raw in stages['raw']])
     text = '\n'.join(render((0.5, 0, 0), load_defaults()))
     assert 'outputs 1-4 (us): 1300 1300 1700 1700' in text
+
+
+def test_single_thruster_runs_one_output_through_the_wiring_and_flips():
+    from mhseals_hardware.thruster_mixer import SINGLE_MAX, single_pulses
+    # FR (canonical 1) on physical output 3, reversed: its forward thrust is a pulse below 1500
+    pulses = single_pulses(1, 0.3, (1, 3, 2, 4), (False, True, False, False))
+    assert pulses == [1500, 1500, 1380, 1500]
+    assert single_pulses(0, 5.0, (1, 2, 3, 4))[0] == round(1500 + 400 * SINGLE_MAX)   # capped
+
+
+def test_single_thruster_only_while_nothing_else_drives():
+    from mhseals_hardware.thruster_mixer import single_allowed
+    idle = {'input': 'idle', 'hold': None}
+    assert single_allowed((0.0, 0.0, 0.0), idle, 0.1)
+    assert single_allowed((0.0, 0.0, 0.0), {'input': 'manual'}, 0.1)
+    assert not single_allowed((0.2, 0.0, 0.0), idle, 0.1)                  # something drives
+    assert not single_allowed((0.0, 0.0, 0.0), {'input': 'rc'}, 0.1)       # the remote has it
+    assert not single_allowed((0.0, 0.0, 0.0), {'input': 'auto'}, 0.1)
+    assert not single_allowed((0.0, 0.0, 0.0), {'input': 'idle', 'hold': {'by': 'rc'}}, 0.1)
+    assert not single_allowed((0.0, 0.0, 0.0), idle, 0.5)                  # stale
+    assert not single_allowed((0.0, 0.0, 0.0), None, 0.1)                  # mux state unknown

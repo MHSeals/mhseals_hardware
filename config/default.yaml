@@ -90,6 +90,8 @@ topics:
   rc: /mavros/rc/in
   applied: /cmd_vel/applied
   mux_state: /command_mux/state
+  # The one-thruster test: Float32MultiArray [index 0-3 FL FR RR RL, effort], from the keyboard's 1-4 mode.
+  single: /thrusters/single
   odom: /odom/local
   # mhseals_nav nearest_obstacle: Vector3Stamped, base frame, hull to the nearest lethal cell.
   obstacle: /perception/nearest_obstacle

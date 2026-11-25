@@ -185,3 +185,28 @@ def drain(keys, state, key, clock=time.monotonic, since=None):
         key = keys.read(timeout=0)
         if key is None:
             return command
+
+
+THRUSTERS = ('FL', 'FR', 'RR', 'RL')     # canonical order: keys 1-4 pick one for the one-thruster test
+
+
+class ThrusterKeys:
+    """Keys 1-4 pick one thruster for the one-thruster test (W/S then drive it alone), 0 goes back to
+    normal driving; every other key passes through to the deadman state untouched."""
+
+    def __init__(self, keys):
+        self.keys, self.index = keys, None
+
+    def __getattr__(self, name):
+        return getattr(self.keys, name)
+
+    def read(self, timeout=None):
+        key = self.keys.read(timeout=timeout)
+        while key is not None:
+            kind, _, name = key.rpartition(':') if ':' in key else ('press', '', key)
+            if name not in ('0', '1', '2', '3', '4'):
+                return key
+            if kind in ('press', ''):
+                self.index = None if name == '0' else int(name) - 1
+            key = self.keys.read(timeout=0)
+        return None
