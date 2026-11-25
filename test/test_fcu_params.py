@@ -59,3 +59,26 @@ def test_lists_load_and_the_user_file_replaces_by_name(tmp_path):
     assert lists['a']['params'] == {'X': 3} and lists['b']['params'] == {'Y': 2}
     assert set(fcu_params.load_lists([fcu_params.package_file()])) >= {'no-compass', 'compass'}
     json.dumps(lists)
+
+
+def test_magcal_sends_the_heading_and_records_the_old_offsets(tmp_path, capsys):
+    class MagFcu(FakeFcu):
+        sent = None
+
+        def command(self, number, params):
+            self.sent = (number, params)
+            self.values.update(COMPASS_OFS_X=12, COMPASS_OFS_Y=-30)
+            return True, 0
+
+        def pull(self):
+            pass
+    original = fcu_params.HISTORY
+    fcu_params.HISTORY = tmp_path / 'h.jsonl'
+    try:
+        fcu = MagFcu({'COMPASS_OFS_X': 0, 'COMPASS_OFS_Y': 0, 'COMPASS_OFS_Z': 5})
+        assert fcu_params.magcal(fcu, 90.0) == 0
+        assert fcu.sent == (42006, [90.0, 0, 0, 0])
+        entry = fcu_params.history()[-1]
+        assert entry['values'] == {'COMPASS_OFS_X': [0, 12], 'COMPASS_OFS_Y': [0, -30]}
+    finally:
+        fcu_params.HISTORY = original

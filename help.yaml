@@ -151,6 +151,22 @@ commands:
     examples:
       - ros2 run mhseals_hardware fcu_params apply no-compass
 
+  - name: fcu magcal
+    level: core
+    host: boat_computer
+    needs: [localization]
+    run: ros2 run mhseals_hardware fcu_params magcal
+    summary: Calibrate the compass without spinning the boat - point it at a direction you know, give that heading, and the flight controller works out the rest.
+    notes: It needs a GPS fix and the boat still; power cycle the flight controller afterwards. astro fcu params undo puts the old calibration back.
+    details: >-
+      ArduPilot's large vehicle magcal, MAV_CMD_FIXED_MAG_CAL_YAW (42006), through /mavros/cmd/command, with the
+      FCU's own GPS position; COMPASS_OFS* are pulled and read back before and after and kept in the history.
+    params:
+      - {name: heading, required: true, description: 'The direction the boat points now, in degrees from true north, e.g. 90 for east (0 north, 180 south, 270 west).', free: any measured heading in degrees}
+      - {name: --mask, default: 0, description: 'Which compasses to calibrate as a bit mask, e.g. 1 for the first; 0 calibrates every compass the flight controller has.', free: a bit mask number}
+    examples:
+      - ros2 run mhseals_hardware fcu_params magcal 90
+
   - name: fcu params undo
     level: core
     host: boat_computer

@@ -104,6 +104,28 @@ class Fcu:
         result = self._call('set', SetParameters.Request(parameters=params))
         return {name: r.reason for name, r in zip(values, result.results) if not r.successful}
 
+    def command(self, number, params):
+        """Send a MAVLink COMMAND_LONG through /mavros/cmd/command: (success, result code)."""
+        from mavros_msgs.srv import CommandLong
+        client = self.node.create_client(CommandLong, '/mavros/cmd/command')
+        if not client.wait_for_service(timeout_sec=self.timeout):
+            raise RuntimeError('/mavros/cmd/command does not answer (is MAVROS up? astro up localization)')
+        request = CommandLong.Request(broadcast=False, command=number, confirmation=0,
+                                      **{f'param{i + 1}': float(v) for i, v in enumerate(params)})
+        future = client.call_async(request)
+        self.rclpy.spin_until_future_complete(self.node, future, timeout_sec=15.0)
+        if not future.done():
+            raise RuntimeError('the flight controller did not answer the command')
+        return future.result().success, future.result().result
+
+    def pull(self):
+        """Re-read every parameter from the FCU into MAVROS (after the FCU changed some itself)."""
+        from mavros_msgs.srv import ParamPull
+        client = self.node.create_client(ParamPull, '/mavros/param/pull')
+        if client.wait_for_service(timeout_sec=self.timeout):
+            future = client.call_async(ParamPull.Request(force_pull=True))
+            self.rclpy.spin_until_future_complete(self.node, future, timeout_sec=30.0)
+
     def close(self):
         self.node.destroy_node()
         self.rclpy.shutdown()
@@ -162,6 +184,34 @@ def pick(entries, last):
     return list(reversed(entries))[int(answer) - 1]
 
 
+MAG_CAL_YAW = 42006          # MAV_CMD_FIXED_MAG_CAL_YAW: compass offsets from a known heading and the GPS position
+OFFSETS = [f'COMPASS_OFS{n}_{axis}' for n in ('', '2', '3') for axis in 'XYZ']
+
+
+def magcal(fcu, heading, mask=0):
+    """Large vehicle magcal: the boat points at ``heading`` (degrees true, 0 north, 90 east); the FCU works out
+    the compass offsets from it and the field at its GPS position. Records the old offsets so `fcu params undo`
+    restores them."""
+    names = [n for n, v in fcu.get(OFFSETS).items() if v is not None]
+    before = fcu.get(names)
+    ok, code = fcu.command(MAG_CAL_YAW, [heading, mask, 0, 0])
+    if not ok or code != 0:
+        print(f'the flight controller refused the magcal (result {code}: it needs a 3D GPS fix; 4 = failed)')
+        return 1
+    fcu.pull()
+    after = fcu.get(names)
+    changed = {n: [before[n], after[n]] for n in names if not same(before[n], after[n])}
+    for name in names:
+        print(f'  {name}  {before[name]} -> {after[name]}')
+    if changed:
+        record(dict(time=datetime.datetime.now().astimezone().isoformat(timespec='seconds'),
+                    list=f'magcal {heading:g} deg', values=changed))
+    print(f'magcal done at {heading:g} deg' + ('' if changed else ' (offsets read back unchanged: power cycle and check '
+                                                                   'the heading)') +
+          '; power cycle the flight controller, then check the heading against a known direction')
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='fcu_params', description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest='action', required=True)
@@ -170,6 +220,9 @@ def main(argv=None):
     s.add_argument('list', nargs='?')
     a = sub.add_parser('apply')
     a.add_argument('list')
+    m = sub.add_parser('magcal')
+    m.add_argument('heading', type=float)
+    m.add_argument('--mask', type=int, default=0)
     u = sub.add_parser('undo')
     u.add_argument('--last', action='store_true')
     u.add_argument('--list', dest='listing', action='store_true')
@@ -191,6 +244,11 @@ def main(argv=None):
     try:
         if args.action == 'show':
             return show(fcu, lists, args.list)
+        if args.action == 'magcal':
+            if not 0 <= args.heading < 360:
+                print('heading must be degrees in [0, 360): 0 north, 90 east')
+                return 2
+            return magcal(fcu, args.heading, args.mask)
         if args.action == 'apply':
             entry = lists[args.list]
             note = 'power cycle the flight controller for this to take effect' if entry.get('reboot') else None
