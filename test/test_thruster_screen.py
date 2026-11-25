@@ -4,14 +4,15 @@ import pytest
 import yaml
 
 from mhseals_hardware.configuration import load_defaults
-from mhseals_hardware.thruster_screen import diff, effort_bar, profile_mapping, profile_text
+from mhseals_hardware.thruster_screen import diff, effort_bar, effort_text, profile_mapping, profile_text
 
 
 def test_the_bar_is_centred_on_neutral_and_fills_toward_the_thrust():
-    assert effort_bar(1500, 4) == '    │    '
-    assert effort_bar(1700, 4) == '    │██  '
-    assert effort_bar(1100, 4) == '████│    '
+    assert effort_bar(1500, 4) == '····│····'
+    assert effort_bar(1700, 4) == '····│██··'
+    assert effort_bar(1100, 4) == '████│····'
     assert len({len(effort_bar(pulse)) for pulse in (1000, 1100, 1450, 1500, 1900, 2500)}) == 1
+    assert [effort_text(p) for p in (1500, 1700, 1100, 1250)] == ['   0%', ' +50%', '-100%', ' -62%']
 
 
 PROFILE = '''# Blastoise
@@ -70,14 +71,18 @@ def test_the_screen_shows_the_selected_fields_grouped_keys_and_a_pin_picker(monk
     console = Console(record=True, width=110, color_system=None)
     screen = ts.Screen(console=console, clock=lambda: 0.0)
     screen.key('down')
+    console.print(screen.render())
+    lines = console.export_text(clear=True).splitlines()
+    # Without colour the selected row still reads: the marker, its editable cells in brackets.
+    assert [line.split()[:3] for line in lines if line.startswith('\u203a')] == [['\u203a', 'FR', '[2]']]
+    assert 'FR selected:  t output [2]  r reversed [no]  p pin [J2 12 PWM3]' in lines
+    assert [line.split(':')[0] for line in lines[-3:]] == ['Drive', 'Wiring', 'Power']
     screen.key('p')
     console.print(screen.render())
     lines = console.export_text().splitlines()
-    assert 'FR selected:  t output [2]  r reversed [no]  p pin [J2 12 PWM3]' in lines
-    assert [line.split(':')[0] for line in lines[-3:]] == ['Drive', 'Wiring', 'Power']
-    rows = [line.split() for line in lines if line.lstrip(' >*').startswith('J2 ')]
-    assert [r[-2:] for r in rows] == [['output', '1'], ['output', '2'], ['output', '3'], ['output', '4']]
-    assert rows[1][:2] == ['>', '*'] and 'not in overlay' in ' '.join(rows[3])
+    rows = [line.split() for line in lines if line.lstrip(' \u203a').startswith('J2 ')]
+    assert [r[r.index('output'):][:2] for r in rows] == [['output', str(n)] for n in (1, 2, 3, 4)]
+    assert rows[1][0] == '\u203a' and rows[1][-1] == '(current)' and 'not in overlay' in ' '.join(rows[3])
     chips = list(screen.config['pwm_chips'])
     for key in ('down', 'down', 'enter'):     # J2 33: not enabled here
         screen.key(key)

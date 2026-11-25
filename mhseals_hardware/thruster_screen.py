@@ -35,25 +35,46 @@ from mhseals_hardware.thruster_mixer import (
 
 ARMING_SECONDS = 3.0   # ESCs need uninterrupted neutral after power-up before they take throttle
 PRESET = 0.25          # f/b effort
-BAR_HALF = 10          # bar cells each side of neutral
+BAR_HALF = 8           # bar cells each side of neutral
 REFRESH_HZ = 10
 SLOW_SECONDS = 1.0     # the MOSFET line and the process list are read this often
-# The key help, one labelled line per group.
-KEYS = (('Drive', '↑↓ select row  ←→ ±10µs  [ ] ±1µs  f/b ±25%  0 neutral  z/x min/max'),
-        ('Wiring', 't output  r reversed  p pin  s save to profile'),
-        ('Power', 'm MOSFET on/off  k free pins  q quit (neutral, MOSFET off)'))
-PICKER_KEYS = '↑↓ move  Enter choose  Esc/q cancel'
+# The look, mirrored from astro_dock's tools/astro/style.py (this package cannot import it): the selected
+# row is a marker plus bold, its name in the one accent colour; descriptions and key names' actions dim.
+MARK, CURRENT, ACCENT = '\u203a', '(current)', 'cyan'
+BAR = {'track': '\u00b7', 'fill': '\u2588', 'centre': '\u2502'}   # the strength bar's one glyph set
+# The key help, one labelled line per group: (key, what it does).
+KEYS = (('Drive', (('↑↓', 'select row'), ('←→', '±10µs'), ('[ ]', '±1µs'), ('f/b', '±25%'), ('0', 'neutral'),
+                   ('z/x', 'min/max'))),
+        ('Wiring', (('t', 'output'), ('r', 'reversed'), ('p', 'pin'), ('s', 'save to profile'))),
+        ('Power', (('m', 'MOSFET on/off'), ('k', 'free pins'), ('q', 'quit (neutral, MOSFET off)'))))
+PICKER_KEYS = (('↑↓', 'move'), ('Enter', 'choose'), ('Esc/q', 'cancel'))
 
 
 # Pure parts.
 
 def effort_bar(pulse, half=BAR_HALF):
-    """``-100 % … 0 … +100 %`` as ``half`` cells each side of a centre tick: reverse left, forward right."""
+    """``-100 % … 0 … +100 %`` as ``half`` cells each side of a centre tick: reverse fills left, forward
+    right, the rest a dotted track (one glyph set, BAR)."""
     effort = max(-1.0, min(1.0, (pulse - NEUTRAL_PWM) / PWM_SCALE))
     cells = round(abs(effort) * half)
-    left = ' ' * (half - cells) + '█' * cells if effort < 0 else ' ' * half
-    right = '█' * cells + ' ' * (half - cells) if effort > 0 else ' ' * half
-    return left + '│' + right
+    track, fill = BAR['track'], BAR['fill']
+    left = track * (half - cells) + fill * cells if effort < 0 else track * half
+    right = fill * cells + track * (half - cells) if effort > 0 else track * half
+    return left + BAR['centre'] + right
+
+
+def effort_text(pulse):
+    """The effort of a pulse, right-aligned in five cells: ``+50%``, ``-100%``, ``0%`` at neutral."""
+    effort = round((pulse - NEUTRAL_PWM) / PWM_SCALE * 100)
+    return f'{effort:+d}%'.rjust(5) if effort else '0%'.rjust(5)
+
+
+def styled_bar(pulse, half=BAR_HALF):
+    """effort_bar as rich Text: the track dim, the fill bold, the centre tick plain."""
+    text = Text()
+    for glyph in effort_bar(pulse, half):
+        text.append(glyph, style='dim' if glyph == BAR['track'] else 'bold' if glyph == BAR['fill'] else None)
+    return text
 
 
 def profile_mapping(own, start, current, base):
@@ -100,9 +121,25 @@ def profile_text(text, mapping):
     return new
 
 
+def key_line(pairs):
+    """``key action`` pairs as rich Text: the key bold, its action dim, two spaces between."""
+    text = Text()
+    for i, (key, action) in enumerate(pairs):
+        text.append('  ' if i else '')
+        text.append(key, style='bold')
+        text.append(' ' + action, style='dim')
+    return text
+
+
 def key_help():
+    """The key help, one line per group, its label first (``Drive:  ↑↓ select row  …``), as rich Text."""
     width = max(len(label) for label, _ in KEYS) + 1
-    return [f'{label + ":":<{width}} {keys}' for label, keys in KEYS]
+    lines = []
+    for label, pairs in KEYS:
+        line = Text()
+        line.append(f'{label + ":":<{width}} ', style='bold')
+        lines.append(line + key_line(pairs))
+    return lines
 
 
 def chip_rows(devices_exposed, chips):
@@ -421,34 +458,52 @@ class Screen:
         esc = ('closed (a pulse or m opens them)' if self.outputs is None else
                f'arming at neutral, {left:.1f} s' if left > 0 else
                'armed' if self.outputs.mosfet is None or self.outputs.mosfet.enabled else 'unpowered')
-        lines = [f'MOSFET {self.mosfet_note}    ESCs {esc}    profile {self.profile or "none"}']
+        text = Text()
+        text.append('thrusters', style=f'bold {ACCENT}')
+        for label, value in (('MOSFET', self.mosfet_note), ('ESCs', esc)):
+            text.append(f'   {label} ', style='bold')
+            text.append(value)
+        text.append('\n')
+        text.append('profile ', style='bold')
+        text.append(str(self.profile or 'none'), style='dim')
         if drive:
-            lines.append(f'drive is running ({", ".join(drive)}): astro down drive, or press k to free')
-        return Text('\n'.join(lines))
+            text.append(f'\ndrive is running ({", ".join(drive)}): astro down drive, or press k to free',
+                        style='bold')
+        return text
 
     def table(self):
-        table = Table(box=None, padding=(0, 1), header_style='bold')
-        for column in ('', 'thruster', 'out', 'pin', 'chip', 'rev', 'pulse', 'effort',
-                       '-100%     0     +100%', 'readback'):
-            table.add_column(column, justify='right' if column in ('pulse', 'effort') else 'left')
+        """One row per thruster and ALL: the selected one marked (marker, bold, its name in the accent) with
+        its editable cells in [brackets]; changed wiring yellow; the bar centred on neutral, the effort
+        right-aligned after it."""
+        table = Table(box=None, padding=(0, 1, 0, 0), header_style='bold', pad_edge=False)
+        for column in ('thruster', 'out', 'pin', 'chip', 'rev', 'pulse', ' -100%   0   +100%', 'effort',
+                       'readback'):
+            table.add_column(column, justify='right' if column in ('pulse', 'effort') else 'left',
+                             no_wrap=True)
         changed = {key for key in WIRING if plain(self.config[key]) != plain(self.start[key])}
+
+        def cell(text, key, chosen):
+            return Text(f'[{text}]' if chosen else text, style='yellow' if key in changed else None)
         for index, position in enumerate(POSITIONS):
+            chosen = self.selected == index
             output = self.config['channel_map'][index]
             chip = self.config['pwm_chips'][output - 1]
             pulse = self.pulses[output - 1]
             found = len(glob.glob(chip))
+            name = Text()
+            name.append(f'{MARK} ' if chosen else '  ', style='bold')
+            name.append(position.upper(), style=f'bold {ACCENT}' if chosen else None)
+            reversed_ = 'yes' if self.config['reversed'][index] else ('no' if chosen else '-')
             table.add_row(
-                '>' if self.selected == index else ' ', position.upper(),
-                Text(str(output), style='yellow' if 'channel_map' in changed else None),
-                Text(pin_label(chip), style='yellow' if 'pwm_chips' in changed else None),
-                '✓' if found == 1 else '✗',
-                Text('yes' if self.config['reversed'][index] else '-',
-                     style='yellow' if 'reversed' in changed else None),
-                f'{pulse} µs', f'{(pulse - NEUTRAL_PWM) / PWM_SCALE:+.0%}',
-                Text(effort_bar(pulse), style='bold' if pulse != NEUTRAL_PWM else 'dim'),
-                self.readback(output), style='reverse' if self.selected == index else None)
-        table.add_row('>' if self.selected == 4 else ' ', 'ALL', '', '', '', '', '', '', '', '',
-                      style='reverse' if self.selected == 4 else None)
+                name, cell(str(output), 'channel_map', chosen), cell(pin_label(chip), 'pwm_chips', chosen),
+                '✓' if found == 1 else '✗', cell(reversed_, 'reversed', chosen),
+                Text(f'{pulse} µs', style='bold' if chosen else None),
+                Text(' ') + styled_bar(pulse), Text(effort_text(pulse), style='bold' if pulse != NEUTRAL_PWM else 'dim'),
+                Text(self.readback(output), style='dim'))
+        name = Text()
+        name.append(f'{MARK} ' if self.selected == 4 else '  ', style='bold')
+        name.append('ALL', style=f'bold {ACCENT}' if self.selected == 4 else 'dim')
+        table.add_row(name, '', '', '', '', '', '', '', '')
         return table
 
     def fields(self):
@@ -460,37 +515,45 @@ class Screen:
                 f'r reversed [{"yes" if self.config["reversed"][self.selected] else "no"}]  '
                 f'p pin [{pin_label(self.config["pwm_chips"][output - 1])}]')
 
+    def picker_lines(self):
+        """The open picker: its title (what is chosen), the column header, one row per option (the cursor
+        marked and bold, the current one followed by (current)), then its keys."""
+        p = self.picker
+        lines = [Text(p['title'], style='bold')]
+        if p['header']:
+            lines.append(Text('  ' + p['header'], style='dim'))
+        for i, (label, _) in enumerate(p['options']):
+            chosen = i == p['index']
+            row = Text()
+            row.append(f'{MARK} ' if chosen else '  ', style='bold')
+            row.append(label, style=f'bold {ACCENT}' if chosen else None)
+            if i == p['current']:
+                row.append(f'  {CURRENT}', style='dim')
+            lines.append(row)
+        lines.append(key_line(PICKER_KEYS))
+        return lines
+
     def footer(self):
         parts = []
         missing = [pwm_device(chip) for chip in self.config['pwm_chips'] if not glob.glob(chip)]
         if missing and any(missing):
-            parts.append(f'not enabled on this host: {", ".join(m for m in missing if m)} (the overlay is {OVERLAY})')
-        parts.append(self.fields())
-        picker = None
+            parts.append(Text(f'not enabled on this host: {", ".join(m for m in missing if m)} '
+                              f'(the overlay is {OVERLAY})', style='yellow'))
+        parts.append(Text(self.fields(), style='bold'))
         if self.picker is not None:
-            p = self.picker
-            parts.append(f'{p["title"]}  ({PICKER_KEYS}; * current)')
-            if p['header']:
-                parts.append('     ' + p['header'])
-            for i, (label, _) in enumerate(p['options']):
-                if i == p['index']:     # the cursor row, highlighted as well as marked >
-                    start = len('\n'.join(parts)) + 1
-                    picker = (start, start + 5 + len(label))
-                parts.append(('> ' if i == p['index'] else '  ') + ('* ' if i == p['current'] else '  ')
-                             + ' ' + label)
+            parts += [Text('')] + self.picker_lines()
         if self.pending is not None:
-            parts += [self.pending[1].rstrip(), 'y saves this to the profile, any other key cancels']
+            parts += [Text(''), Text(self.pending[1].rstrip()),
+                      Text('y saves this to the profile, any other key cancels', style='bold')]
         if self.message:
-            parts.append(self.message)
-        parts += key_help()
-        text = Text('\n'.join(parts))
-        if picker:
-            text.stylize('reverse', *picker)
-        return text
+            parts += [Text(''), Text(self.message, style='bold')]
+        if self.picker is None and self.pending is None:     # a picker shows its own keys
+            parts += [Text('')] + key_help()
+        return Group(*parts)
 
     def render(self):
         self.refresh()
-        return Group(self.header(), self.table(), self.footer())
+        return Group(self.header(), Text(''), self.table(), Text(''), self.footer())
 
     def close(self):
         self.close_outputs()
