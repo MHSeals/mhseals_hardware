@@ -123,6 +123,48 @@ commands:
       - astro thrusters mix 0.5 0 0
       - astro thrusters mix --live
 
+  - name: fcu params show
+    level: core
+    host: boat_computer
+    needs: [localization]
+    run: ros2 run mhseals_hardware fcu_params show
+    summary: See the flight controller settings a named list would change, next to what the flight controller has now.
+    notes: Changes nothing. A list marked in force is what the flight controller runs now.
+    details: Reads through MAVROS's param plugin (/mavros/param). Lists live in config/fcu_params.yaml and ~/.config/mhseals/fcu_params.yaml.
+    params:
+      - {name: list, choices_from: ros2 run mhseals_hardware fcu_params lists, description: 'Which named list of flight controller settings to show, e.g. no-compass; leave empty to show them all.'}
+    examples:
+      - ros2 run mhseals_hardware fcu_params show no-compass
+
+  - name: fcu params apply
+    level: core
+    host: boat_computer
+    needs: [localization]
+    run: ros2 run mhseals_hardware fcu_params apply
+    summary: Change the flight controller settings in a named list, for example to stop using the compass where it is wrong.
+    notes: It reads every value back and keeps the old ones, so astro fcu params undo puts them back. Some lists need the flight controller power cycled; it says so.
+    details: >-
+      Sets each parameter with the type the FCU reports, through /mavros/param, then reads it back. Each apply
+      appends {time, list, values: {NAME: [old, new]}} to ~/.config/mhseals/fcu_params.history.jsonl.
+    params:
+      - {name: list, required: true, choices_from: ros2 run mhseals_hardware fcu_params lists, description: 'Which named list of flight controller settings to write, e.g. no-compass to stop using the compass.'}
+    examples:
+      - ros2 run mhseals_hardware fcu_params apply no-compass
+
+  - name: fcu params undo
+    level: core
+    host: boat_computer
+    needs: [localization]
+    run: ros2 run mhseals_hardware fcu_params undo
+    summary: Put back the flight controller settings from before an earlier astro fcu params apply.
+    notes: It lists the past changes newest first and asks which one; each value is read back after it is written.
+    details: Restores the old values of one entry of ~/.config/mhseals/fcu_params.history.jsonl and records the undo as an entry too.
+    params:
+      - {name: --last, type: bool, description: 'Undo the newest change right away, without listing the past changes or asking which one.'}
+      - {name: --list, type: bool, description: 'Only print the past changes, newest first, and change nothing on the flight controller.'}
+    examples:
+      - ros2 run mhseals_hardware fcu_params undo --last
+
   - name: config_check
     level: setup
     host: boat_computer

@@ -31,6 +31,7 @@ setup(
             'command_mux = mhseals_hardware.command_mux:main',
             'config_check = mhseals_hardware.config_check:main',
             'mix = mhseals_hardware.mix:main',
+            'fcu_params = mhseals_hardware.fcu_params:main',
         ],
     },
 )

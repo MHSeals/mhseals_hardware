@@ -1,0 +1,15 @@
+# Named lists of flight controller (ArduPilot) parameters for `astro fcu params apply LIST`, which writes
+# them through MAVROS (/mavros/param), reads each back, and records the old values so `astro fcu params undo`
+# restores them. reboot: true says the change needs a flight controller power cycle to take effect.
+# ~/.config/mhseals/fcu_params.yaml may add lists or replace one by name.
+lists:
+  no-compass:
+    description: Heading without the compass, from GPS movement and the gyro (EKF3 GSF yaw), for places that bend the magnetic field, such as a pool with steel in its walls. Needs GPS (RTK is best) and the boat moving now and then.
+    reboot: true
+    params:
+      EK3_SRC1_YAW: 8          # 8 GSF (GPS velocity + IMU); 1 compass; 3 GPS with compass fallback
+  compass:
+    description: Heading from the compass again (the usual setting in open water).
+    reboot: true
+    params:
+      EK3_SRC1_YAW: 1
