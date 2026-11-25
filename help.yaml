@@ -135,7 +135,7 @@ commands:
     notes: Changes nothing. A list marked in force is what the flight controller runs now.
     details: Reads through MAVROS's param plugin (/mavros/param). Lists live in config/fcu_params.yaml and ~/.config/mhseals/fcu_params.yaml.
     params:
-      - {name: list, choices_from: ros2 run mhseals_hardware fcu_params lists, description: 'Which named list of flight controller settings to show, e.g. no-compass; leave empty to show them all.'}
+      - {name: list, choices: [no-compass, compass], description: 'Which named list of flight controller settings to show, e.g. no-compass; leave empty to show them all.'}
     examples:
       - ros2 run mhseals_hardware fcu_params show no-compass
 
@@ -150,7 +150,7 @@ commands:
       Sets each parameter with the type the FCU reports, through /mavros/param, then reads it back. Each apply
       appends {time, list, values: {NAME: [old, new]}} to ~/.config/mhseals/fcu_params.history.jsonl.
     params:
-      - {name: list, required: true, choices_from: ros2 run mhseals_hardware fcu_params lists, description: 'Which named list of flight controller settings to write, e.g. no-compass to stop using the compass.'}
+      - {name: list, required: true, choices: [no-compass, compass], description: 'Which named list of flight controller settings to write, e.g. no-compass to stop using the compass.'}
     examples:
       - ros2 run mhseals_hardware fcu_params apply no-compass
 
