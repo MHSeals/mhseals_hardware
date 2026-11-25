@@ -20,6 +20,7 @@ topics:
   applied: /cmd_vel/applied      # shown by astro status
   mux_state: /command_mux/state
   pwm: /thrusters/pwm
+  gps_status: /mavros/gpsstatus/gps1/raw   # fix type (RTK float/fixed) shown and scored by watch
 nodes: [/thruster_pwm_node, /command_mux, /calibrated_velocity_controller]   # astro status names these
 axes: [surge, sway, yaw]         # decoupling column order and twist order (x, y, wz)
 rotational: yaw
@@ -77,16 +78,24 @@ tests:
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
      apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
 
-  # Drive yourself: per axis and sign `levels` steady holds (efforts at least level_gap apart, each held
-  # settle_s + measure_s with the other axes under cross_max of it), one hold per axis started after
-  # baseline_s still, and drift_s of sitting still. Ends when covered, after max_s, or at Ctrl-C (fits what
-  # there is; an axis needs two levels each way). Decoupling is reported (measured.cross), never applied.
+  # Drive yourself: per axis and sign `levels` holds (efforts at least level_gap apart, the other axes under
+  # cross_max of it): let go rest_s, then hold rest_hold_s (a rise is fitted), or hold settle_s + measure_s
+  # moving; and drift_s of sitting still. Ends when covered, after max_s, or at Ctrl-C (fits what there is;
+  # an axis needs two levels each way). cross: the yaw row of the decoupling from the gyro over every push
+  # of cross_min_s (good without RTK): one probe step, then a secant over the watch runs. The result gets a
+  # quality score with what to change next time. keyboard: Next in keyboard speed for the manual lane.
   watch:
     {type: watch, layer: L4 speed curve (driven), levels: 3, level_gap: 0.08, min_effort: 0.12, steady_tol: 0.04,
      cross_max: 0.1, max_turn: 0.1, baseline_s: 1, settle_s: 2.5, measure_s: 1.5, drift_s: 10, max_s: 900,
-     max: {yaw: 0.3}, needs: [localization, drive], rec: lean,
+     rest_s: 3, rest_hold_s: 2, cross_min_s: 1.5, cross_skip_s: 1,
+     max: {yaw: 0.3}, keyboard: {lane: manual, scale: {surge: 1.0, sway: 1.0, yaw: 0.5}},
+     cross: {key: decoupling, rows: [yaw], probe: 0.004, tolerance: 0.02, min_pushes: 4, max_step: 0.05},
+     needs: [localization, drive], rec: lean,
      upstream: [decoupling, decoupling_negative, reverse_thrust_ratio],
-     apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller'}}
+     apply: {key: characterization, version: 1, restart: 'astro down drive; astro up drive --with controller',
+             live: [{node: /thruster_pwm_node, param: decoupling, key: decoupling},
+                    {node: /thruster_pwm_node, param: decoupling_negative, key: decoupling_negative,
+                     fallback: decoupling}]}}
 
   # Closed loop: start drive.launch.py with controller:=true. Report only; tune gains live
   # (ros2 param set /calibrated_velocity_controller kp "[...]") and run again.
