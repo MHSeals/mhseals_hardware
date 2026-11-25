@@ -38,23 +38,6 @@ commands:
     notes: It refuses while the remote's stop switch is still down - flip it up first.
     details: Clears the latched e-stop (and a heartbeat stall); the ESCs power up at neutral.
 
-  - name: mix
-    level: core
-    host: boat_computer
-    run: ros2 run mhseals_hardware mix
-    summary: Show how a drive command (forward, sideways, turn) is split into each thruster's power, step by step, to check the math or a wiring change.
-    notes: Give three numbers, e.g. 0.5 0 0 for half ahead, or --live to follow what the boat is doing now. Nothing moves.
-    details: Prints every mixer stage (C/C-, M rows, thrust sum, e|e|, desaturation, reversed, PWM, channel); --live follows topics.applied.
-    params:
-      - {name: surge, type: float, required: false, description: 'Forward effort from -1 (full reverse) to 1 (full ahead), e.g. 0.5.'}
-      - {name: sway, type: float, required: false, description: 'Sideways effort from -1 (full left) to 1 (full right), e.g. 0.'}
-      - {name: yaw, type: float, required: false, description: 'Turning effort from -1 to 1 (positive turns left), e.g. 0.2.'}
-      - {name: --live, type: bool, description: 'Follow what the running boat is commanding now, instead of a number you give.'}
-      - {name: --config, type: path, default: auto, description: 'The thruster settings file to use, e.g. ~/.config/mhseals/hardware.yaml; auto is the one in use.'}
-    examples:
-      - ros2 run mhseals_hardware mix 0.5 0 0
-      - ros2 run mhseals_hardware mix --live
-
   - name: keyboard
     level: core
     host: boat_computer
@@ -122,6 +105,23 @@ commands:
       - {name: --check, type: bool, description: 'Only report which program holds each pin, and stop nothing.'}
     examples:
       - astro thrusters free --check
+
+  - name: thrusters mix
+    level: core
+    host: boat_computer
+    run: ros2 run mhseals_hardware mix
+    summary: Show how one movement command turns into the four thruster pulses, step by step (or live with --live) - handy to see what a couple apply changed.
+    notes: Give three numbers, e.g. 0.5 0 0 for half ahead, or --live to follow what the boat is doing now. Nothing moves.
+    details: Prints every mixer stage (C/C-, M rows, thrust sum, e|e|, desaturation, reversed, PWM, channel); --live follows topics.applied.
+    params:
+      - {name: surge, type: float, required: false, description: 'Forward effort from -1 (full reverse) to 1 (full ahead), e.g. 0.5.'}
+      - {name: sway, type: float, required: false, description: 'Sideways effort from -1 (full left) to 1 (full right), e.g. 0.'}
+      - {name: yaw, type: float, required: false, description: 'Turning effort from -1 to 1 (positive turns left), e.g. 0.2.'}
+      - {name: --live, type: bool, description: 'Follow what the running boat is commanding now, instead of a number you give.'}
+      - {name: --config, type: path, default: auto, description: 'The thruster settings file to use, e.g. ~/.config/mhseals/hardware.yaml; auto is the one in use.'}
+    examples:
+      - astro thrusters mix 0.5 0 0
+      - astro thrusters mix --live
 
   - name: config_check
     level: setup
