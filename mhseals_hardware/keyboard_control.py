@@ -82,6 +82,7 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 manual_panel(amplitude=amplitude), console=console,
                 refresh_per_second=10) as live:
             keys = ThrusterKeys(raw) if single_publisher is not None or velocity_publisher is not None else raw
+            modes = keys      # the mode keys' own state (G, V, 1-4); the trim layer below only wraps it
             keys = com_trim.TrimKeys(keys, trim) if trim is not None else keys
             speeding = False
             published = time.monotonic()
@@ -93,9 +94,9 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                     trim.dirty = False
                     trim.status = on_trim(trim.matrix()) if on_trim else 'dry run: not sent'
                 shown = trim.lines(trim_before) if trim is not None else ''
-                if getattr(keys, 'released', False):
+                if getattr(modes, 'released', False):
                     if any(command):
-                        keys.released = False    # a drive key takes the boat back on this very command
+                        modes.released = False    # a drive key takes the boat back on this very command
                     else:
                         # nothing on the manual lane: it goes stale within command_timeout and the mux
                         # hands the thrusters to the auto lane (Nav2 or a test through the controller)
