@@ -46,6 +46,7 @@ commands:
     run: ros2 run mhseals_hardware keyboard
     summary: Drive the boat from the keyboard (WASD or arrows), for the dock or a pool; it stops the moment you let go.
     notes: Space stops, X quits, and the remote still takes over. Secure the boat and keep hands clear of the propellers.
+      J/L and I/K move the center-of-mass trim (port/starboard, fwd/aft), C centres it; quitting prints the astro apply that keeps it.
     details: Deadman driving on the manual lane (topics.manual); astro starts the drive stack first when it is down.
     params:
       - {name: --speed, type: float, choices: [0.1, 0.2, 0.3, 0.5, 0.75, 1.0], description: 'How much power to start with, from 0 to 1 (keys change it), e.g. 0.3 for gentle.'}

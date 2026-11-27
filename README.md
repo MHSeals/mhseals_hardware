@@ -55,7 +55,7 @@ Losing RC never cuts power; the command timeout (0.5 s) brings neutral.
 | `estop` | `ros2 service call /thruster_pwm_node/estop std_srvs/srv/Trigger` | Stops the thrusters now (ESC power cut, latched) |
 | `estop clear` | `ros2 service call /thruster_pwm_node/clear std_srvs/srv/Trigger` | Powers the ESCs again at neutral; refused while the RC stop switch is down |
 | `mix` | `ros2 run mhseals_hardware mix S W Y` / `--live` | Prints every mixer stage for a command, or follows `topics.applied` |
-| `keyboard` | `ros2 run mhseals_hardware keyboard` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit |
+| `keyboard` | `ros2 run mhseals_hardware keyboard` | Deadman keys on the manual lane: WASD or arrows, Space neutral, X exit; J/L/I/K move a CoM trim (C's yaw entries, live; `astro apply` keeps it) |
 | `thrusters` (`test`, `config`) | `ros2 run mhseals_hardware thrusters` | The thrusters screen (below) |
 | `thrusters wiring` | `ros2 run mhseals_hardware thrusters wiring` | Pulses each output and asks what moved, then saves `channel_map` and `reversed` to hardware.yaml |
 | `thrusters mosfet` | `ros2 run mhseals_hardware thrusters mosfet [--seconds N]` | Holds the MOSFET enable (ESC power) on until Ctrl-C, SIGTERM or `--seconds`. Writes no PWM |

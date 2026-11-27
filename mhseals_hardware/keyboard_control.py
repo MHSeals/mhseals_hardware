@@ -14,12 +14,13 @@ from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 
+from mhseals_hardware import com_trim
 from mhseals_hardware.keyboard import KeyReader
 from mhseals_hardware.configuration import load_config
 from mhseals_hardware.manual_state import THRUSTERS, ManualState, ThrusterKeys, drain
 
 
-def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None, velocity=None):
+def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None, velocity=None, trim=''):
     """Render controls and the currently commanded direction."""
     if velocity is not None:
         speed_line = ('[bold cyan]Speed mode (drift-corrected): the speed controller holds what you ask, '
@@ -44,7 +45,7 @@ def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None, 
          '[yellow]Single key: this terminal (or tmux) reports no releases; '
          'newest key drives.[/]') +
         '\n[dim]Space clears all motion. Input timeout clears held keys; '
-        'release and press again to re-arm.[/]',
+        'release and press again to re-arm.[/]' + (f'\n\n{trim}' if trim else ''),
         title='Manual control', border_style='yellow')
 
 
@@ -63,10 +64,12 @@ def publish_manual(message_publisher, command=(0.0, 0.0, 0.0)):
 
 def run_manual(message_publisher, console=None, amplitude=0.25,
                deadman_timeout=0.15, initial_timeout=0.65, status_panel=None, yaw_scale=0.5,
-               single_publisher=None, velocity_publisher=None, top_speed=None):
+               single_publisher=None, velocity_publisher=None, top_speed=None, trim=None, on_trim=None,
+               trim_before=None):
     """Run manual control until X, always finishing with a neutral command. With ``single_publisher``
     keys 1-4 switch to the one-thruster test: W/S's surge effort drives that thruster alone while the
-    manual lane sends zero (the driver runs it only then), 0 switches back."""
+    manual lane sends zero (the driver runs it only then), 0 switches back. With ``trim`` (com_trim.Trim)
+    J/L/I/K/C move the CoM marker and ``on_trim(C)`` sets it on the driver at once."""
     console = console or Console()
     state = ManualState(amplitude, deadman_timeout, initial_timeout, yaw_scale)
     picked = None
@@ -75,12 +78,17 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 manual_panel(amplitude=amplitude), console=console,
                 refresh_per_second=10) as live:
             keys = ThrusterKeys(raw) if single_publisher is not None or velocity_publisher is not None else raw
+            keys = com_trim.TrimKeys(keys, trim) if trim is not None else keys
             speeding = False
             published = time.monotonic()
             while True:
                 command = drain(keys, state, keys.read(timeout=0.05), time.monotonic, published)
                 if command is None:
                     return
+                if trim is not None and trim.dirty:
+                    trim.dirty = False
+                    trim.status = on_trim(trim.matrix()) if on_trim else 'dry run: not sent'
+                shown = trim.lines(trim_before) if trim is not None else ''
                 thruster = getattr(keys, 'index', None) if single_publisher is not None else None
                 wants_speed = bool(getattr(keys, 'velocity', False)) and velocity_publisher is not None
                 if speeding and not wants_speed:
@@ -95,7 +103,7 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                     label = ' '.join(f'{axis} {value:+.2f}{unit}' for axis, value, unit in
                                      zip(('SURGE', 'SWAY', 'YAW'), asked, ('m/s', 'm/s', 'rad/s')) if value)
                     published = time.monotonic()
-                    live.update(manual_panel(label or 'HOLD ZERO', state.amplitude, state.chords, None, 'on'))
+                    live.update(manual_panel(label or 'HOLD ZERO', state.amplitude, state.chords, None, 'on', shown))
                     continue
                 if picked is not None and thruster != picked:
                     publish_single(single_publisher, picked, 0.0)     # the old one stops at once
@@ -114,7 +122,7 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                 if render is manual_panel:
                     mode = None if velocity_publisher is None else (
                         'missing' if wants_speed and top_speed is None else 'off')
-                    live.update(render(label or 'NEUTRAL', state.amplitude, state.chords, thruster, mode))
+                    live.update(render(label or 'NEUTRAL', state.amplitude, state.chords, thruster, mode, shown))
                 else:
                     live.update(render(label or 'NEUTRAL', state.amplitude, state.chords))
     finally:
@@ -123,6 +131,48 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
         if velocity_publisher is not None:
             publish_manual(velocity_publisher)
         publish_manual(message_publisher)
+
+
+def driver_decoupling(node, timeout=2.0):
+    """(parameter client, the driver's C now) for the CoM trim; (None, None) when the driver does not answer."""
+    from rclpy.parameter_client import AsyncParameterClient
+    client = AsyncParameterClient(node, com_trim.DRIVER)
+    if not client.wait_for_services(timeout_sec=timeout):
+        return None, None
+    future = client.get_parameters(['decoupling'])
+    end = time.monotonic() + timeout
+    while not future.done() and time.monotonic() < end:
+        time.sleep(0.02)                  # the spin thread completes it
+    values = future.result().values if future.done() and future.result() else []
+    return client, (list(values[0].double_array_value) if values else None)
+
+
+def send_trim(client, trim, c):
+    """Set C and C- to ``c`` on the driver in one batch, without waiting (the deadman loop must not stall);
+    the driver's answer lands in ``trim.status``."""
+    if client is None:
+        return f'{com_trim.DRIVER} did not answer at start: not set'
+    from rclpy.parameter import Parameter
+    future = client.set_parameters_atomically(
+        [Parameter('decoupling', value=c), Parameter('decoupling_negative', value=c)])
+
+    def answered(done):
+        response = done.result()
+        result = getattr(response, 'result', None)
+        trim.status = ('live on the driver' if result is not None and result.successful else
+                       f'REFUSED: {getattr(result, "reason", "no answer")}')
+    future.add_done_callback(answered)
+    return 'sending'
+
+
+def report_trim(trim, before):
+    """On quit: the driver keeps the trim until it restarts; a result file makes it permanent."""
+    path = com_trim.save(com_trim.result(trim, before))
+    print(f'CoM trim {trim.right:+d} stbd, {trim.fwd:+d} fwd: C = C- = {com_trim.fmt(trim.matrix())} '
+          f'(live until drive restarts)')
+    if before is not None:
+        print(f'C before: {com_trim.fmt(before)}')
+    print(f'keep it: astro apply {path}')
 
 
 def main(args=None):
@@ -147,7 +197,7 @@ def main(args=None):
                        amplitude=config['manual_amplitude'],
                        deadman_timeout=config['manual_repeat_timeout'],
                        initial_timeout=config['manual_initial_timeout'],
-                       yaw_scale=config['manual_yaw_scale'])
+                       yaw_scale=config['manual_yaw_scale'], trim=com_trim.Trim())
         except (KeyboardInterrupt, EOFError):
             pass
         return
@@ -170,16 +220,21 @@ def main(args=None):
 
     thread = threading.Thread(target=spin, daemon=True)
     thread.start()
+    trim = com_trim.Trim()
+    client, before = driver_decoupling(node)
     try:
         run_manual(publisher, amplitude=config['manual_amplitude'],
                    deadman_timeout=config['manual_repeat_timeout'],
                    initial_timeout=config['manual_initial_timeout'],
                    yaw_scale=config['manual_yaw_scale'], single_publisher=single,
-                   velocity_publisher=speed, top_speed=top)
+                   velocity_publisher=speed, top_speed=top,
+                   trim=trim, on_trim=lambda c: send_trim(client, trim, c), trim_before=before)
     except (KeyboardInterrupt, EOFError):
         pass
     finally:
         publish_manual(publisher)
+        if trim.touched:
+            report_trim(trim, before)
         spinning = False
         thread.join(timeout=1)
         node.destroy_node()
