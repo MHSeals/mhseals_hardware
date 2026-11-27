@@ -25,6 +25,7 @@ YAW_SURGE, YAW_SWAY = 6, 7      # C[yaw, surge], C[yaw, sway] in the flat row-ma
 IDENTITY = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
 # key -> (starboard steps, forward steps); c centres the marker (C back to identity).
 KEYS = {'l': (1, 0), 'j': (-1, 0), 'i': (0, 1), 'k': (0, -1), 'c': None}
+TOGGLE = 't'    # shows or hides the trim layer; the keys above act only while it shows
 GRID = (7, 3)   # picture half-width and half-height in cells; a marker past the edge sits on it
 
 
@@ -35,6 +36,7 @@ class Trim:
         self.step, self.limit = step, limit
         self.right = self.fwd = 0
         self.touched = self.dirty = False
+        self.shown = False      # collapsed until T: the panel then keeps one line
         self.status = ''
 
     def key(self, name):
@@ -58,7 +60,11 @@ class Trim:
         return values
 
     def lines(self, before=None):
-        """The panel's trim block: the boat with the marker, the entries and the driver's answer."""
+        """The panel's trim block: the boat with the marker, the entries and the driver's answer; collapsed,
+        one line (with the trim, when one is set, so an active trim never hides)."""
+        if not self.shown:
+            now = (f'CoM trim {self.right:+d} stbd, {self.fwd:+d} fwd; ' if self.right or self.fwd else '')
+            return f'[dim]{now}T: CoM trim[/]'
         width, height = GRID
         rows = []
         for y in range(height, -height - 1, -1):
@@ -73,15 +79,16 @@ class Trim:
         head = (f'[bold]CoM trim[/] {abs(self.right)} {side or "centre"}, {abs(self.fwd)} {end or "middle"}'
                 f'   C\\[yaw,surge] {c[YAW_SURGE]:+.2f}  C\\[yaw,sway] {c[YAW_SWAY]:+.2f}  (C- the same)')
         keys = ('[dim]J/L port/stbd, I/K fwd/aft (one step a press, '
-                f'{self.step:g} each, at most {self.limit}), C centre; '
+                f'{self.step:g} each, at most {self.limit}), C centre, T hide; '
                 + ('the first press resets C and C- to identity' if not self.touched else self.status) + '[/]')
         was = f'\n[dim]C before: {fmt(before)}[/]' if before is not None else ''
         return '\n'.join([head, *rows, keys]) + was
 
 
 class TrimKeys:
-    """J/L/I/K/C move the trim marker (a press, or a plain key; repeats and releases are dropped, so a
-    held key moves one step); every other key passes through untouched."""
+    """T shows or hides the trim layer; while it shows, J/L/I/K/C move the marker (a press, or a plain
+    key; repeats and releases are dropped, so a held key moves one step). Every other key, and the trim
+    keys while hidden, pass through (nothing else reads them)."""
 
     def __init__(self, keys, trim):
         self.keys, self.trim = keys, trim
@@ -94,9 +101,12 @@ class TrimKeys:
         while key is not None:
             kind, _, name = key.rpartition(':') if ':' in key else ('', '', key)
             name = name.lower() if len(name) == 1 else name
-            if name not in KEYS:
+            if name == TOGGLE:
+                if kind in ('press', ''):
+                    self.trim.shown = not self.trim.shown
+            elif name not in KEYS or not self.trim.shown:
                 return key
-            if kind in ('press', ''):
+            elif kind in ('press', ''):
                 self.trim.key(name)
             key = self.keys.read(timeout=0)
         return None

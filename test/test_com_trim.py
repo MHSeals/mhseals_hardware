@@ -33,11 +33,23 @@ def test_a_starboard_or_forward_marker_adds_ccw_yaw_to_surge_or_sway_both_ways()
 
 def test_keys_step_once_per_press_clamp_and_centre():
     trim = com_trim.Trim(limit=2)
-    keys = com_trim.TrimKeys(Queue(['press:l', 'repeat:l', 'repeat:l', 'release:l', 'L', 'l', 'l', 'press:w']), trim)
-    assert keys.read() == 'press:w'                 # trim keys are eaten, the rest passes
+    keys = com_trim.TrimKeys(Queue(['press:t', 'press:l', 'repeat:l', 'repeat:l', 'release:l', 'L', 'l', 'l',
+                                    'press:w']), trim)
+    assert keys.read() == 'press:w'                 # T opens the layer; trim keys are eaten, the rest passes
     assert trim.right == 2 and trim.touched and trim.dirty       # repeats dropped, clamped at the limit
     trim.key('c')
     assert trim.matrix() == com_trim.IDENTITY
+
+
+def test_the_layer_starts_collapsed_and_t_toggles_it():
+    trim = com_trim.Trim()
+    keys = com_trim.TrimKeys(Queue(['press:l', 'press:t', 'press:l', 'release:t', 't', 'press:j']), trim)
+    assert keys.read() == 'press:l' and trim.right == 0     # hidden: L passes through and trims nothing
+    assert keys.read() == 'press:j' and trim.right == 1     # T opens, L steps, T (plain) hides, J passes
+    assert not trim.shown and trim.lines().count('\n') == 0   # collapsed to one line ...
+    assert '+1 stbd' in trim.lines()                         # ... that still shows the active trim
+    trim.shown = True
+    assert 'bow' in trim.lines() and 'T hide' in trim.lines()
 
 
 def test_the_result_sets_c_and_c_minus_for_astro_apply(tmp_path):
@@ -49,4 +61,5 @@ def test_the_result_sets_c_and_c_minus_for_astro_apply(tmp_path):
     assert all(c['value'][com_trim.YAW_SURGE] == -0.01 for c in data['changes'])
     path = com_trim.save(data, tmp_path)
     assert path.parent.name == 'results' and path.parent.parent.parent == tmp_path
+    trim.shown = True
     assert 'C before' in trim.lines(data['before']) and '●' in trim.lines()
