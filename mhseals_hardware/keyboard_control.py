@@ -22,12 +22,16 @@ from mhseals_hardware.manual_state import THRUSTERS, ManualState, ThrusterKeys, 
 
 def manual_panel(active='NEUTRAL', amplitude=0.25, chords=False, thruster=None, velocity=None, trim=''):
     """Render controls and the currently commanded direction."""
-    if velocity is not None:
-        speed_line = ('[bold cyan]Speed mode (drift-corrected): the speed controller holds what you ask, '
+    if velocity == 'released':
+        speed_line = ('[bold green]Released to autonomy: the keyboard sends nothing, so the auto lane drives '
+                      '(no remote needed). Any drive key or Space takes over at once; G again takes it back.[/]\n')
+    elif velocity is not None:
+        speed_line = ('[dim]G: release to autonomy (auto lane drives; any key takes over)[/]\n' +
+                      ('[bold cyan]Speed mode (drift-corrected): the speed controller holds what you ask, '
                       f'{amplitude:.0%} of top speed; V back to direct.[/] Needs drive --with controller and the '
                       'remote in GUIDED.\n' if velocity == 'on' else
                       '[bold red]Speed mode needs the speed tests applied (motion_limits.velocity).[/]\n'
-                      if velocity == 'missing' else '[dim]V: speed mode (the controller corrects drift)[/]\n')
+                      if velocity == 'missing' else '[dim]V: speed mode (the controller corrects drift)[/]\n'))
     else:
         speed_line = ''
     mode = speed_line + (f'[bold magenta]One-thruster test: {THRUSTERS[thruster]} ({thruster + 1})[/]  W/S drive it alone '
@@ -89,6 +93,16 @@ def run_manual(message_publisher, console=None, amplitude=0.25,
                     trim.dirty = False
                     trim.status = on_trim(trim.matrix()) if on_trim else 'dry run: not sent'
                 shown = trim.lines(trim_before) if trim is not None else ''
+                if getattr(keys, 'released', False):
+                    if any(command):
+                        keys.released = False    # a drive key takes the boat back on this very command
+                    else:
+                        # nothing on the manual lane: it goes stale within command_timeout and the mux
+                        # hands the thrusters to the auto lane (Nav2 or a test through the controller)
+                        published = time.monotonic()
+                        live.update(manual_panel('RELEASED TO AUTONOMY', state.amplitude, state.chords,
+                                                 None, 'released', shown))
+                        continue
                 thruster = getattr(keys, 'index', None) if single_publisher is not None else None
                 wants_speed = bool(getattr(keys, 'velocity', False)) and velocity_publisher is not None
                 if speeding and not wants_speed:

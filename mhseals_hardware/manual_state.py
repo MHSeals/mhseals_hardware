@@ -193,10 +193,11 @@ THRUSTERS = ('FL', 'FR', 'RR', 'RL')     # canonical order: keys 1-4 pick one fo
 class ThrusterKeys:
     """Keys 1-4 pick one thruster for the one-thruster test (W/S then drive it alone), 0 goes back to
     normal driving, V toggles speed mode (the keys ask the speed controller for speeds, so it corrects
-    drift); every other key passes through to the deadman state untouched."""
+    drift), G releases the boat to autonomy (the keyboard sends nothing until a drive key or Space takes
+    it back); every other key passes through to the deadman state untouched."""
 
     def __init__(self, keys):
-        self.keys, self.index, self.velocity = keys, None, False
+        self.keys, self.index, self.velocity, self.released = keys, None, False, False
 
     def __getattr__(self, name):
         return getattr(self.keys, name)
@@ -205,7 +206,15 @@ class ThrusterKeys:
         key = self.keys.read(timeout=timeout)
         while key is not None:
             kind, _, name = key.rpartition(':') if ':' in key else ('press', '', key)
+            if name.lower() == 'g':
+                if kind in ('press', ''):    # hand the boat to the auto lane: no speed mode, no thruster test
+                    self.released, self.velocity, self.index = not self.released, False, None
+                key = self.keys.read(timeout=0)
+                continue
+            if name == 'space' and kind != 'release':
+                self.released = False        # Space takes the boat back at once (and stops it)
             if name.lower() == 'v' and kind in ('press', ''):
+                self.released = False
                 self.velocity, self.index = not self.velocity, None     # speed mode: drift-corrected
                 key = self.keys.read(timeout=0)
                 continue
@@ -215,6 +224,6 @@ class ThrusterKeys:
             if name not in ('0', '1', '2', '3', '4'):
                 return key
             if kind in ('press', ''):
-                self.index = None if name == '0' else int(name) - 1
+                self.index, self.released = (None if name == '0' else int(name) - 1), False
             key = self.keys.read(timeout=0)
         return None

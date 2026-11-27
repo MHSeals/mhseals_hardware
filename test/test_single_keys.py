@@ -21,3 +21,13 @@ def test_v_toggles_speed_mode_and_clears_a_picked_thruster():
     keys = ThrusterKeys(Queue(['press:2', 'press:v', 'release:v', 'press:w', 'v', 'w']))
     assert keys.read() == 'press:w' and keys.velocity and keys.index is None
     assert keys.read() == 'w' and not keys.velocity
+
+
+def test_g_releases_to_autonomy_until_space_or_another_mode():
+    keys = ThrusterKeys(Queue(['press:2', 'press:g', 'release:g', 'press:w']))
+    assert keys.read() == 'press:w' and keys.released and keys.index is None   # W passes; run_manual takes back on it
+    keys = ThrusterKeys(Queue(['g', 'press:space']))
+    assert keys.read() == 'press:space' and not keys.released                  # Space takes the boat back
+    keys = ThrusterKeys(Queue(['g', 'v', 'w', 'g', 'g', '1', 'w']))
+    assert keys.read() == 'w' and keys.velocity and not keys.released          # V leaves release for speed mode
+    assert keys.read() == 'w' and keys.index == 0 and not keys.released        # G twice, then 1: thruster test
